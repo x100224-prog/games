@@ -213,9 +213,10 @@ export class Parking {
   }
 
   forBaysNear(x, z, r, fn) {
-    const C = this.world.CELL;
-    for (let cx = Math.floor((x - r) / C); cx <= Math.floor((x + r) / C); cx++)
-      for (let cz = Math.floor((z - r) / C); cz <= Math.floor((z + r) / C); cz++) {
+    // 車格是跟著產生它的小格存的；靠近小格邊界的車格可能存在隔壁小格，所以找小格時多看 25 m
+    const C = this.world.CELL, m = r + 25;
+    for (let cx = Math.floor((x - m) / C); cx <= Math.floor((x + m) / C); cx++)
+      for (let cz = Math.floor((z - m) / C); cz <= Math.floor((z + m) / C); cz++) {
         const c = this.world.cells.get(cx + ',' + cz); if (!c || !c.bays) continue;
         for (const b of c.bays) { const d2 = (b.x - x) ** 2 + (b.z - z) ** 2; if (d2 <= r * r) fn(b, d2); }
       }

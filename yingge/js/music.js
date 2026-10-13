@@ -85,7 +85,7 @@ export class Music {
     this._loadRap(this.ctx);
     document.addEventListener('visibilitychange', () => {
       if (!this.ctx) return;
-      if (document.hidden) this.ctx.suspend(); else if (this.on) this.ctx.resume();
+      if (document.hidden) this.ctx.suspend(); else if (this.on || (this.keepAlive && this.keepAlive())) this.ctx.resume();
     });
     return true;
   }

@@ -135,6 +135,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 @media (max-width: 560px) {
   #mini { width: 112px; height: 112px; }
   #btnMusic { width: 112px; top: calc(132px + env(safe-area-inset-top, 0px)); }
+  #btnSfx { width: 112px; top: calc(164px + env(safe-area-inset-top, 0px)); }
   #task { max-width: calc(100% - 152px); }
   #clock { font-size: 20px; }
   #toast { top: calc(140px + env(safe-area-inset-top, 0px)); }
@@ -161,7 +162,9 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #seat .row2 button { flex: 1; border-radius: 8px; padding: 9px 10px; font-weight: 700; border: 1px solid var(--line); background: rgba(255,255,255,.06); }
 #seat .row2 button.go2 { background: var(--signal); color: #1a1500; border-color: transparent; }
 #btnMusic { position: absolute; right: 16px; top: calc(172px + env(safe-area-inset-top, 0px)); width: 152px; box-sizing: border-box; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); padding: 4px 10px; font-size: 13px; font-weight: 700; pointer-events: auto; }
-#btnMusic[aria-pressed="false"] { color: var(--mute); }
+#btnMusic[aria-pressed="false"], #btnSfx[aria-pressed="false"] { color: var(--mute); }
+#btnSfx { position: absolute; right: 16px; top: calc(206px + env(safe-area-inset-top, 0px)); width: 152px; box-sizing: border-box; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); padding: 4px 10px; font-size: 13px; font-weight: 700; pointer-events: auto; }
+.touch #btnSfx { width: auto; right: 134px; top: calc(212px + env(safe-area-inset-top, 0px)); }
 .touch #btnMusic { width: auto; right: 134px; top: calc(176px + env(safe-area-inset-top, 0px)); }
 #routePick { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; }
 #routePick legend { color: var(--mute); font-size: 13px; padding: 0; margin-bottom: 4px; }
@@ -180,6 +183,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   .touch #btnCam { top: calc(12px + env(safe-area-inset-top, 0px)); right: 180px; }
   .touch #btnMap { top: calc(12px + env(safe-area-inset-top, 0px)); right: 236px; }
   .touch #btnMusic { top: calc(16px + env(safe-area-inset-top, 0px)); right: 292px; }
+  .touch #btnSfx { top: calc(56px + env(safe-area-inset-top, 0px)); right: 292px; }
   .touch #place { top: auto; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); left: 150px; }
   #btnMirL, #btnMirR, #btnSeat { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
   #seat { gap: 6px; padding: 10px 14px; } #seat p { display: none; } #seat h2 { font-size: 15px; }
@@ -199,6 +203,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     </div>
     <canvas id="mini" width="304" height="304" aria-label="小地圖"></canvas>
     <button id="btnMusic" type="button" aria-pressed="true">♪ 音樂 開</button>
+    <button id="btnSfx" type="button" aria-pressed="true">引擎聲 開</button>
     <div id="help">
       <kbd>W A S D</kbd><span>走路（Shift 跑步）／油門、煞車、方向盤</span>
       <kbd>滑鼠</kbd><span>轉動視角（點一下畫面鎖定游標）</span>
@@ -208,6 +213,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
       <kbd>Z X</kbd><span>按住看左／右後照鏡</span>
       <kbd>V</kbd><span>停車時調整駕駛座</span>
       <kbd>N</kbd><span>配樂開／關</span>
+      <kbd>B</kbd><span>引擎聲開／關</span>
       <kbd>H</kbd><span>收起這張說明</span>
     </div>
     <div id="place"><span id="placeRoad"></span><small id="placeDist"></small></div>
@@ -237,7 +243,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
       <span id="bestInfo"></span>
       <button class="go" id="btnStart" type="button">出發</button>
       <button class="ghost" id="btnAuto" type="button">自動示範（看遊戲自己玩一段）</button>
-      <p class="fine">地圖 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 貢獻者；地形：內政部 20 公尺網格數值地形模型；人物：Quaternius（CC0）；配樂為本遊戲原創、即時合成。開放地圖沒畫到的街屋與自動產生的店名招牌是推測的，真實店名招牌來自開放地圖。</p>
+      <p class="fine">地圖 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 貢獻者；地形：內政部 20 公尺網格數值地形模型；人物：Quaternius（CC0）；配樂與引擎聲為本遊戲原創、即時合成。開放地圖沒畫到的街屋與自動產生的店名招牌是推測的，真實店名招牌來自開放地圖。</p>
     </div>
   </div>
 

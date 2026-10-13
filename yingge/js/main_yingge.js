@@ -1,7 +1,8 @@
 // 布丁狗去鶯歌 — 小遊戲：從蘆洲重陽公園走到車旁、開著雪鐵龍布丁狗到鶯歌捷運站，停好車走進車站。
 import { Music } from './music.js';
+import { EngineSound } from './engine.js';
 import * as THREE from '../lib/three.module.min.js';
-import { World } from './world.js';
+import { World, edgePoint } from './world.js';
 import { Parking } from './parking.js';
 import { Traffic } from './traffic.js';
 import { PlayerCar, Cockpit, carSpec } from './vehicles.js';
@@ -78,12 +79,19 @@ for (const [id, code] of [['btnMirL', 'KeyZ'], ['btnMirR', 'KeyX']]) {
   for (const ev of ['touchend', 'touchcancel']) el.addEventListener(ev, (e) => { input.keys.delete(code); e.preventDefault(); }, { passive: false });
 }
 if ($('btnSeat')) $('btnSeat').addEventListener('touchstart', (e) => { input.hit.add('KeyV'); e.preventDefault(); }, { passive: false });
+const engine = new EngineSound('gas');
+music.keepAlive = () => engine.on;          // 配樂關掉時，引擎聲照樣要能出聲
+const sfxBtn = () => { const b = $('btnSfx'); if (b) { b.textContent = engine.on ? '引擎聲 開' : '引擎聲 關'; b.setAttribute('aria-pressed', engine.on ? 'true' : 'false'); } };
+engine.onChange = sfxBtn;
+/** 在玩家點擊時呼叫：建立（或恢復）音訊，接上引擎聲。 */
+function audioStart() { music.start(); if (music.ctx) { engine.attach(music.ctx); if (engine.on) music.ctx.resume(); } }
 const musicBtn = () => { const b = $('btnMusic'); if (b) { b.textContent = music.on ? '♪ 音樂 開' : '♪ 音樂 關'; b.setAttribute('aria-pressed', music.on ? 'true' : 'false'); } };
 music.onChange = musicBtn;
 const G = { state: 'boot', cam: 'cockpit', t0: 0, elapsed: 0, phase: 'toCar', parked: null };
 const P = { x: 0, y: 0, z: 0, yaw: 0, speed: 0 };
 let world, parking, traffic, signs, car, cockpit, avatar, tp, meta, M;
 window.__tc = { G, P, renderer, scene, camera };
+window.__tc.engine = engine;
 if (location.hash.startsWith('#lowq')) { renderer.shadowMap.enabled = false; renderer.setPixelRatio(0.75); }
 
 function resize() {
@@ -125,7 +133,8 @@ async function boot() {
   buildRoutePick();
   const b = best.get(); if (b) $('bestInfo').textContent = `最佳紀錄 ${fmtTime(b.t)}`;
   $('btnStart').onclick = () => start();
-  $('btnMusic').onclick = () => { music.start(); music.toggle(); }; musicBtn();
+  $('btnMusic').onclick = () => { audioStart(); music.toggle(); }; musicBtn();
+  if ($('btnSfx')) { $('btnSfx').onclick = () => { audioStart(); engine.toggle(); }; sfxBtn(); }
   $('btnAgain').onclick = () => { $('summary').hidden = true; start(); };
   G.state = 'title'; $('loading').hidden = true;
   requestAnimationFrame(loop);
@@ -159,7 +168,7 @@ function updateRouteInfo() {
 function polyLen(r) { let L = 0; for (let i = 2; i < r.length; i += 2) L += Math.hypot(r[i] - r[i - 2], r[i + 1] - r[i - 1]); return L; }
 
 function start() {
-  music.start();
+  audioStart();
   $('title').hidden = true; $('loading').hidden = false; $('loadText').textContent = '載入蘆洲街區…';
   input.enabled = true;
   if (car) scene.remove(car.group);
@@ -300,6 +309,7 @@ function enterCar() {
   fadeThen(() => {
     G.state = 'drive'; G.phase = 'drive'; G.parked = null;
     if (avatar) avatar.group.visible = false;
+    audioStart(); engine.ignite();
     cockpit.lookYaw = 0; cockpit.lookPitch = 0;
     camera.near = 0.8; camera.updateProjectionMatrix();
     if (!G.started) { G.started = true; G.t0 = performance.now(); }
@@ -321,7 +331,7 @@ function exitCar() {
   if (Math.abs(car.v) > 0.4) { toast('先停下來才能下車', 1.6); return; }
   const chk = parkingCheck(), near = dist(car, M.dest) < 500;
   G.parked = { legal: chk.ok && near, ok: chk.ok, bay: chk.bay };
-  G.phase = 'toDest';
+  G.phase = 'toDest'; engine.shutdown();
   fadeThen(() => {
     const lx = -Math.cos(car.psi), lz = Math.sin(car.psi);
     P.x = car.x + lx * 1.7; P.z = car.z + lz * 1.7; P.y = car.y; P.yaw = car.psi + Math.PI / 2; tp.yaw = car.psi;
@@ -355,6 +365,7 @@ function driveFrame(dt) {
     steer: -Math.max(-1, Math.min(1, input.strafe)), handbrake: input.has('Space') };
   lotT -= dt; if (lotT <= 0) { lotT = 0.2; car.onLot = parking.inLot(car.x, car.z) || !!parking.bayAt(car.x, car.z, car.psi, _err); }
   car.update(dt, ctl, gatherObstacles(car.x, car.z, 14));
+  engine.update(dt, { v: car.v, throttle: car.energy > 0 ? ctl.throttle : 0, brake: ctl.brake, cockpit: G.cam === 'cockpit' });
   world.update(car.x, car.z, dt); parking.update(dt, car.x, car.z); signs.update(dt, car.x, car.z);
   traffic.update(dt, car.x, car.z, [{ x: car.x, z: car.z, y: car.y, r: 2.3 }]);
   if (G.cam === 'cockpit') { cockpit.look(input.lookX, input.lookY, dt, Math.abs(car.v) > 1 && !G.seatAdj); glance(dt); if (window.__tc.cockpitLook) cockpit.lookYaw = window.__tc.cockpitLook; cockpit.applyTo(camera, car); car.body.visible = false; }
@@ -460,16 +471,69 @@ let AUTO = location.hash.includes('autotest') ? { t: 0, step: 'walk', started: f
 function startAuto() { if (!AUTO) { AUTO = { t: 0, step: 'walk', started: false }; autoSay('啟動'); } }
 window.addEventListener('keydown', (e) => { if (e.code === 'F8') startAuto(); });
 // 標題畫面的「自動示範」按鈕：直接開始（不用找 F8 鍵）
-if ($('btnAuto')) $('btnAuto').onclick = () => { startAuto(); AUTO.started = true; music.start(); $('btnStart').click(); };
+if ($('btnAuto')) $('btnAuto').onclick = () => { startAuto(); AUTO.started = true; audioStart(); $('btnStart').click(); };
 let autoLbl = null;
 function autoSay(msg) {
   if (!autoLbl) { autoLbl = document.createElement('div'); autoLbl.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:99;background:#c0392b;color:#fff;font:700 15px/1.4 sans-serif;padding:6px 14px;border-radius:8px'; document.body.appendChild(autoLbl); }
   autoLbl.textContent = '自動測試：' + msg;
 }
 function autoKeys(...codes) { for (const c of ['KeyW', 'KeyA', 'KeyD', 'KeyS', 'ShiftLeft', 'KeyZ', 'KeyX']) input.keys.delete(c); for (const c of codes) if (c) input.keys.add(c); }
-function routeTarget(x, z, ahead) {
+// 自動示範：先沿著已載入的道路從車子所在的路開到建議路線的起點，再接上建議路線（不然會直接往路線起點衝、撞上路邊的車）
+function demoPath() {
   const r = curRoute(); if (!r) return null;
-  let bi = 0, bd = 1e18; for (let i = 0; i < r.length; i += 2) { const d = (r[i] - x) ** 2 + (r[i + 1] - z) ** 2; if (d < bd) { bd = d; bi = i; } }
+  const o = {}, e0 = world.nearestEdge(car.x, car.z, 40, ed => ed.cls <= 6, o); if (!e0) return r;
+  let goal = null, gd = 60 * 60;
+  for (const n of world.nodes.values()) { const d = (n.x - r[0]) ** 2 + (n.z - r[1]) ** 2; if (d < gd) { gd = d; goal = n; } }
+  if (!goal) return r;
+  const dist = new Map(), prev = new Map(), open = [];
+  const push = (id, d, from) => { if (d < (dist.get(id) ?? Infinity)) { dist.set(id, d); prev.set(id, from); open.push([d, id]); } };
+  push(e0.b, e0.len - o.s, { edge: e0, fwd: true, start: true });
+  if (!e0.oneway) push(e0.a, o.s, { edge: e0, fwd: false, start: true });
+  while (open.length) {
+    let bi = 0; for (let i = 1; i < open.length; i++) if (open[i][0] < open[bi][0]) bi = i;
+    const [d, id] = open.splice(bi, 1)[0]; if (d > (dist.get(id) ?? Infinity)) continue;
+    if (id === goal.id) break;
+    const n = world.nodes.get(id); if (!n || d > 3000) continue;
+    for (const ed of n.edges) { if (ed.dead || ed.cls > 6) continue; const fwd = ed.a === id; if (ed.oneway && !fwd) continue; push(fwd ? ed.b : ed.a, d + ed.len, { edge: ed, fwd }); }
+  }
+  if (!prev.has(goal.id)) return r;
+  const steps = []; let id = goal.id;
+  while (true) { const p = prev.get(id); steps.unshift(p); if (p.start) break; id = p.fwd ? p.edge.a : p.edge.b; }
+  const out = [car.x, car.z];
+  for (const st of steps) {
+    const p = st.edge.pts, n = p.length / 2, idx = [];
+    if (st.start) {
+      // 先切回路中間（車子前方 7 m 的路中心點），再沿著路走
+      const s1 = st.fwd ? Math.min(st.edge.len, o.s + 7) : Math.max(0, o.s - 7), q = {}; edgePoint(st.edge, s1, q); out.push(q.x, q.z);
+      const i0 = st.edge.cum.findIndex(c => c > s1);
+      if (st.fwd) { if (i0 >= 0) for (let i = i0; i < n; i++) idx.push(i); } else for (let i = (i0 < 0 ? n : i0) - 1; i >= 0; i--) if (st.edge.cum[i] < s1) idx.push(i);
+    }
+    else if (st.fwd) for (let i = 1; i < n; i++) idx.push(i); else for (let i = n - 2; i >= 0; i--) idx.push(i);
+    for (const i of idx) out.push(p[i * 2], p[i * 2 + 1]);
+  }
+  for (let i = 0; i < r.length; i++) out.push(r[i]);
+  // 台灣靠右行駛：雙向的大路往右偏半個車道；巷子（兩邊停滿車）就走中間。第一個點是車子自己，不動
+  const res = out.slice(), N = out.length / 2, q = {};
+  for (let k = 1; k < N; k++) {
+    const ed = world.nearestEdge(out[k * 2], out[k * 2 + 1], 6, null, q);
+    const off = ed && ed.cls <= 4 && !ed.oneway ? Math.min(1.8, ed.width / 4) : 0; if (!off) continue;
+    const a = Math.max(0, k - 1), b = Math.min(N - 1, k + 1), dx = out[b * 2] - out[a * 2], dz = out[b * 2 + 1] - out[a * 2 + 1], L = Math.hypot(dx, dz) || 1;
+    res[k * 2] = out[k * 2] - dz / L * off; res[k * 2 + 1] = out[k * 2 + 1] + dx / L * off;
+  }
+  // 每 2 m 補一個點，「前方 N 公尺」才算得準（長直路段只有頭尾兩點的話，車會一直往很遠的點開、回不到路中間）
+  const dense = [res[0], res[1]];
+  for (let k = 1; k < N; k++) {
+    const ax = res[k * 2 - 2], az = res[k * 2 - 1], bx = res[k * 2], bz = res[k * 2 + 1], L = Math.hypot(bx - ax, bz - az), m = Math.ceil(L / 2);
+    for (let j = 1; j <= m; j++) dense.push(ax + (bx - ax) * j / m, az + (bz - az) * j / m);
+  }
+  return dense;
+}
+function routeTarget(x, z, ahead) {
+  const r = (AUTO && AUTO.poly) || curRoute(); if (!r) return null;
+  // 只往前找，不會跳回已經開過的路段
+  const i0 = AUTO ? AUTO.ri || 0 : 0;
+  let bi = i0, bd = 1e18; for (let i = i0; i < Math.min(r.length, i0 + 120); i += 2) { const d = (r[i] - x) ** 2 + (r[i + 1] - z) ** 2; if (d < bd) { bd = d; bi = i; } }
+  if (AUTO) AUTO.ri = bi;
   let acc = 0, i = bi; while (i + 2 < r.length && acc < ahead) { acc += Math.hypot(r[i + 2] - r[i], r[i + 3] - r[i + 1]); i += 2; }
   return { x: r[i], z: r[i + 1] };
 }
@@ -531,12 +595,32 @@ function autoTest(dt) {
   else if (T < 32) {
     if (T > 22 && G.cam === 'cockpit') input.hit.add('KeyC');
     autoSay(G.cam === 'cockpit' ? '沿著建議路線開（駕駛座）' : '沿著建議路線開（車外視角）');
-    const tg = routeTarget(car.x, car.z, 14);
-    if (!tg) { autoKeys(); return; }
-    const bearing = Math.atan2(tg.x - car.x, -(tg.z - car.z)), heading = Math.atan2(car.fwdX, -car.fwdZ);
-    let e = bearing - heading; e = Math.atan2(Math.sin(e), Math.cos(e));
+    if (!AUTO.poly) { AUTO.poly = demoPath(); AUTO.ri = 0; window.__tc.autoPoly = AUTO.poly; }
+    // 看前方 18 m 的路：快到轉角就先減速；低速時看近一點、方向盤打得多，才不會切到轉角停的車
+    const far = routeTarget(car.x, car.z, 18);
+    if (!far) { autoKeys(); return; }
+    const heading = Math.atan2(car.fwdX, -car.fwdZ), ang = (p) => { const d = Math.atan2(p.x - car.x, -(p.z - car.z)) - heading; return Math.atan2(Math.sin(d), Math.cos(d)); };
+    const turning = Math.abs(ang(far)) > 0.5, vMax = turning ? 3.5 : 8;
+    const tg = routeTarget(car.x, car.z, car.v < 4.5 ? 5 : 10);
+    const e = ang(tg);
+    // 撞到路邊的車卡住了：倒車一下、方向盤反打，再繼續
+    if (AUTO.rev > 0) { AUTO.rev -= dt; autoSay('卡住了，倒車一下'); autoKeys(car.v < -0.3 && AUTO.rev < 0.15 ? 'KeyW' : 'KeyS'); return; }
+    AUTO.stuckT = car.v < 0.4 ? (AUTO.stuckT || 0) + dt : 0;
+    if (AUTO.stuckT > 1.0) { AUTO.stuckT = 0; AUTO.rev = 1.1; return; }
+    // 前方有行駛中的車流：先煞車等一下，等太久才倒車繞（路邊停的車靠路線與「卡住就倒車」處理）
+    let block = false;
+    for (const o of traffic.cars) {
+      if (Math.abs(o.x - car.x) > 24 || Math.abs(o.z - car.z) > 24) continue;
+      const dx = o.x - car.x, dz = o.z - car.z, fwd = dx * car.fwdX + dz * car.fwdZ, lat = Math.abs(dx * car.fwdZ - dz * car.fwdX);
+      if (fwd > 1 && fwd < 6 + Math.max(0, car.v) * 1.6 && lat < 2.1) { block = true; break; }
+    }
+    if (block) {
+      AUTO.waitT = (AUTO.waitT || 0) + dt; AUTO.stuckT = 0;
+      if (AUTO.waitT < 4) { autoSay('前面有車，煞車等一下'); autoKeys(car.v > 0.3 ? 'KeyS' : null); return; }
+      if (AUTO.waitT < 4.1) { AUTO.rev = 1.1; return; }
+    } else AUTO.waitT = 0;
     const keys = [];
-    if (car.v < 8) keys.push('KeyW');
+    if (car.v < vMax) keys.push('KeyW'); else if (car.v > vMax + 1.5) keys.push('KeyS');
     if (e > 0.06) keys.push('KeyD'); else if (e < -0.06) keys.push('KeyA');
     autoKeys(...keys);
   } else { autoSay('煞車停下，測試結束'); autoKeys(car.v > 0.3 ? 'KeyS' : null); }
@@ -550,6 +634,8 @@ function loop(now) {
   if (toastT > 0 && performance.now() > toastT) { toastT = 0; $('toast').hidden = true; }
   if (input.pressed('KeyH')) $('help').hidden = !$('help').hidden;
   if (input.pressed('KeyN')) { music.toggle(); toast(music.on ? '音樂：開' : '音樂：關', 1.2); }
+  if (input.pressed('KeyB')) { audioStart(); engine.toggle(); toast(engine.on ? '引擎聲：開' : '引擎聲：關', 1.2); }
+  if (G.state !== 'drive') engine.update(dt, { v: 0, throttle: 0, brake: 0, cockpit: false });   // 熄火後轉速慢慢降到 0
   music.update(G.state === 'drive' ? (G.seatAdj ? 'walk' : 'drive') : G.state === 'done' ? 'done' : G.state === 'walk' ? 'walk' : 'title', car ? car.v : 0);
   if (G.state === 'title') {
     // 標題畫面：在終點車站上空盤旋
@@ -574,7 +660,7 @@ function loop(now) {
     const st = $('btnSeat'), showSeat = G.state === 'drive' && !G.seatAdj && Math.abs(car.v) < 0.3;
     if (st && st.hidden === showSeat) st.hidden = !showSeat;
   }
-  render();
+  if (!window.__tc.noRender) render();      // 測試時可以只跑遊戲邏輯、不畫圖（無頭瀏覽器畫圖太慢）
   input.endFrame();
 }
 
