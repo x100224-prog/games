@@ -79,6 +79,7 @@ for (const [id, code] of [['btnMirL', 'KeyZ'], ['btnMirR', 'KeyX']]) {
   for (const ev of ['touchend', 'touchcancel']) el.addEventListener(ev, (e) => { input.keys.delete(code); e.preventDefault(); }, { passive: false });
 }
 if ($('btnSeat')) $('btnSeat').addEventListener('touchstart', (e) => { input.hit.add('KeyV'); e.preventDefault(); }, { passive: false });
+if ($('btnCenter')) $('btnCenter').addEventListener('touchstart', (e) => { input.hit.add('KeyR'); e.preventDefault(); }, { passive: false });
 const engine = new EngineSound('gas');
 music.keepAlive = () => engine.on;          // 配樂關掉時，引擎聲照樣要能出聲
 const sfxBtn = () => { const b = $('btnSfx'); if (b) { b.textContent = engine.on ? '引擎聲 開' : '引擎聲 關'; b.setAttribute('aria-pressed', engine.on ? 'true' : 'false'); } };
@@ -92,6 +93,7 @@ const P = { x: 0, y: 0, z: 0, yaw: 0, speed: 0 };
 let world, parking, traffic, signs, car, cockpit, avatar, tp, meta, M;
 window.__tc = { G, P, renderer, scene, camera };
 window.__tc.engine = engine;
+window.__dbgLook = () => cockpit && { yaw: +cockpit.lookYaw.toFixed(3), pitch: +cockpit.lookPitch.toFixed(3), centering: !!cockpit._center };
 if (location.hash.startsWith('#lowq')) { renderer.shadowMap.enabled = false; renderer.setPixelRatio(0.75); }
 
 function resize() {
@@ -177,6 +179,7 @@ function start() {
   car.group.traverse(o => { if (o.isMesh) o.castShadow = true; });
   cockpit = new Cockpit(car.spec);
   cockpit.hemi.intensity = 5.0; cockpit.sun.intensity = 3.2;    // 色調映射後車內要多一點光
+  applyComfort();
   window.__tc.car = car;
   traffic.clear(); parking.setDay(1);
   G.state = 'loading'; G.focus = { x: M.start.x, z: M.start.z };
@@ -293,16 +296,48 @@ function applySeat() {
 for (const [id, k] of [['seatH', 'h'], ['seatF', 'f'], ['seatV', 'fov'], ['seatT', 'tilt']]) $(id).addEventListener('input', (e) => { seat[k] = +e.target.value; applySeat(); });
 $('seatReset').onclick = () => { Object.assign(seat, SEAT_DEF); applySeat(); };
 $('seatGo').onclick = () => closeSeat();
+// ===================================================================== 舒適設定（避免頭暈）
+// 參考賽車遊戲的駕駛座設定與 Xbox 無障礙指南：不讓畫面自己動、鎖定地平線、視野依螢幕距離調整、畫面要順。
+const COMFORT_KEY = 'drive-comfort', COMFORT_DEF = { autoCenter: false, followPitch: false, quality: 'high', inch: 14, cm: 55 };
+const comfort = (() => { try { return Object.assign({}, COMFORT_DEF, JSON.parse(localStorage.getItem(COMFORT_KEY) || '{}')); } catch (err) { return Object.assign({}, COMFORT_DEF); } })();
+function applyComfort() {
+  if (cockpit) { cockpit.autoCenter = comfort.autoCenter; cockpit.followPitch = comfort.followPitch; }
+  const smooth = comfort.quality === 'smooth' || location.hash.startsWith('#lowq');
+  sun.castShadow = !smooth;
+  renderer.setPixelRatio(location.hash.startsWith('#lowq') ? 0.75 : Math.min(window.devicePixelRatio || 1, smooth ? 1 : 1.5)); resize();
+  $('cfAuto').checked = comfort.autoCenter; $('cfPitch').checked = comfort.followPitch;
+  for (const r of document.querySelectorAll('input[name=cfQ]')) r.checked = r.value === comfort.quality;
+  $('cfInch').value = comfort.inch; $('cfCm').value = comfort.cm;
+  try { localStorage.setItem(COMFORT_KEY, JSON.stringify(comfort)); } catch (err) { /* 存不了就算了 */ }
+}
+$('cfAuto').addEventListener('change', (e) => { comfort.autoCenter = e.target.checked; applyComfort(); });
+$('cfPitch').addEventListener('change', (e) => { comfort.followPitch = e.target.checked; applyComfort(); });
+for (const r of document.querySelectorAll('input[name=cfQ]')) r.addEventListener('change', () => { comfort.quality = r.value; applyComfort(); });
+// 依螢幕大小與眼睛距離算出「實際視角」：畫面上看到的角度 = 眼睛看螢幕的角度，轉彎時畫面移動的速度最接近真實
+$('cfCalc').onclick = () => {
+  comfort.inch = Math.max(5, Math.min(100, +$('cfInch').value || 14)); comfort.cm = Math.max(20, Math.min(400, +$('cfCm').value || 55));
+  const ar = (screen.width || 16) / (screen.height || 10), diag = comfort.inch * 2.54, h = diag / Math.sqrt(1 + ar * ar);
+  let v = 2 * Math.atan(h / 2 / comfort.cm) * 180 / Math.PI;
+  if (camera.aspect < 1) v -= 26;     // 直式手機在 driveFrame 會再加寬
+  seat.fov = Math.round(Math.max(20, Math.min(80, v))); applySeat(); applyComfort();
+  $('cfCalcOut').textContent = `依你的螢幕算出 ${Math.round(2 * Math.atan(h / 2 / comfort.cm) * 180 / Math.PI)}°，已套用到「視野寬窄」`;
+};
+let fpsN = 0, fpsT = 0, fpsVal = 0;
+function fpsTick(dt) {
+  fpsN++; fpsT += dt;
+  if (fpsT >= 1) { fpsVal = fpsN / fpsT; fpsN = 0; fpsT = 0; const el = $('cfFps'); if (el && !$('seat').hidden) el.textContent = `目前畫面每秒 ${Math.round(fpsVal)} 張${fpsVal < 40 && comfort.quality === 'high' ? '，不夠順，建議改「順暢優先」' : ''}`; }
+}
+
 function openSeat() {
   G.seatAdj = true; G.cam = 'cockpit'; camera.near = 0.8; camera.updateProjectionMatrix();
-  input.releaseLock(); input.noLock = true; $('seat').hidden = false; applySeat();
+  input.releaseLock(); input.noLock = true; $('seat').hidden = false; applySeat(); applyComfort();
 }
 function closeSeat() {
   if (!G.seatAdj) return;
   G.seatAdj = false; input.noLock = false; $('seat').hidden = true;
   cockpit.lookYaw = 0; cockpit.lookPitch = 0;
   if (AUTO) AUTO.t = 0;
-  toast('開車囉！滑鼠左右轉或按住 Z／X 看後照鏡', 3);
+  toast(input.touch ? '開車囉！按住「左鏡／右鏡」看後照鏡，視線轉開了按「回正」' : comfort.autoCenter ? '開車囉！滑鼠左右轉或按住 Z／X 看後照鏡' : '開車囉！按住 Z／X 看後照鏡，視線轉開了按 R 回正', 3.5);
 }
 
 function enterCar() {
@@ -360,12 +395,13 @@ function driveFrame(dt) {
   if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
   if (G.seatAdj && input.pressed('Enter')) closeSeat();
   if (!G.seatAdj && input.pressed('KeyV') && Math.abs(car.v) < 0.3) openSeat();
+  if (input.pressed('KeyR') && G.cam === 'cockpit') cockpit.recenter();
   const fw = G.seatAdj ? 0 : input.forward;
   const ctl = G.seatAdj ? { throttle: 0, brake: 1, steer: 0, handbrake: true } : { throttle: Math.max(0, Math.min(1, fw > 0.15 ? fw : 0)) || input.tGas, brake: Math.max(0, Math.min(1, fw < -0.15 ? -fw : 0)) || input.tBrake,
     steer: -Math.max(-1, Math.min(1, input.strafe)), handbrake: input.has('Space') };
   lotT -= dt; if (lotT <= 0) { lotT = 0.2; car.onLot = parking.inLot(car.x, car.z) || !!parking.bayAt(car.x, car.z, car.psi, _err); }
   car.update(dt, ctl, gatherObstacles(car.x, car.z, 14));
-  engine.update(dt, { v: car.v, throttle: car.energy > 0 ? ctl.throttle : 0, brake: ctl.brake, cockpit: G.cam === 'cockpit' });
+  engine.update(dt, { v: car.v, throttle: car.energy > 0 ? car.thrF : 0, brake: car.brkF, cockpit: G.cam === 'cockpit' });
   world.update(car.x, car.z, dt); parking.update(dt, car.x, car.z); signs.update(dt, car.x, car.z);
   traffic.update(dt, car.x, car.z, [{ x: car.x, z: car.z, y: car.y, r: 2.3 }]);
   if (G.cam === 'cockpit') { cockpit.look(input.lookX, input.lookY, dt, Math.abs(car.v) > 1 && !G.seatAdj); glance(dt); if (window.__tc.cockpitLook) cockpit.lookYaw = window.__tc.cockpitLook; cockpit.applyTo(camera, car); car.body.visible = false; }
@@ -630,7 +666,7 @@ function autoTest(dt) {
 let last = performance.now();
 function loop(now) {
   requestAnimationFrame(loop);
-  const dt = Math.min(0.05, (now - last) / 1000); last = now; frameN++;
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; frameN++; fpsTick(dt);
   if (toastT > 0 && performance.now() > toastT) { toastT = 0; $('toast').hidden = true; }
   if (input.pressed('KeyH')) $('help').hidden = !$('help').hidden;
   if (input.pressed('KeyN')) { music.toggle(); toast(music.on ? '音樂：開' : '音樂：關', 1.2); }
@@ -657,6 +693,8 @@ function loop(now) {
     // 黃色 E 鍵在手機上直接寫出現在按下去會做什麼
     const act = $('btnAct'), lab = G.state === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : 'E') : G.state === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 ? '下車' : 'E') : 'E';
     if (act && act.textContent !== lab) act.textContent = lab;
+    const bc = $('btnCenter'), showC = G.state === 'drive' && G.cam === 'cockpit' && !G.seatAdj && (Math.abs(cockpit.lookYaw) > 0.05 || Math.abs(cockpit.lookPitch) > 0.05) && !G.glance;
+    if (bc && bc.hidden === showC) bc.hidden = !showC;
     const st = $('btnSeat'), showSeat = G.state === 'drive' && !G.seatAdj && Math.abs(car.v) < 0.3;
     if (st && st.hidden === showSeat) st.hidden = !showSeat;
   }
@@ -675,9 +713,10 @@ function render() {
   sun.target.position.set(sx, fy, sz); sun.position.set(sx + SUN_DIR.x * 260, fy + SUN_DIR.y * 260, sz + SUN_DIR.z * 260);
   sun.target.updateMatrixWorld();
   const cockpitOn = G.state === 'drive' && G.cam === 'cockpit';
-  if (cockpitOn && (location.hash !== '#lowq')) {
+  const mirrorEvery = comfort.quality === 'smooth' ? 3 : 1;     // 順暢優先：後照鏡每 3 幀才更新一面
+  if (cockpitOn && (location.hash !== '#lowq') && frameN % mirrorEvery === 0) {
     // 後照鏡：中間、左、右輪流更新
-    const k = frameN % 3, m = k === 0 ? { rt: cockpit.mirrorRT, cam: cockpit.mirrorCam } : k === 1 ? cockpit.mirrorL : cockpit.mirrorR;
+    const k = (frameN / mirrorEvery | 0) % 3, m = k === 0 ? { rt: cockpit.mirrorRT, cam: cockpit.mirrorCam } : k === 1 ? cockpit.mirrorL : cockpit.mirrorR;
     const sm = renderer.shadowMap.autoUpdate; renderer.shadowMap.autoUpdate = false;
     renderer.setRenderTarget(m.rt); renderer.clear(); renderer.render(scene, m.cam); renderer.setRenderTarget(null);
     renderer.shadowMap.autoUpdate = sm; renderer.shadowMap.needsUpdate = true;

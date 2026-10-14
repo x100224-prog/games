@@ -159,6 +159,16 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #seat input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--signal); }
 #seat p { margin: 0; color: var(--mute); font-size: 12.5px; line-height: 1.5; }
 #seat .row2 { display: flex; gap: 8px; }
+#comfort { border-top: 1px solid var(--line); padding-top: 8px; display: grid; gap: 6px; }
+#comfort summary { cursor: pointer; font-weight: 700; font-size: 14px; color: var(--signal); }
+#comfort[open] { display: grid; gap: 6px; }
+#comfort .ck { display: flex; gap: 8px; align-items: center; grid-template-columns: none; }
+#comfort .q, #comfort .calc { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 14px; }
+#comfort .q > span, #comfort .calc > span { font-weight: 700; width: 100%; }
+#comfort .q label, #comfort .calc label { display: flex; gap: 4px; align-items: center; grid-template-columns: none; }
+#comfort input[type=number] { width: 58px; background: rgba(255,255,255,.08); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font: inherit; }
+#comfort .calc button { border-radius: 8px; padding: 5px 12px; font-weight: 700; border: 1px solid var(--line); background: rgba(255,255,255,.08); }
+#comfort input[type=checkbox], #comfort input[type=radio] { accent-color: var(--signal); }
 #seat .row2 button { flex: 1; border-radius: 8px; padding: 9px 10px; font-weight: 700; border: 1px solid var(--line); background: rgba(255,255,255,.06); }
 #seat .row2 button.go2 { background: var(--signal); color: #1a1500; border-color: transparent; }
 #btnMusic { position: absolute; right: 16px; top: calc(172px + env(safe-area-inset-top, 0px)); width: 152px; box-sizing: border-box; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); padding: 4px 10px; font-size: 13px; font-weight: 700; pointer-events: auto; }
@@ -178,6 +188,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #btnMirL { left: 22px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); }
 #btnMirR { left: 92px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); }
 #btnSeat { left: 162px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); }
+#btnCenter { left: 232px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); background: rgba(245, 197, 24, .25); }
 .touch #seat { top: 12px; bottom: auto; transform: none; max-height: calc(100% - 24px); }
 @media (max-height: 500px) {
   .touch #btnCam { top: calc(12px + env(safe-area-inset-top, 0px)); right: 180px; }
@@ -185,7 +196,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   .touch #btnMusic { top: calc(16px + env(safe-area-inset-top, 0px)); right: 292px; }
   .touch #btnSfx { top: calc(56px + env(safe-area-inset-top, 0px)); right: 292px; }
   .touch #place { top: auto; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); left: 150px; }
-  #btnMirL, #btnMirR, #btnSeat { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+  #btnMirL, #btnMirR, #btnSeat, #btnCenter { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
   #seat { gap: 6px; padding: 10px 14px; } #seat p { display: none; } #seat h2 { font-size: 15px; }
 }
 </style>
@@ -211,7 +222,8 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
       <kbd>空白鍵</kbd><span>手煞車</span>
       <kbd>C</kbd><span>駕駛座／車外視角</span>
       <kbd>Z X</kbd><span>按住看左／右後照鏡</span>
-      <kbd>V</kbd><span>停車時調整駕駛座</span>
+      <kbd>R</kbd><span>視線轉回正前方</span>
+      <kbd>V</kbd><span>停車時調整駕駛座（含舒適設定）</span>
       <kbd>N</kbd><span>配樂開／關</span>
       <kbd>B</kbd><span>引擎聲開／關</span>
       <kbd>H</kbd><span>收起這張說明</span>
@@ -232,6 +244,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     <button class="mbtn" id="btnMirL" type="button" hidden>◀ 左鏡</button>
     <button class="mbtn" id="btnMirR" type="button" hidden>右鏡 ▶</button>
     <button class="mbtn" id="btnSeat" type="button" hidden>座椅</button>
+    <button class="mbtn" id="btnCenter" type="button" hidden>回正</button>
   </div>
 
   <div id="title">
@@ -243,6 +256,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
       <span id="bestInfo"></span>
       <button class="go" id="btnStart" type="button">出發</button>
       <button class="ghost" id="btnAuto" type="button">自動示範（看遊戲自己玩一段）</button>
+      <p class="fine">提醒：看別人開（包括自動示範）比自己開更容易頭暈；覺得不舒服就停下來休息。</p>
       <p class="fine">地圖 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 貢獻者；地形：內政部 20 公尺網格數值地形模型；人物：Quaternius（CC0）；配樂與引擎聲為本遊戲原創、即時合成。開放地圖沒畫到的街屋與自動產生的店名招牌是推測的，真實店名招牌來自開放地圖。</p>
     </div>
   </div>
@@ -251,9 +265,20 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     <h2>駕駛座調整</h2>
     <label>座椅高低 <b id="seatHv">0</b><input id="seatH" type="range" min="-12" max="12" step="1" value="0"></label>
     <label>座椅前後 <b id="seatFv">0</b><input id="seatF" type="range" min="-15" max="15" step="1" value="0"></label>
-    <label>視野寬窄 <b id="seatVv">46°</b><input id="seatV" type="range" min="36" max="80" step="1" value="46"></label>
+    <label>視野寬窄 <b id="seatVv">46°</b><input id="seatV" type="range" min="20" max="80" step="1" value="46"></label>
     <label>視線上下 <b id="seatTv">往上 12°</b><input id="seatT" type="range" min="-10" max="20" step="1" value="12"></label>
     <p>可以先轉動視角看看前擋風、左右後照鏡的位置。開車時畫面以前擋風玻璃為主，滑鼠往左右轉就看得到後照鏡；按住 Z／X 直接看左／右後照鏡。停車時按 V 可以再調。</p>
+    <details id="comfort">
+      <summary>舒適設定（容易頭暈看這裡）</summary>
+      <label class="ck"><input id="cfAuto" type="checkbox"> 視線自動轉回正前方</label>
+      <p>建議關閉：畫面自己轉動容易頭暈。關閉時，視線轉開後按 R（手機按「回正」）轉回來。</p>
+      <label class="ck"><input id="cfPitch" type="checkbox"> 鏡頭跟著車身上下坡前後傾</label>
+      <p>建議關閉（鎖定地平線，賽車遊戲的「Lock to horizon」）。</p>
+      <div class="q"><span>畫質</span><label><input type="radio" name="cfQ" value="high"> 高畫質</label><label><input type="radio" name="cfQ" value="smooth"> 順暢優先</label></div>
+      <p id="cfFps">畫面卡卡的也會暈：順暢優先會關掉陰影、降低後照鏡更新。</p>
+      <div class="calc"><span>依螢幕算視野</span><label>螢幕 <input id="cfInch" type="number" min="5" max="100" step="0.5" value="14"> 吋</label><label>眼睛距離 <input id="cfCm" type="number" min="20" max="400" step="5" value="55"> 公分</label><button id="cfCalc" type="button">套用</button></div>
+      <p id="cfCalcOut">賽車遊戲的做法：讓畫面上的視角等於你眼睛看螢幕的角度，轉彎時畫面移動才接近真實。算出來可能比較窄，可以再用「視野寬窄」微調。</p>
+    </details>
     <div class="row2"><button id="seatReset" type="button">恢復預設</button><button class="go2" id="seatGo" type="button">開始開車</button></div>
   </div>
 

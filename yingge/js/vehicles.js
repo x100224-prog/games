@@ -192,7 +192,7 @@ export class PlayerCar {
     scene.add(this.group);
   }
 
-  place(x, z, psi, y = 0) { this.x = x; this.z = z; this.psi = psi; this.y = y; this.v = 0; this.steer = 0; this.sync(); }
+  place(x, z, psi, y = 0) { this.x = x; this.z = z; this.psi = psi; this.y = y; this.v = 0; this.steer = 0; this.thrF = 0; this.brkF = 0; this.sync(); }
 
   get fwdX() { return -Math.sin(this.psi); }
   get fwdZ() { return -Math.cos(this.psi); }
@@ -201,27 +201,40 @@ export class PlayerCar {
   /** ctl: { throttle 0..1, brake 0..1, steer -1..1 (正=左), handbrake } ；obstacles: [{x,z,r}] */
   update(dt, ctl, obstacles) {
     const spec = this.spec, L = 2.7;
+    // ---- 踏板濾波（賽車遊戲給鍵盤／手把用的做法）：鍵盤只有「按」和「放」，直接用會變成
+    //      一按就全油門、一按就 1 G 急煞，畫面猛衝猛停。改成按住時踏板慢慢踩深：
+    //      油門約 0.35 秒踩到底、煞車約 0.6 秒踩到底，放開時很快鬆開。輕點就是輕踩。
+    const thrIn = Math.max(0, Math.min(1, ctl.throttle || 0)), brkIn = Math.max(0, Math.min(1, ctl.brake || 0));
+    this.thrF = this.thrF || 0; this.brkF = this.brkF || 0;
+    this.thrF += Math.max(-dt / 0.12, Math.min(dt / 0.35, thrIn - this.thrF));
+    this.brkF += Math.max(-dt / 0.15, Math.min(dt / 0.6, brkIn - this.brkF));
+    const thr = this.thrF, brk = this.brkF;
     // ---- 縱向
     let a = 0;
     const hasEnergy = this.energy > 0;
-    if (ctl.throttle > 0 && hasEnergy) {
-      if (this.v >= -0.2) { a += spec.accel * ctl.throttle * Math.max(0, 1 - Math.pow(Math.max(0, this.v) / spec.maxSpeed, 1.4)); this.gear = 'D'; }
-      else a += 9 * ctl.throttle;
+    if (thr > 0.001 && hasEnergy) {
+      if (this.v >= -0.2) { a += spec.accel * thr * Math.max(0, 1 - Math.pow(Math.max(0, this.v) / spec.maxSpeed, 1.4)); this.gear = 'D'; }
+      else a += 9 * thr;
     }
-    if (ctl.brake > 0) {
-      if (this.v > 0.4) a -= 9.5 * ctl.brake;
-      else if (hasEnergy) { a -= 2.6 * ctl.brake * Math.max(0, 1 + this.v / 7); this.gear = 'R'; }
+    if (brk > 0.001) {
+      // 快停下來時煞車自動放輕（像熟練的駕駛在停止前鬆一點煞車），停下那一下不會猛頓
+      if (this.v > 0.4) a -= 9.5 * brk * Math.max(0.3, Math.min(1, this.v / 3));
+      else if (hasEnergy) { a -= 2.6 * brk * Math.max(0, 1 + this.v / 7); this.gear = 'R'; }
     }
     const drag = 0.35 + 0.012 * this.v * this.v * 0.25 + (this.offroad ? 1.6 : 0);
-    if (ctl.throttle === 0 && ctl.brake === 0) { const d = drag * dt; this.v = Math.abs(this.v) <= d ? 0 : this.v - Math.sign(this.v) * d; }
+    if (thr <= 0.001 && brk <= 0.001) { const d = drag * dt; this.v = Math.abs(this.v) <= d ? 0 : this.v - Math.sign(this.v) * d; }
     if (ctl.handbrake) { const d = 12 * dt; this.v = Math.abs(this.v) <= d ? 0 : this.v - Math.sign(this.v) * d; }
     this.v += a * dt;
     if (this.offroad && this.v > 9) this.v -= (this.v - 9) * Math.min(1, dt * 2);
-    if (Math.abs(this.v) < 0.02 && ctl.throttle === 0 && ctl.brake === 0) { this.v = 0; this.gear = 'P'; }
+    if (Math.abs(this.v) < 0.02 && thr <= 0.001 && brk <= 0.001) { this.v = 0; this.gear = 'P'; }
     // ---- 轉向（高速時自動收斂，避免過大的側向加速度）
     const maxSteer = Math.min(0.62, Math.atan(L * 5.5 / Math.max(1, this.v * this.v)));
     const target = ctl.steer * maxSteer;
-    const rate = (Math.abs(target) < Math.abs(this.steer) ? 2.6 : 1.5) * dt;
+    // 方向盤濾波：原本是固定每秒轉 1.5 弧度，車速快時能打的角度很小，0.05 秒就打滿，
+    // 按一下 D 畫面就瞬間甩過去。改成跟賽車遊戲的「steer filter」一樣：不管車速，
+    // 從回正打到底都要約 0.45 秒、放開約 0.25 秒回正，輕點 = 輕輕修一點方向。
+    const over = Math.abs(this.steer) > maxSteer + 1e-4;     // 加速後原本的角度超過現在允許的範圍：快速收回
+    const rate = (over ? 2.6 : (Math.abs(target) < Math.abs(this.steer) ? maxSteer / 0.25 : maxSteer / 0.45)) * dt;
     this.steer += Math.max(-rate, Math.min(rate, target - this.steer));
     this.psi += this.v / L * Math.tan(this.steer) * dt;
     // ---- 位移與路面
@@ -396,6 +409,7 @@ export class Cockpit {
     add(mg, new THREE.MeshBasicMaterial({ map: this.mirrorRT.texture }), 0.02, 1.47, -0.458, 0, -0.1);
     this.mirrorCam = new THREE.PerspectiveCamera(26, 384 / 112, 1.2, 260);
     this.lookYaw = 0; this.lookPitch = 0; this._idle = 0; this._t = 0;
+    this.autoCenter = false; this.followPitch = false; this._center = false;
     this.root.position.y = dy; this.eye.y += dy;
     this.eyeBase = this.eye.clone();
     for (const m of [this.mirrorL, this.mirrorR]) m.y += dy;
@@ -403,18 +417,27 @@ export class Cockpit {
   }
 
   look(dx, dy, dt, moving) {
-    if (dx || dy) { this.lookYaw -= dx * 0.0026; this.lookPitch -= dy * 0.0022; this._idle = 0; }
+    if (dx || dy) { this.lookYaw -= dx * 0.0026; this.lookPitch -= dy * 0.0022; this._idle = 0; this._center = false; }
     else this._idle += dt;
     this.lookYaw = Math.max(-2.3, Math.min(2.3, this.lookYaw)); this.lookPitch = Math.max(-0.55, Math.min(0.45, this.lookPitch));
-    if (moving && this._idle > 1.4) { const k = Math.min(1, dt * 2.5); this.lookYaw -= this.lookYaw * k; this.lookPitch -= this.lookPitch * k; }
+    // 自動回正（預設關閉：玩家沒操作、畫面卻自己轉，是頭暈的常見原因；要回正就按 R 或「回正」鈕）
+    const auto = this.autoCenter && moving && this._idle > 1.4;
+    if (auto || this._center) {
+      const k = Math.min(1, dt * 4); this.lookYaw -= this.lookYaw * k; this.lookPitch -= this.lookPitch * k;
+      if (Math.abs(this.lookYaw) < 0.002 && Math.abs(this.lookPitch) < 0.002) { this.lookYaw = 0; this.lookPitch = 0; this._center = false; }
+    }
   }
+  /** 視線慢慢轉回正前方（玩家按 R 或「回正」時）。 */
+  recenter() { this._center = true; }
 
   /** 讓世界攝影機對準駕駛的眼睛位置。 */
   applyTo(worldCam, car) {
     const c = Math.cos(car.psi), s = Math.sin(car.psi), e = this.eye;
     worldCam.position.set(car.x + e.x * c + e.z * s, car.y + e.y, car.z - e.x * s + e.z * c);
     const bp = this.basePitch || 0;
-    worldCam.rotation.set(car.pitch * Math.cos(this.lookYaw) + this.lookPitch + bp, car.psi + this.lookYaw, 0, 'YXZ');
+    // 鎖定地平線（預設）：鏡頭不跟著車身上下坡前後傾，跟賽車遊戲的「Lock to horizon」相同
+    const chassis = this.followPitch ? car.pitch * Math.cos(this.lookYaw) : 0;
+    worldCam.rotation.set(chassis + this.lookPitch + bp, car.psi + this.lookYaw, 0, 'YXZ');
     this.cam.position.copy(e); this.cam.rotation.set(this.lookPitch + bp, this.lookYaw, 0, 'YXZ');
     this.cam.fov = worldCam.fov; this.cam.aspect = worldCam.aspect; this.cam.updateProjectionMatrix();
     this.wheel.rotation.z = car.steer * 6.5;
