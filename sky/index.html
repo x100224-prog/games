@@ -863,6 +863,40 @@ function coughFit(P,count,vol){if(!A.ctx)return;const ctx=A.ctx;let t=ctx.curren
     g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.16*vol*P.inhale,t+.16);g.gain.exponentialRampToValueAtTime(.0001,t+.24);
     s.connect(bp);bp.connect(g);g.connect(A.master);s.start(t,Math.random());s.stop(t+.26);t+=.3;}
   for(let i=0;i<count;i++){coughOne(t,P,vol*Math.pow(.72,i)*rnd(.85,1.05));t+=P.gap*rnd(.85,1.2);}}
+/* ---- 鼻涕的聲音 ----
+   濕濕的「劈啪」聲：很多個極短、帶通的小噪音（鼻涕裡的小氣泡破掉） */
+function crackle(at,dur,n,g,fLo,fHi){for(let i=0;i<n;i++)nb({f:rnd(fLo,fHi),q:rnd(3,7),a:.001,d:rnd(.004,.014),v:g*rnd(.35,1),at:at+rnd(0,dur)});}
+/* 吸鼻涕：空氣從鼻孔往內吸（高頻氣流聲、音高往上爬）＋鼻腔低共振＋鼻涕的濕劈啪聲；常常連吸兩下 */
+function sniffOne(at,len,w,g){if(!A.ctx)return;const ctx=A.ctx,t=ctx.currentTime+at;
+  const s=ctx.createBufferSource();s.buffer=A.noise;const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.Q.value=2.2;
+  bp.frequency.setValueAtTime(1900,t);bp.frequency.exponentialRampToValueAtTime(3600,t+len);
+  const lo=ctx.createBiquadFilter();lo.type='bandpass';lo.frequency.value=780;lo.Q.value=4;const lg=ctx.createGain();lg.gain.value=.35+.5*w;
+  const out=ctx.createGain();out.gain.setValueAtTime(.0001,t);out.gain.exponentialRampToValueAtTime(g,t+.03);out.gain.setValueAtTime(g*.85,t+len*.75);out.gain.exponentialRampToValueAtTime(.0001,t+len+.05);
+  s.connect(bp);bp.connect(out);s.connect(lo);lo.connect(lg);lg.connect(out);out.connect(A.master);if(A.verbIn)out.connect(A.verbIn);
+  s.start(t,Math.random());s.stop(t+len+.08);
+  crackle(at+.02,len,Math.round(3+14*w),g*1.4*w,1200,4200);}
+function sniffWet(w){const g=.12+.12*w;sniffOne(0,rnd(.13,.18),w,g);if(Math.random()<.75)sniffOne(rnd(.24,.3),rnd(.18,.26),w,g*1.15);
+  if(w>.6&&Math.random()<.5)crackle(.55,.12,8,.22,300,900);}   // 最後鼻涕被吸回去的「咕嚕」
+/* 擤鼻涕：先拿衛生紙（紙張沙沙聲）→ 用嘴吸一口氣 → 用力從鼻子噴氣：
+   鼻腔的嗡嗡聲（低音高、不穩定）經過鼻腔共振、氣流噪音、鼻涕和紙一起抖動（約 25 Hz 的顫動）、濕劈啪聲，整體被衛生紙悶住 → 通常擤兩下 */
+function blowOne(at,len,g){if(!A.ctx)return;const ctx=A.ctx,t=ctx.currentTime+at;
+  const muf=ctx.createBiquadFilter();muf.type='lowpass';muf.frequency.value=2600;muf.Q.value=.7;
+  const flap=ctx.createGain();flap.gain.value=.62;const lfo=ctx.createOscillator();lfo.frequency.setValueAtTime(rnd(22,30),t);lfo.frequency.linearRampToValueAtTime(rnd(14,20),t+len);
+  const lfg=ctx.createGain();lfg.gain.value=.38;lfo.connect(lfg);lfg.connect(flap.gain);
+  const env=ctx.createGain();env.gain.setValueAtTime(.0001,t);env.gain.exponentialRampToValueAtTime(g,t+.05);env.gain.setValueAtTime(g,t+len*.6);env.gain.exponentialRampToValueAtTime(g*.5,t+len*.9);env.gain.exponentialRampToValueAtTime(.0001,t+len+.06);
+  flap.connect(muf);muf.connect(env);env.connect(A.master);if(A.verbIn)env.connect(A.verbIn);
+  const n=ctx.createBufferSource();n.buffer=A.noise;[[650,1.1,1],[1800,2,.55]].forEach(([f,qq,gg])=>{const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=f;bp.Q.value=qq;const gn=ctx.createGain();gn.gain.value=gg*1.6;n.connect(bp);bp.connect(gn);gn.connect(flap);});
+  const o=ctx.createOscillator();o.type='sawtooth';const f0=rnd(115,165);o.frequency.setValueAtTime(f0,t);o.frequency.linearRampToValueAtTime(f0*rnd(.8,1.25),t+len);
+  const wob=ctx.createOscillator();wob.frequency.value=rnd(5,8);const wg=ctx.createGain();wg.gain.value=f0*.12;wob.connect(wg);wg.connect(o.frequency);
+  const hg=ctx.createGain();hg.gain.setValueAtTime(.0001,t);hg.gain.exponentialRampToValueAtTime(.28,t+.12);hg.gain.exponentialRampToValueAtTime(.12,t+len);
+  [[280,5],[1050,3]].forEach(([f,qq])=>{const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=f;bp.Q.value=qq;o.connect(bp);bp.connect(hg);});hg.connect(flap);
+  [n,o,lfo,wob].forEach(x=>{x.start(t,x===n?Math.random():undefined);x.stop(t+len+.1);});
+  crackle(at+.04,len*.9,26,g*.9,900,3200);}
+function blowNose(){
+  crackle(0,.35,20,.1,4000,8500);nb({type:'highpass',f:4200,a:.05,d:.2,v:.06});   // 拿衛生紙、摺紙
+  nb({f:700,q:.8,a:.12,d:.12,v:.05,at:.38});                                         // 用嘴吸一口氣
+  blowOne(.62,rnd(.75,.95),.55);blowOne(1.75,rnd(.4,.55),.38);
+  crackle(2.4,.3,14,.08,3500,8000);}                                                  // 把衛生紙揉起來
 const SFX={
   step(){nb({type:'lowpass',f:260,q:.8,a:.003,d:.11,v:.35,rate:rnd(.8,1.2)});if(Math.random()<.3)nb({f:rnd(1200,1900),q:4,a:.01,d:.08,v:.05});},
   flop(){nb({type:'lowpass',f:450,a:.01,d:.4,v:.55});nb({f:2000,a:.01,d:.25,v:.15});},
@@ -878,8 +912,8 @@ const SFX={
   door(){tn({type:'sawtooth',f:210,f2:140,a:.06,d:1.1,v:.14,filt:900,ft:'bandpass',q:6});SFX.click();},
   breath(){nb({f:1100,q:.7,a:.45,d:.35,v:.06});nb({f:700,q:.7,a:.1,d:.6,v:.05,at:1.0});},
   cough(){coughFit(ADULT,2+((Math.random()*2)|0),1);},
-  sniff(){nb({f:2800,q:4,a:.06,d:.12,v:.15});nb({f:2600,q:4,a:.05,d:.1,v:.12,at:.22});},
-  blow(){nb({f:900,q:.8,a:.05,d:.5,v:.3});nb({type:'lowpass',f:400,a:.02,d:.4,v:.25,at:.05});},
+  sniff(w){sniffWet(w==null?.5:w);},
+  blow(){blowNose();},
   heart(){tn({f:52,a:.005,d:.16,v:.75});tn({f:47,a:.005,d:.2,v:.5,at:.22});},
   sneeze(){tn({type:'sawtooth',f:260,f2:380,a:.25,d:.35,v:.07,filt:900});tn({type:'sawtooth',f:300,f2:450,a:.2,d:.3,v:.08,filt:900,at:.6});
     nb({type:'highpass',f:1800,a:.006,d:.45,v:.75,at:1.05});tn({type:'sawtooth',f:230,f2:120,a:.01,d:.25,v:.15,filt:700,at:1.05});},
@@ -1607,7 +1641,7 @@ function updatePlay(dt){
   clockMin+=dt*TS/60;
   const hh=Math.floor(clockMin/60),mm=Math.floor(clockMin%60);$('clock').textContent=`AM ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
   if(stage==='bed'){tickAcc+=dt;if(tickAcc>1){tickAcc=0;SFX.tick();}}
-  if(sky<75){sniffT-=dt;if(sniffT<0){sniffT=rnd(5,9);SFX.sniff();}}
+  if(sky<75){sniffT-=dt;if(sniffT<0){const w=clamp((75-sky)/60,.2,1);sniffT=lerp(8,3.5,w)*rnd(.8,1.2);SFX.sniff(w);}}
   if(sky<60){breathT-=dt;if(breathT<0){breathT=lerp(3.6,1.5,clamp((60-sky)/60,0,1));SFX.breath();}}
   if(stage==='bed'&&sky<55){sneezeT-=dt;if(sneezeT<0){sneezeT=rnd(5,9);SFX.sneeze();setTimeout(()=>{if(state==='play'&&stage==='bed'){jolt=1;const f=new T.Vector3(-Math.sin(player.yaw),0,-Math.cos(player.yaw));dropTissue(player.x+f.x*.35,player.z+f.z*.35,.15);}},1050);}}
   if(sky<40){coughT-=dt;if(coughT<0){coughT=rnd(3,6);SFX.cough();}}
@@ -1709,8 +1743,9 @@ function updateHorror(dt){
     else{const dd=stage==='school'?.6:stage==='temple'?1.05:.46;camera.position.set(lookTmp.x+fx*dd-fz*.1,lookTmp.y+.06,lookTmp.z+fz*dd+fx*.1);camera.lookAt(lookTmp.x,lookTmp.y+(stage==='school'?-.1:.04),lookTmp.z);}
     faceLight.position.copy(camera.position);faceLight.intensity=close?1.1:0;
     if(stage==='bed'){placeDrips(t);
-      if(t-dt<6.3&&t>=6.3)SFX.sneeze();if(t-dt<8.0&&t>=8.0)SFX.sniff();
-      if(close&&Math.floor((t-8.6)*1.4/Math.PI)!==Math.floor((t-dt-8.6)*1.4/Math.PI)&&t>8.7)SFX.blow();
+      if(t-dt<6.3&&t>=6.3)SFX.sneeze();
+      [7.6,8.15,11.3,12.2].forEach(k=>{if(t-dt<k&&t>=k)SFX.sniff(1);});
+      if(t-dt<8.85&&t>=8.85)SFX.blow();
       if(t-dt<11.0&&t>=11.0)SFX.cough();}
     if(stage==='school'&&HERO.ok&&HERO.bones.Head){ // 棉花棒插在鼻子裡、左手拿快篩（兩條線）
       const nz=noseWorld(tmpV),hd=HERO.bones.Head.getWorldPosition(tmpV2),out=nz.clone().sub(hd).normalize();
