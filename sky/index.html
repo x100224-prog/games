@@ -80,6 +80,10 @@ button:focus-visible{outline:2px solid var(--warn);outline-offset:2px}
 .therm .scale{position:absolute;right:max(18px,env(safe-area-inset-right,0px));top:20%;bottom:20%;width:12px;background:linear-gradient(#fffbe0,#ffb300,#e0402a,#8a1a8c,#2a0a5e,#05010d)}
 .therm .t1,.therm .t2{position:absolute;right:calc(max(18px,env(safe-area-inset-right,0px)) + 18px);font-size:1rem}
 .therm .t1{top:20%}.therm .t2{bottom:20%}
+.therm .cov{margin-top:8px;display:flex;align-items:center;gap:10px;font-size:1.15rem;white-space:nowrap}
+.therm .cov b{font-weight:400;font-size:1.5rem;min-width:3.2em;text-align:right;font-variant-numeric:tabular-nums}
+.therm .cov i{display:block;width:min(30vw,180px);height:8px;border:1px solid #ffe9b0}
+.therm .cov u{display:block;height:100%;width:0;background:linear-gradient(90deg,#8a1a8c,#e0402a,#ffb300,#fffbe0);text-decoration:none}
 .therm .rec{position:absolute;left:max(18px,env(safe-area-inset-left,0px));bottom:max(14px,env(safe-area-inset-bottom,0px));font-size:1.1rem}
 /* 清淨機控制面板 */
 .purwrap{position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;background:rgba(5,6,7,.45);
@@ -125,6 +129,7 @@ button:focus-visible{outline:2px solid var(--warn);outline-offset:2px}
   <div class="tl">THERMAL · 重播</div>
   <div class="scale"></div><div class="t1">37.0°C</div><div class="t2">18.0°C</div>
   <div class="rec" id="recT">● REC 00:00</div>
+  <div class="cov" id="covT"><span id="covL">粒子擴散範圍</span><b id="covN">0%</b><i><u id="covB"></u></i></div>
 </div>
 
 <div class="purwrap" id="purUI" hidden>
@@ -721,20 +726,22 @@ function emitAt(x,y,z,up){if(state==='play'&&stage==='bed')inhaleQ+=IMM_K*purFac
 function emitQuilt(n){const cnt=qGeo.attributes.position.count;for(let k=0;k<n;k++){quiltVertWorld((Math.random()*cnt)|0,tmpV);emitAt(tmpV.x,tmpV.y,tmpV.z,1);}}
 function emitSheet(n){for(let k=0;k<n;k++)emitAt(BED.x+rnd(-.7,.7),BED.top+.03,BED.z+rnd(-.5,.95),.7);}
 let emitAcc=0;
-function emitN(f,n){emitAcc+=n;const k=emitAcc|0;emitAcc-=k;if(k>0)f(k);}
+function emitN(f,n){emitAcc+=n*(thermalOn?2:1);const k=emitAcc|0;emitAcc-=k;if(k>0)f(k);}
 function clearDust(){pAlive.fill(0);for(let i=0;i<PMAX;i++){pPos[i*3+1]=-50;}pCount=0;pGeo.attributes.position.needsUpdate=true;}
 /* lv：清淨機目前段數（0=關）；head：主角鼻子的位置，用來算吸入量 */
 function updateDust(dt,lv,head){
-  const drag=Math.exp(-1.6*dt),lamP=lamPur(lv)*(PS.circ&&lv?1.15:1),pKill=(lamP+LAM_SETTLE)*dt,hoodK=stage==='kitchen',pull=lv*.06*(hoodK?3:1),capR=hoodK?.16:.1,B=BOUNDS;
+  const TH=thermalOn,fast=TH&&replay&&replay.end?3:1,kick=TH?1.5*fast:.3;dt*=TH?fast:1;
+  const drag=Math.exp(-(TH?.8:1.6)*dt),lamP=lamPur(lv)*(PS.circ&&lv?1.15:1),pKill=(lamP+(TH?0:LAM_SETTLE))*dt,hoodK=stage==='kitchen',pull=lv*.06*(hoodK?3:1),capR=hoodK?.16:.1,B=BOUNDS;
   let dose=0;
   for(let n=0;n<PMAX;n++){if(!pAlive[n])continue;const i=n*3;
-    pVel[i]+=rnd(-.3,.3)*dt;pVel[i+1]+=rnd(-.28,.28)*dt-.006*dt;pVel[i+2]+=rnd(-.3,.3)*dt;
+    pVel[i]+=rnd(-kick,kick)*dt;pVel[i+1]+=rnd(-kick,kick)*.8*dt-.006*dt;pVel[i+2]+=rnd(-kick,kick)*dt;
     if(lv){const dx=INTAKE.x-pPos[i],dy=INTAKE.y-pPos[i+1],dz=INTAKE.z-pPos[i+2],d=Math.hypot(dx,dy,dz)||1,a=pull/(.3+d);
       pVel[i]+=dx/d*a*dt;pVel[i+1]+=dy/d*a*dt;pVel[i+2]+=dz/d*a*dt;}
     pVel[i]*=drag;pVel[i+1]*=drag;pVel[i+2]*=drag;
     pPos[i]+=pVel[i]*dt;pPos[i+1]+=pVel[i+1]*dt;pPos[i+2]+=pVel[i+2]*dt;
     if(pPos[i]<B[0]+.03||pPos[i]>B[1]-.03)pVel[i]*=-.5;if(pPos[i+2]<B[2]+.03||pPos[i+2]>B[3]-.03)pVel[i+2]*=-.5;
     pPos[i]=clamp(pPos[i],B[0]+.03,B[1]-.03);pPos[i+2]=clamp(pPos[i+2],B[2]+.03,B[3]-.03);if(pPos[i+1]>CEIL){pPos[i+1]=CEIL;pVel[i+1]=-Math.abs(pVel[i+1])*.3;pVel[i]+=rnd(-.2,.2);pVel[i+2]+=rnd(-.2,.2);}
+    if(TH&&pPos[i+1]<.05){pPos[i+1]=.05;pVel[i+1]=Math.abs(pVel[i+1]);}
     let kill=Math.random()<pKill||pPos[i+1]<.02;
     if(lv&&!kill){const dx=INTAKE.x-pPos[i],dy=INTAKE.y-pPos[i+1],dz=INTAKE.z-pPos[i+2];if(dx*dx+dy*dy+dz*dz<capR)kill=true;}
     if(kill){pAlive[n]=0;pCount--;pPos[i+1]=-50;continue;}
@@ -743,7 +750,12 @@ function updateDust(dt,lv,head){
     if(!thermalOn&&curtOpen&&stage==='bed'){const t=(1.98-pPos[i])/.857;if(t>0){const y0=pPos[i+1]+.514*t;if(y0>.9&&y0<2&&pPos[i+2]>-1.2&&pPos[i+2]<0)br=1.7;}}
     pCol[i]=.78*br;pCol[i+1]=.74*br;pCol[i+2]=.66*br;}
   pGeo.attributes.position.needsUpdate=true;pGeo.attributes.color.needsUpdate=true;
+  if(TH){ // 擴散範圍：把地面切成 0.5 m 的格子，算有粒子飄到上方的格子佔多少
+    const nx=Math.max(1,Math.round((B[1]-B[0])/.5)),nz=Math.max(1,Math.round((B[3]-B[2])/.5));if(!covGrid||covGrid.length!==nx*nz)covGrid=new Uint8Array(nx*nz);covGrid.fill(0);let hit=0;
+    for(let n=0;n<PMAX;n++){if(!pAlive[n])continue;const i=n*3,cx=Math.min(nx-1,Math.max(0,((pPos[i]-B[0])/.5)|0)),cz=Math.min(nz-1,Math.max(0,((pPos[i+2]-B[2])/.5)|0)),k=cz*nx+cx;if(!covGrid[k]){covGrid[k]=1;hit++;}}
+    covPct=lerp(covPct,hit/(nx*nz)*100,Math.min(1,dt*4));}
   breath=dose;return dose;}
+let covGrid=null,covPct=0;
 
 /* =========================================================
    9. 熱成像
@@ -770,7 +782,7 @@ function setThermal(on){if(thermalOn===on)return;thermalOn=on;
     else if(o.userData.orig){o.material=o.userData.orig;delete o.userData.orig;}});
   scene.fog=on?null:FOG;scene.background.set(on?0x05010d:0x0c0d0f);scene.environment=on?null:envTex;
   pMat.size=(on?2.6:1.6)*PSZ;pMat.opacity=on?.95:.55;pMat.blending=on?T.AdditiveBlending:T.NormalBlending;pMat.needsUpdate=true;
-  post.uniforms.thermal.value=on?1:0;$('therm').hidden=!on;}
+  post.uniforms.thermal.value=on?1:0;$('therm').hidden=!on;camera.fov=on?80:66;camera.updateProjectionMatrix();covPct=0;}
 const envTex=scene.environment;
 let replayLv=0;
 
@@ -795,6 +807,10 @@ function aInit(){
   A.therm=loopNoise(A.noise,'highpass',5000,.5,0);
   A.sizzle=loopNoise(A.noise,'bandpass',5200,.9,0);A.fan=loopNoise(A.noise,'lowpass',420,.7,0);A.amb=loopNoise(A.brown,'bandpass',320,.6,0);
   const ws=ctx.createWaveShaper(),cv=new Float32Array(256);for(let i=0;i<256;i++){const x=i/128-1;cv[i]=Math.tanh(x*6);}ws.curve=cv;A.dist=ws;ws.connect(A.master);
+  // 房間殘響（程式產生的脈衝響應），讓咳嗽聲像在室內
+  const irL=Math.floor(ctx.sampleRate*.9),ir=ctx.createBuffer(2,irL,ctx.sampleRate);
+  for(let c=0;c<2;c++){const d2=ir.getChannelData(c);for(let i=0;i<irL;i++){const tt=i/ctx.sampleRate;d2[i]=(Math.random()*2-1)*Math.exp(-tt*6.5)*(tt<.012?tt/.012:1);}}
+  A.verb=ctx.createConvolver();A.verb.buffer=ir;A.verbIn=ctx.createGain();A.verbIn.gain.value=.22;A.verbIn.connect(A.verb);A.verb.connect(A.master);
 }
 function loopNoise(buf,type,f,q,gain,dest){const ctx=A.ctx,s=ctx.createBufferSource();s.buffer=buf;s.loop=true;
   const fl=ctx.createBiquadFilter();fl.type=type;fl.frequency.value=f;fl.Q.value=q;const g=ctx.createGain();g.gain.value=gain;
@@ -809,6 +825,44 @@ function tn(o){if(!A.ctx)return;const ctx=A.ctx,t=ctx.currentTime+(o.at||0),a=o.
   const g=ctx.createGain();env(g.gain,t,a,o.v||.2,d);let n=s;
   if(o.filt){const fl=ctx.createBiquadFilter();fl.type=o.ft||'lowpass';fl.frequency.value=o.filt;fl.Q.value=o.q||1;s.connect(fl);n=fl;}
   n.connect(g);g.connect(o.dest||A.master);s.start(t);s.stop(t+a+d+.05);}
+/* ---- 咳嗽：照真實咳嗽的三個階段合成 ----
+   1. 吸氣：咳之前先短促吸一口氣（「呼」的氣音）
+   2. 爆發期：聲門關著用力，突然打開 → 很短、很響、頻率很寬的爆破聲
+   3. 中間期：像用力吐氣，氣流噪音經過喉嚨、口腔的共振（母音「ㄏㄚ」的共振峰），快速衰減
+   4. 有聲期（不一定出現）：聲帶被帶動振動，有音高的「咳」尾音
+   一次咳嗽會連咳 1～3 下，一下比一下弱；再加一點房間殘響。 */
+const ADULT={f0:120,form:[[620,5,1],[1180,6,.65],[2550,8,.32]],dur:.4,voiced:.75,gap:.42,inhale:1};
+const KID={f0:290,form:[[900,5,1],[1650,6,.6],[3300,8,.3]],dur:.28,voiced:.6,gap:.32,inhale:.6};
+function coughOne(t0,P,g){const ctx=A.ctx,D=P.dur*rnd(.85,1.15),f=rnd(.92,1.08);
+  const out=ctx.createGain();out.gain.value=g;out.connect(A.master);if(A.verbIn)out.connect(A.verbIn);
+  const forms=P.form.map(([fr,qq,gg])=>{const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.Q.value=qq;
+    bp.frequency.setValueAtTime(fr*f*1.15,t0);bp.frequency.exponentialRampToValueAtTime(fr*f*.88,t0+D);   // 口腔張開又收起，共振峰往下滑
+    const gn=ctx.createGain();gn.gain.value=gg;bp.connect(gn);gn.connect(out);return bp;});
+  // 爆發期：極短的寬頻爆破
+  const b=ctx.createBufferSource();b.buffer=A.noise;const bh=ctx.createBiquadFilter();bh.type='highpass';bh.frequency.value=220;
+  const bg=ctx.createGain();bg.gain.setValueAtTime(.0001,t0);bg.gain.exponentialRampToValueAtTime(.8,t0+.004);bg.gain.exponentialRampToValueAtTime(.18,t0+.04);bg.gain.exponentialRampToValueAtTime(.0001,t0+.1);
+  b.connect(bh);bh.connect(bg);bg.connect(out);
+  // 胸腔的低頻「咚」
+  const th=ctx.createOscillator();th.frequency.setValueAtTime(95,t0);th.frequency.exponentialRampToValueAtTime(55,t0+.12);
+  const tg=ctx.createGain();tg.gain.setValueAtTime(.0001,t0);tg.gain.exponentialRampToValueAtTime(.55,t0+.006);tg.gain.exponentialRampToValueAtTime(.0001,t0+.16);th.connect(tg);tg.connect(out);
+  // 中間期：氣流噪音經過共振峰
+  const n=ctx.createBufferSource();n.buffer=A.noise;const ng=ctx.createGain();
+  ng.gain.setValueAtTime(.0001,t0);ng.gain.exponentialRampToValueAtTime(2.6,t0+.015);ng.gain.exponentialRampToValueAtTime(1.5,t0+D*.35);ng.gain.exponentialRampToValueAtTime(.35,t0+D*.75);ng.gain.exponentialRampToValueAtTime(.0001,t0+D);
+  n.connect(ng);forms.forEach(bp=>ng.connect(bp));
+  // 有聲期：聲帶振動（鋸齒波＋音高抖動），音高往下掉
+  if(Math.random()<P.voiced){const o=ctx.createOscillator();o.type='sawtooth';const f0=P.f0*rnd(.9,1.15);
+    o.frequency.setValueAtTime(f0*1.25,t0+.02);o.frequency.exponentialRampToValueAtTime(f0*.8,t0+D);
+    const jit=ctx.createOscillator();jit.type='square';jit.frequency.value=rnd(23,37);const jg=ctx.createGain();jg.gain.value=f0*.035;jit.connect(jg);jg.connect(o.frequency);
+    const vg=ctx.createGain();vg.gain.setValueAtTime(.0001,t0+.02);vg.gain.exponentialRampToValueAtTime(.7,t0+.07);vg.gain.exponentialRampToValueAtTime(.25,t0+D*.6);vg.gain.exponentialRampToValueAtTime(.0001,t0+D*.95);
+    o.connect(vg);forms.forEach(bp=>vg.connect(bp));o.start(t0+.02);jit.start(t0+.02);o.stop(t0+D+.05);jit.stop(t0+D+.05);}
+  b.start(t0,Math.random());n.start(t0,Math.random());th.start(t0);b.stop(t0+.15);n.stop(t0+D+.05);th.stop(t0+.2);}
+function coughFit(P,count,vol){if(!A.ctx)return;const ctx=A.ctx;let t=ctx.currentTime+.02;
+  if(P.inhale&&Math.random()<.8){ // 咳之前短吸一口氣
+    const s=ctx.createBufferSource();s.buffer=A.noise;const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.Q.value=1.2;
+    bp.frequency.setValueAtTime(1300,t);bp.frequency.linearRampToValueAtTime(2100,t+.22);const g=ctx.createGain();
+    g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.16*vol*P.inhale,t+.16);g.gain.exponentialRampToValueAtTime(.0001,t+.24);
+    s.connect(bp);bp.connect(g);g.connect(A.master);s.start(t,Math.random());s.stop(t+.26);t+=.3;}
+  for(let i=0;i<count;i++){coughOne(t,P,vol*Math.pow(.72,i)*rnd(.85,1.05));t+=P.gap*rnd(.85,1.2);}}
 const SFX={
   step(){nb({type:'lowpass',f:260,q:.8,a:.003,d:.11,v:.35,rate:rnd(.8,1.2)});if(Math.random()<.3)nb({f:rnd(1200,1900),q:4,a:.01,d:.08,v:.05});},
   flop(){nb({type:'lowpass',f:450,a:.01,d:.4,v:.55});nb({f:2000,a:.01,d:.25,v:.15});},
@@ -823,7 +877,7 @@ const SFX={
   rattle(){for(let i=0;i<3;i++)nb({type:'lowpass',f:700,a:.002,d:.06,v:.35,at:i*.09});},
   door(){tn({type:'sawtooth',f:210,f2:140,a:.06,d:1.1,v:.14,filt:900,ft:'bandpass',q:6});SFX.click();},
   breath(){nb({f:1100,q:.7,a:.45,d:.35,v:.06});nb({f:700,q:.7,a:.1,d:.6,v:.05,at:1.0});},
-  cough(){[0,.24].forEach(t=>{nb({f:700,q:1.2,a:.008,d:.14,v:.4,at:t});tn({type:'sawtooth',f:160,a:.01,d:.12,v:.1,filt:600,at:t});});},
+  cough(){coughFit(ADULT,2+((Math.random()*2)|0),1);},
   sniff(){nb({f:2800,q:4,a:.06,d:.12,v:.15});nb({f:2600,q:4,a:.05,d:.1,v:.12,at:.22});},
   blow(){nb({f:900,q:.8,a:.05,d:.5,v:.3});nb({type:'lowpass',f:400,a:.02,d:.4,v:.25,at:.05});},
   heart(){tn({f:52,a:.005,d:.16,v:.75});tn({f:47,a:.005,d:.2,v:.5,at:.22});},
@@ -858,7 +912,7 @@ const SFX={
   chalk(){for(let i=0;i<4;i++)nb({type:'highpass',f:3500,a:.005,d:.07,v:.12,at:i*.09});},
   bell(){[659,523,587,392,392,587,659,523].forEach((f,i)=>tn({f,a:.005,d:.6,v:.12,at:i*.42}));},
   bowl(){tn({f:523,a:.003,d:3,v:.06});tn({f:1047,a:.003,d:2,v:.025});},
-  kidCough(){[0,.2].forEach(t=>{nb({f:1300,q:1.4,a:.006,d:.12,v:.32,at:t});tn({type:'sawtooth',f:300,a:.008,d:.1,v:.07,filt:1100,at:t});});},
+  kidCough(){coughFit(KID,1+((Math.random()*2)|0),.55);},
 };
 function horrorStart(){
   if(!A.ctx)return;const ctx=A.ctx,t=ctx.currentTime;
@@ -1290,6 +1344,34 @@ function makeVirus(){
     s.add(mesh(new T.CylinderGeometry(.018,.026,.2,8),stm,0,.1,0),mesh(new T.SphereGeometry(.06,12,8).scale(1,.7,1),sm,0,.22,0));g.add(s);spikes.push(s);}
   [[.15,.1],[-.15,.1]].forEach(([x,y])=>g.add(mesh(new T.SphereGeometry(.07,16,10),bas({color:0x111111}),x,y,.5)));
   g.visible=false;return {g,spikes};}
+/* 脂肪細胞怪物：照白色脂肪細胞的構造——每顆細胞幾乎被一顆大油滴塞滿，
+   細胞核被擠扁成新月形、貼在邊緣；很多顆擠成一團（脂肪小葉），中間有微血管 */
+function makeFat(){
+  const g=new T.Group();g.userData.heat=.42;const cells=[],drops=[];
+  const memM=phys({color:0xf6dc84,roughness:.12,clearcoat:1,clearcoatRoughness:.08,transparent:true,opacity:.55,envMapIntensity:1.1,depthWrite:false});
+  const oilM=phys({color:0xd99a1e,roughness:.05,clearcoat:1,emissive:0x3a2200,envMapIntensity:1.3});
+  const nucM=std({color:0x4a2a6e,roughness:.45}),capM=std({color:0x8a141c,roughness:.4});
+  function cell(r,x,y,z,main){const c=new T.Group();c.position.set(x,y,z);
+    const geo=new T.SphereGeometry(r,40,28),p=geo.attributes.position;
+    for(let i=0;i<p.count;i++){const v=new T.Vector3().fromBufferAttribute(p,i);v.multiplyScalar(1+.05*Math.sin(v.x*11/r)*Math.cos(v.y*9/r)+.03*Math.sin(v.z*13/r));p.setXYZ(i,v.x,v.y,v.z);}geo.computeVertexNormals();
+    c.add(new T.Mesh(geo,memM),new T.Mesh(new T.SphereGeometry(r*.86,32,24),oilM));
+    // 被擠扁的新月形細胞核，貼在細胞膜邊緣
+    const nu=new T.Mesh(new T.SphereGeometry(r*.32,20,14),nucM);nu.scale.set(1,.55,.22);
+    const a=rnd(0,6.28),e=rnd(-.4,.4);nu.position.set(Math.cos(a)*Math.cos(e)*r*.93,Math.sin(e)*r*.93,Math.sin(a)*Math.cos(e)*r*.93);if(main)nu.position.set(0,r*.15,r*.93);
+    nu.lookAt(nu.position.clone().multiplyScalar(2));c.add(nu);
+    g.add(c);cells.push({c,r,ph:rnd(0,6),nu});return c;}
+  cell(.55,0,0,0,true);
+  [[.32,.62,.25,-.2],[.36,-.6,.15,-.15],[.28,.35,-.5,.1],[.3,-.38,-.48,.05],[.26,.15,.6,-.25],[.27,-.2,.55,.15],[.24,.7,-.3,.15],[.25,-.72,-.2,.2],[.22,0,-.15,-.55]].forEach(c=>cell(...c));
+  // 細胞之間的微血管
+  for(let i=0;i<7;i++){const a=cells[(i+1)%cells.length].c.position,b=cells[(i+3)%cells.length].c.position;
+    const mid=a.clone().add(b).multiplyScalar(.5).add(new T.Vector3(rnd(-.1,.1),rnd(-.1,.1),.25));
+    g.add(new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3([a.clone().setZ(a.z+.2),mid,b.clone().setZ(b.z+.2)]),16,.014,6),capM));}
+  // 往下滴的油
+  for(let i=0;i<6;i++){const d=new T.Mesh(new T.SphereGeometry(.035,12,10),oilM);d.userData.ph=rnd(0,1);d.userData.x=rnd(-.5,.5);d.userData.z=rnd(-.2,.3);g.add(d);drops.push(d);}
+  g.visible=false;return {g,cells,drops};}
+function animFat(t,sp){FAT.cells.forEach((c,i)=>{const w=Math.sin(t*sp*.55+c.ph);c.c.scale.set(1+.06*w,1-.07*w,1+.06*w);});
+  FAT.drops.forEach(d=>{const ph=(t*.35*Math.max(1,sp*.15)+d.userData.ph)%1;d.position.set(d.userData.x,-.35-ph*1.4,d.userData.z);d.scale.set(1,1+ph*1.5,1);});}
+const FAT=makeFat();scene.add(FAT.g);
 const LUNG=makeLung(),VIRUS=makeVirus();scene.add(LUNG.g,VIRUS.g);
 function animLung(t,sp){const b=1+.07*Math.sin(t*sp*.5);LUNG.lobes.forEach(L=>L.scale.set(b,b,b));LUNG.tents.forEach(T_=>T_.segs.forEach((s,k)=>{s.rotation.x=Math.sin(t*sp*.4+T_.ph+k*.7)*.35;s.rotation.y=Math.cos(t*sp*.3+T_.ph+k)*.3;}));}
 function animVirus(t,sp){VIRUS.g.rotation.y+=.01*sp;VIRUS.spikes.forEach((s,i)=>{const k=1+.25*Math.sin(t*sp*.6+i);s.scale.set(1,k,1);});}
@@ -1308,10 +1390,10 @@ function setFat(f){HERO.fat=f;const b=HERO.bones;if(!b.Abdomen)return;b.Abdomen.
 const STAGE_INFO={
   bed:{clock:7*60+12,day:'第一天・早晨',fail:'你癱坐在床邊，身邊堆滿衛生紙，鼻水還是停不下來。',retry:'再醒來一次'},
   kitchen:{clock:7*60+30,day:'第一天・早餐',fail:'你坐在廚房地上咳個不停，油煙還沒散。',retry:'重新挑戰：做早餐'},
-  temple:{clock:8*60+5,day:'第一天・廟宇',fail:'你胖到走不動，香煙還在你身邊繚繞。',retry:'重新挑戰：香油錢'},
+  temple:{clock:8*60+5,day:'第一天・廟宇',fail:'你胖到走不動，脂肪細胞怪物壓在你身旁，香煙還在繚繞。',retry:'重新挑戰：香油錢'},
   school:{clock:8*60+40,day:'第一天・學校',fail:'快篩兩條線。你確診了。',retry:'重新挑戰：數學課'}};
 let REC=[],fadeV=0,lastFail=false;
-function hideAllProps(){HERO.root.visible=false;[MITE.g,LUNG.g,VIRUS.g,swab,rtest,handTissue].forEach(o=>o.visible=false);drips.forEach(d=>d.visible=false);faceLight.intensity=0;
+function hideAllProps(){HERO.root.visible=false;[MITE.g,LUNG.g,VIRUS.g,FAT.g,swab,rtest,handTissue].forEach(o=>o.visible=false);drips.forEach(d=>d.visible=false);faceLight.intensity=0;
   while(tissues.children.length)tissues.remove(tissues.children[0]);setFat(0);if(HERO.ok){HERO.mixer.stopAllAction();heroAnim=null;BONES.forEach(n=>{if(HERO.bones[n])HERO.bones[n].quaternion.copy(HERO.rest[n]);});}}
 function showStage(n){room.visible=n==='bed';BED_LIGHTS.forEach(l=>l.visible=n==='bed');KIT.visible=n==='kitchen';TEM.visible=n==='temple';SCH.visible=n==='school';}
 function commonReset(n){
@@ -1544,11 +1626,11 @@ const H3={base:new T.Vector3(),look:new T.Vector3()};
 const FAILCFG={
   bed:{mon:'mite',focus:[-1.25,-1.4],sit:[-.25,-1.0,Math.PI/2],repCam:[.95,1.8,.25,-1.05,.45,-1.4]},
   kitchen:{mon:'lung',focus:[KX-.15,-1.5],sit:[KX+.75,.1,-Math.PI/2],repCam:[KX+1.35,1.95,1.1,KX-.15,.95,-1.4]},
-  temple:{mon:null,focus:[TX,-.5],sit:null,repCam:[TX+.8,3.7,6.2,TX,.5,-.3]},
+  temple:{mon:'fat',focus:[TX,-.5],sit:null,repCam:[TX+.8,3.7,6.2,TX,.5,-.3]},
   school:{mon:'virus',focus:[RX,.5],sit:[RX-1.2,-2.4,0],repCam:[RX+3.6,2.6,3.2,RX-.2,.9,-.8]}};
-function monObj(){const F=FAILCFG[stage];return F.mon==='mite'?MITE.g:F.mon==='lung'?LUNG.g:F.mon==='virus'?VIRUS.g:null;}
-function animMon(t,sp){const F=FAILCFG[stage];if(F.mon==='mite')animMite(t,sp);else if(F.mon==='lung')animLung(t,sp);else if(F.mon==='virus')animVirus(t,sp);}
-const MONRISE={mite:[[-1.15,.3,-1.3],1.2,1],lung:[[KX-.15,1.2,-1.45],1.75,.9],virus:[[RX,.6,.5],1.7,1]};
+function monObj(){const F=FAILCFG[stage];return F.mon==='mite'?MITE.g:F.mon==='lung'?LUNG.g:F.mon==='virus'?VIRUS.g:F.mon==='fat'?FAT.g:null;}
+function animMon(t,sp){const F=FAILCFG[stage];if(F.mon==='mite')animMite(t,sp);else if(F.mon==='lung')animLung(t,sp);else if(F.mon==='virus')animVirus(t,sp);else if(F.mon==='fat')animFat(t,sp);}
+const MONRISE={fat:[[TX,1.0,-.5],1.9,1.25],mite:[[-1.15,.3,-1.3],1.2,1],lung:[[KX-.15,1.2,-1.45],1.75,.9],virus:[[RX,.6,.5],1.7,1]};
 function startHorror(){
   state='horror';stT=0;grab=null;settle=null;handle.visible=false;mouseHeld=btnHeld=false;closePur();
   if(document.exitPointerLock&&locked())document.exitPointerLock();
@@ -1581,7 +1663,8 @@ function updateHorror(dt){
     camera.position.copy(H3.base).lerp(lookTmp,push);camera.position.x+=rnd(-shake,shake);camera.position.y+=rnd(-shake,shake);
     camera.lookAt(H3.look.x,H3.look.y+(t>1.2&&M?.25:0)*ease(clamp((t-1.2)/1.5,0,1)),H3.look.z);
     if(M){const R=MONRISE[F.mon];
-      if(t<1.2){if(stage==='bed'&&Math.random()<dt*6)setQuilt(q+rnd(-.03,.03));}
+      if(stage==='temple'&&t<3.9&&HERO.ok){const f=new T.Vector3(Math.sin(HERO.root.rotation.y),0,Math.cos(HERO.root.rotation.y));HERO.root.position.addScaledVector(f,dt*.16*(1-t/3.9));if(heroAnim)heroAnim.timeScale=.3*(1-t/3.9)+.05;if(Math.floor(t/1.1)!==Math.floor((t-dt)/1.1))SFX.breath();}
+      if(t<1.2){if(stage==='bed'&&Math.random()<dt*6)setQuilt(q+rnd(-.03,.03));if(stage==='temple'&&M.scale.x<.3){M.scale.setScalar(.02+t/1.2*.25);animMon(t,6);}}
       else if(t<3.9){if(t-dt<1.2)SFX.sting();const p=ease(clamp((t-1.2)/2.2,0,1));M.position.y=lerp(R[0][1],R[1],p);M.scale.setScalar(lerp(.02,R[2],p));
         M.lookAt(lookTmp);animMon(t,10);if(t-dt<2.6&&t>=2.6)SFX.swell();}
       else{const p=ease(clamp((t-3.9)/.8,0,1));
@@ -1605,7 +1688,7 @@ function updateHorror(dt){
       if(HERO.mixer){HERO.mixer.stopAllAction();heroAnim=null;}BONES.forEach(n=>{if(HERO.bones[n])HERO.bones[n].quaternion.copy(HERO.rest[n]);});
       if(stage==='temple')setFat(1);
       if(stage==='bed'){for(let i=0;i<34;i++){const a=rnd(0,6.28),r=rnd(.25,.85);dropTissue(sitPos.x+Math.cos(a)*r+.25,sitPos.z+Math.sin(a)*r,.02);}handTissue.visible=HERO.ok;}
-      if(M){const fx=Math.sin(sitRot),fz=Math.cos(sitRot);M.position.set(sitPos.x-fx*1.3,1.4,sitPos.z-fz*1.3);M.scale.setScalar(.7);M.lookAt(sitPos.x,.6,sitPos.z);}
+      if(M){const fx=Math.sin(sitRot),fz=Math.cos(sitRot);if(stage==='temple'){M.position.set(sitPos.x-fz*.9-fx*.6,1.05,sitPos.z+fx*.9-fz*.6);M.scale.setScalar(.85);}else{M.position.set(sitPos.x-fx*1.3,1.4,sitPos.z-fz*1.3);M.scale.setScalar(.7);}M.lookAt(sitPos.x,.6,sitPos.z);}
       swab.visible=rtest.visible=stage==='school'&&HERO.ok;U.red.value=0;coughNext=0;}
     const close=t>=8.6;
     let wipe=0;
@@ -1622,7 +1705,7 @@ function updateHorror(dt){
     U.black.value=clamp(1-(t-5.4)*2,0,1);U.k.value=close?.22:.6;
     if(HERO.ok&&HERO.bones.Head){HERO.bones.Head.getWorldPosition(lookTmp);}else lookTmp.set(sitPos.x,.75,sitPos.z);
     const fx=Math.sin(sitRot),fz=Math.cos(sitRot);
-    if(!close){camera.position.set(sitPos.x+fx*1.2-fz*.15,1.3,sitPos.z+fz*1.2+fx*.15);camera.lookAt(lookTmp.x,lookTmp.y-.15,lookTmp.z);}
+    if(!close){if(stage==='temple'){camera.position.set(sitPos.x+fx*1.9+fz*.6,1.25,sitPos.z+fz*1.9-fx*.6);camera.lookAt(lookTmp.x-fz*.35,lookTmp.y+.1,lookTmp.z+fx*.35);}else{camera.position.set(sitPos.x+fx*1.2-fz*.15,1.3,sitPos.z+fz*1.2+fx*.15);camera.lookAt(lookTmp.x,lookTmp.y-.15,lookTmp.z);}}
     else{const dd=stage==='school'?.6:stage==='temple'?1.05:.46;camera.position.set(lookTmp.x+fx*dd-fz*.1,lookTmp.y+.06,lookTmp.z+fz*dd+fx*.1);camera.lookAt(lookTmp.x,lookTmp.y+(stage==='school'?-.1:.04),lookTmp.z);}
     faceLight.position.copy(camera.position);faceLight.intensity=close?1.1:0;
     if(stage==='bed'){placeDrips(t);
@@ -1688,10 +1771,11 @@ function updateHorror(dt){
     replayTail(dt);}
 }
 function replayTail(dt){const U=post.uniforms;
-  const sec=Math.floor(replay.t);$('recT').textContent=`● REC 00:${String(sec).padStart(2,'0')}`;
   if(replay.i>=replay.len&&!replay.end)replay.end=replay.t;
-  if(replay.end&&replay.t-replay.end>2.5){U.black.value=clamp((replay.t-replay.end-2.5)*2,0,1);
-    if(replay.t-replay.end>3.1){replay=null;setG(A.therm,0);horrorStop();failDay();U.black.value=.85;}}}
+  const sec=Math.floor(replay.t);$('recT').textContent=replay.end?`▶▶ 時間加速 ×${TS*3}`:`● REC 00:${String(sec).padStart(2,'0')}`;
+  $('covN').textContent=Math.round(covPct)+'%';$('covB').style.width=covPct.toFixed(1)+'%';
+  if(replay.end&&replay.t-replay.end>7){U.black.value=clamp((replay.t-replay.end-7)*2,0,1);
+    if(replay.t-replay.end>7.6){replay=null;setG(A.therm,0);horrorStop();failDay();U.black.value=.85;}}}
 
 function updateTitle(){camera.position.set(LIE.x,LIE.y,LIE.z);camera.rotation.set(1.35+Math.sin(time*.3)*.02,Math.PI*.55,.35);}
 
