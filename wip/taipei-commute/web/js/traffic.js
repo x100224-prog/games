@@ -164,6 +164,14 @@ export class Traffic {
   _pickNext(c) {
     const e = c.e, node = this.world.nodes.get(c.dir > 0 ? e.b : e.a);
     c.next = null; c.exit = false;
+    // 實測用的通勤車：照導航路線走
+    if (c.route) {
+      const st = c.route[c.ri + 1]; if (!st) { c.arrived = true; return; }
+      const e2 = this.world.edges.get(st.k); if (!e2 || e2.dead) return;
+      edgePoint(e, c.dir > 0 ? e.len : 0, _a); edgePoint(e2, st.dir > 0 ? 0 : e2.len, _b);
+      c.next = { e: e2, dir: st.dir, w: 1, dot: _a.dx * c.dir * _b.dx * st.dir + _a.dz * c.dir * _b.dz * st.dir };
+      return;
+    }
     // 地圖邊界的斷頭路（建圖時標記的）：不迴轉、不減速，開到盡頭就消失，避免回堵
     if (e.flags & (c.dir > 0 ? 32 : 16)) { c.exit = true; return; }
     if (!node) return;
@@ -235,8 +243,8 @@ export class Traffic {
     const D2 = TRAFFIC.despawn * TRAFFIC.despawn;
     for (let i = this.cars.length - 1; i >= 0; i--) {
       const c = this.cars[i];
-      let kill = c.e.dead || (c.x - px) ** 2 + (c.z - pz) ** 2 > D2 && !initial;
-      if (!kill) kill = this._drive(c, dt, obstacle);
+      let kill = !c.agent && (c.e.dead || (c.x - px) ** 2 + (c.z - pz) ** 2 > D2 && !initial);
+      if (!kill) kill = this._drive(c, dt, obstacle) && !c.agent;
       if (kill) { this._detach(c); this.cars[i] = this.cars[this.cars.length - 1]; this.cars.pop(); }
     }
     let n = 0, nf = 0;
@@ -266,7 +274,8 @@ export class Traffic {
       if (Math.abs(o.y - c.y) > 2.2) continue;
       const fx = -Math.sin(c.psi), fz = -Math.cos(c.psi), rx = o.x - c.x, rz = o.z - c.z;
       const ahead = rx * fx + rz * fz, lat = Math.abs(rx * -fz + rz * fx);
-      if (ahead > 0 && ahead < 30 && lat < o.r + 1.0) gap = Math.min(gap, ahead - o.r - 2.4);
+      // 橫向只看「會擋到這條車道」的距離（玩家車身半寬約 1 m＋自己半寬＋一點餘裕），對向車道的玩家不會讓對向車停下來
+      if (ahead > 0 && ahead < 30 && lat < Math.min(o.r, 1.0) + 1.3) gap = Math.min(gap, ahead - o.r - 2.4);
     }
     if (c.turn) {
       const t = c.turn;
@@ -288,13 +297,29 @@ export class Traffic {
     for (const o of e.cars) if (o !== c && o.dir === c.dir && o.lane === c.lane && !o.turn && !o.hop) {
       const d = (o.s - c.s) * c.dir; if (d > 0) { gap = Math.min(gap, d - 5.2); lead = Math.min(lead, d); }
     }
-    // 飛天跑車：塞住不動、前面就有車，就升空飛越（落地點還在同一段路上）
-    if (c.flyer && c.hopCd <= 0 && c.wait > FLYER.wait && lead < 9) {
-      const room = toEnd - 6;
-      if (room > 20) {
-        const D = Math.min(FLYER.dist, room);
-        c.hop = { t: 0, T: FLYER.time * Math.sqrt(D / FLYER.dist), s0: c.s, s1: c.s + c.dir * D, y0: c.y };
-        c.hopCd = FLYER.cooldown; c.wait = 0; this.hops = (this.hops || 0) + 1; return false;
+    // 飛天跑車：塞住不動、前面就有車，就升空飛越。落地點要有空位（同車道前後 4.8 m 內沒車）：
+    // 先找「飛過路口、落在下一段路上」最遠的空位，沒有再找同一段路上的空位；直線距離最多約 60 m（10 台車）。
+    if (c.flyer && c.hopCd <= 0 && c.wait > FLYER.wait && lead < 9 && (c.hopsLeft === undefined || c.hopsLeft > 0)) {
+      const free = (ed, dir, lane, s1) => { for (const o of ed.cars) if (o !== c && o.dir === dir && o.lane === lane && Math.abs(o.s - s1) < 4.8) return false; return true; };
+      let tgt = null;
+      if (c.next && toEnd < FLYER.dist - 8) {
+        const e2 = c.next.e, d2 = c.next.dir, l2 = Math.min(c.lane, e2.lanesDir - 1), sIn = d2 > 0 ? e2.trimA : e2.len - e2.trimB;
+        for (let dd = FLYER.dist - toEnd; dd >= 6; dd -= 2) {
+          const s2 = sIn + d2 * dd; if (s2 < 2 || s2 > e2.len - 2) continue;
+          edgePoint(e2, s2, _b); const off = laneOffset(e2, d2, l2), x = _b.x - _b.dz * off, z = _b.z + _b.dx * off;
+          if (Math.hypot(x - c.x, z - c.z) > FLYER.dist + 2) continue;
+          if (free(e2, d2, l2, s2)) { tgt = { e: e2, dir: d2, lane: l2, s: s2, x, z, y: _b.y, psi: Math.atan2(-_b.dx * d2, -_b.dz * d2), next: true }; break; }
+        }
+      }
+      if (!tgt) for (let d = Math.min(FLYER.dist, toEnd - 6); d >= 20; d -= 2) {
+        const s1 = c.s + c.dir * d; if (!free(e, c.dir, c.lane, s1)) continue;
+        edgePoint(e, s1, _b); const off = laneOffset(e, c.dir, c.lane);
+        tgt = { e, dir: c.dir, lane: c.lane, s: s1, x: _b.x - _b.dz * off, z: _b.z + _b.dx * off, y: _b.y, psi: Math.atan2(-_b.dx * c.dir, -_b.dz * c.dir) }; break;
+      }
+      if (tgt) {
+        const D = Math.hypot(tgt.x - c.x, tgt.z - c.z);
+        c.hop = { t: 0, T: FLYER.time * Math.sqrt(Math.max(20, D) / FLYER.dist), x0: c.x, y0: c.y, z0: c.z, psi0: c.psi, D, tgt };
+        c.hopCd = c.agent ? 5 : FLYER.cooldown; c.wait = 0; this.hops = (this.hops || 0) + 1; if (c.hopsLeft !== undefined) c.hopsLeft--; return false;
       }
     }
     if (c.next) {
@@ -311,9 +336,10 @@ export class Traffic {
     if (c.v < 0.3) c.wait += dt; else c.wait = 0;
     c.s += c.v * dt * c.dir;
     if (toEnd <= 0.2 || (c.dir > 0 ? c.s >= endS : c.s <= endS)) {
-      if (!c.next || c.next.e.dead) return true;
+      if (!c.next || c.next.e.dead) { if (c.agent) { c.s = endS; c.v = 0; c.next = null; this._pose(c); return false; } return true; }
       c.s = endS;
       this._startTurn(c);
+      if (c.route) c.ri++;
     }
     this._pose(c);
     return c.wait > 45;
@@ -321,15 +347,20 @@ export class Traffic {
 
   /** 飛越中：沿著車道往前飛（拋物線），落地時檢查有沒有壓到車。 */
   _hop(c, dt, ob) {
-    const h = c.hop; h.t += dt;
-    const u = Math.min(1, h.t / h.T);
-    c.s = h.s0 + (h.s1 - h.s0) * u;
-    this._pose(c);
-    c.y += 4 * FLYER.apex * u * (1 - u) * Math.sqrt(Math.abs(h.s1 - h.s0) / FLYER.dist);
-    c.pitch = (u - 0.5) * 0.35; c.v = Math.abs(h.s1 - h.s0) / h.T;
+    const h = c.hop, g = h.tgt; h.t += dt;
+    const u = Math.min(1, h.t / h.T), k = u * u * (3 - 2 * u);
+    c.x = h.x0 + (g.x - h.x0) * u; c.z = h.z0 + (g.z - h.z0) * u;
+    c.y = h.y0 + (g.y - h.y0) * u + 4 * FLYER.apex * u * (1 - u) * Math.sqrt(Math.max(20, h.D) / FLYER.dist);
+    let dp = g.psi - h.psi0; dp = Math.atan2(Math.sin(dp), Math.cos(dp)); c.psi = h.psi0 + dp * k;
+    c.pitch = (u - 0.5) * 0.35; c.v = h.D / h.T;
     if (u < 1) return false;
-    c.hop = null; c.pitch = 0; c.v = 3;
-    // 落地：壓到同車道的車就撞成一團
+    // 落地：換到落地的那段路（飛過路口的話是下一段）
+    c.hop = null; c.pitch = 0; c.v = 3; c.turn = null;
+    if (g.e !== c.e) { this._detach(c); c.e = g.e; g.e.cars.push(c); if (c.route) c.ri++; }
+    c.dir = g.dir; c.lane = g.lane; c.s = g.s; c.next = null;
+    if (c.e.dead) return false;
+    this._pose(c);
+    // 落地時那裡剛好有車（飛的這幾秒有車開進來）：撞成一團
     for (const o of c.e.cars) if (o !== c && !o.hop && o.dir === c.dir && o.lane === c.lane && Math.abs(o.s - c.s) < 4.6) {
       c.wreck = o.wreck = 7; c.v = o.v = 0;
       this.events.push({ type: 'crash', x: c.x, y: c.y, z: c.z });

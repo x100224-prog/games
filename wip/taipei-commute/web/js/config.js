@@ -60,6 +60,7 @@ export const PARK = {
   roadsideOccupied: 0.74,   // 路邊車格被占用的比例
   lotOccupied: 0.8,
   posTol: 1.15, latTol: 0.65, angTol: 0.30,  // 停妥的容許誤差 (m, m, rad)
+  rushR: 110,               // 早上公司附近這個範圍內的路邊格都停滿了 (m)
 };
 
 // 上下班尖峰：車流密度乘上這個倍數（之後做塞車時會再調）

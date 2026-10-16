@@ -234,15 +234,21 @@ export class DroneFlight {
   }
 
   /** 選降落點：目的地附近（250 m 內）的一般道路上，周圍 6 m 沒有建物。 */
-  _landingSpot(dest) {
+  /**
+   * 選降落點：目的地附近（250 m 內）的道路上，周圍 6 m 沒有建物。車少的路優先（巷道、一般道路），
+   * 大馬路車多、常常等不到空檔，算成「多 120 m」。avoid：已經等太久、放棄的降落點。
+   */
+  _landingSpot(dest, avoid = []) {
     const W = this.world; let best = null;
     W.forEdgesNear(dest.x, dest.z, 260, (e) => {
       if (e.bridge || e.tunnel || e.cls > 5 || e.cls < 2 || e.dead) return;
+      const pen = e.cls <= 3 ? 120 : 0;
       for (let i = 0; i + 1 < e.pts.length / 2; i++) {
         const x = (e.pts[i * 2] + e.pts[i * 2 + 2]) / 2, z = (e.pts[i * 2 + 1] + e.pts[i * 2 + 3]) / 2, d = Math.hypot(x - dest.x, z - dest.z);
-        if (d > 250 || (best && d >= best.d)) continue;
+        if (d > 250 || (best && d + pen >= best.score)) continue;
+        if (avoid.some(a => Math.hypot(a.x - x, a.z - z) < 40)) continue;
         let ok = true; for (const [ox, oz] of [[6, 0], [-6, 0], [0, 6], [0, -6]]) if (W.buildingAt(x + ox, z + oz)) { ok = false; break; }
-        if (ok) best = { x, z, d, e, psi: Math.atan2(-(e.pts[i * 2 + 2] - e.pts[i * 2]), -(e.pts[i * 2 + 3] - e.pts[i * 2 + 1])) };
+        if (ok) best = { x, z, d, score: d + pen, e, psi: Math.atan2(-(e.pts[i * 2 + 2] - e.pts[i * 2]), -(e.pts[i * 2 + 3] - e.pts[i * 2 + 1])) };
       }
     });
     return best;
@@ -266,7 +272,7 @@ export class DroneFlight {
     // 目的地那邊的街區可能還沒載入：先朝目的地飛，靠近後（街區載入了）再選降落的路段
     const spot = this._landingSpot(dest) || { x: dest.x, z: dest.z, provisional: true, psi: c.psi };
     const lp = this._pickLayer(c, spot, drones ? drones.list : []);
-    Object.assign(this, { active: true, phase: 'lift', spot, layer: lp.layer, layerCounts: lp.counts, vx: 0, vy: 0, vz: 0, track: Math.atan2(spot.x - c.x, spot.z - c.z), costSum: 0, waitSec: 0, flySec: 0, cp: null });
+    Object.assign(this, { avoid: [], spotWait: 0, active: true, phase: 'lift', spot, layer: lp.layer, layerCounts: lp.counts, vx: 0, vy: 0, vz: 0, track: Math.atan2(spot.x - c.x, spot.z - c.z), costSum: 0, waitSec: 0, flySec: 0, cp: null });
     this.x = c.x; this.y = c.y; this.z = c.z; this.psi = c.psi;
     c.v = 0; this.rotors.visible = true;
     this.h.toast(`無人機飛行：升空到 ${lp.layer} m（這一層最空：${lp.counts.join(' / ')} 架）`, 3);
@@ -290,7 +296,7 @@ export class DroneFlight {
     const fee = DRONE.costPerMin * gameMinPerSec * dt; this.costSum += fee; this.h.cost(fee);
     const list = drones ? drones.list.filter(d => d.phase !== 'ground' && Math.abs(d.x - this.x) < 2500 && Math.abs(d.z - this.z) < 2500) : [];
     if (this.spot.provisional && Math.hypot(this.spot.x - this.x, this.spot.z - this.z) < 900) {
-      const s2 = this._landingSpot(this.h.dest());
+      const s2 = this._landingSpot(this.h.dest(), this.avoid);
       if (s2) this.spot = s2;
       else if (Math.hypot(this.spot.x - this.x, this.spot.z - this.z) < 350) {
         const o = {}, e = W.nearestEdge(this.spot.x, this.spot.z, 300, (ed) => !ed.bridge && !ed.tunnel && ed.cls <= 6, o);
@@ -323,7 +329,16 @@ export class DroneFlight {
       this.vx = (sp.x - this.x) * 0.8; this.vz = (sp.z - this.z) * 0.8;
       const lg = W.groundAt(sp.x, sp.z, gr), ty = lg + 25; this.vy = Math.max(-DRONE.descend, Math.min(2, (ty - this.y) * 0.6));
       if (this._clear(sp)) { if (Math.abs(this.y - ty) < 3) this.phase = 'descend'; }
-      else { this.waitSec += dt; this.blocked = true; }
+      else {
+        this.waitSec += dt; this.blocked = true; this.spotWait = (this.spotWait || 0) + dt;
+        // 同一個降落點等了 40 秒（遊戲 4 分鐘）還是有車：換附近另一個降落點
+        if (this.spotWait > 40) {
+          this.avoid = (this.avoid || []).concat([{ x: sp.x, z: sp.z }]);
+          const s2 = this._landingSpot(this.h.dest(), this.avoid);
+          if (s2) { this.spot = s2; this.phase = 'approach'; this.h.toast('下面一直有車，換一個降落點', 2); }
+          this.spotWait = 0;
+        }
+      }
     } else if (this.phase === 'descend') {
       this.vx = (sp.x - this.x) * 0.8; this.vz = (sp.z - this.z) * 0.8; this.vy = -DRONE.descend;
       const lg = W.groundAt(sp.x, sp.z, gr);

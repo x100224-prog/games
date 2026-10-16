@@ -14,21 +14,33 @@ export const PAY = {
   stuntRefill: 600,     // 特技燃料（壓縮空氣）從空充到滿（元）
 };
 
-// 價錢 ＝ 每趟平均省下的分鐘數 × 每天 2 趟 × 每分鐘的價值（＝遲到每分鐘扣的錢）× 回本天數
-export const PRICE_RULE = { tripsPerDay: 2, perMin: PAY.latePerMin, paybackDays: 30 };
-// 每趟平均省下的分鐘數（遊戲時間）。之後由自動測試在尖峰時段實測更新；目前是暫定值。
-export const SAVED_MIN = { nav: 2, ev: 3, roadster: 6, drone: 10 };
-export const SAVED_MEASURED = false;
+// 價錢 ＝ 每趟平均省下的分鐘數（遊戲時間）× 每天 2 趟 × 每分鐘的價值（＝遲到每分鐘扣的錢）× 10 個上班日；最低 1,000 元。
+// 意思是：這項功能用 10 個上班日（來回 20 趟），省下的時間剛好抵得上它的價錢。省越多時間就越貴。
+export const PRICE_RULE = { tripsPerDay: 2, perMin: PAY.latePerMin, paybackDays: 10, min: 1000 };
+// 每趟平均省下的遊戲分鐘數：2026/10/17 尖峰時段（車流 1.8 倍）實測，取中位數。
+//   導航：300 組住家→公司，最快路線 vs「沒有導航、只看方向箭頭」的開法（每個路口往前看 3 個路口選路），tests/nav_saving.mjs → 11 分。
+//   電動車：18 個公司附近，最近的空路邊格（早上 110 m 內停滿）vs 最近的電動車格，差的走路時間，tests/ev_measure.mjs → 約 0.2 分。
+//   飛天跑車：8 組，同一條路線在車流裡開，一般車 vs 塞住時飛越車陣（每趟最多 3 次），tests/measure2.mjs → 20 分。
+//   無人機：7 組，一般車開 vs 用無人機飛（含避撞、等降落），tests/measure2.mjs → 82 分（飛一趟約 12～14 分、燃料費約 550 元）。
+//   模擬的尖峰車速中位數 15 km/h（TomTom 2025 臺北：早上尖峰 19 km/h、晚上 15 km/h）。
+export const SAVED_MIN = { nav: 11, ev: 0.2, roadster: 20, drone: 82 };
+export const SAVED_MEASURED = true;
+export const SAVED_NOTE = {
+  nav: '尖峰實測：每趟約省 11 分鐘（不用自己找路、不會繞遠路）',
+  ev: '實測：停車走路幾乎省不到時間（電動車格多在停車場裡，不一定比路邊近）；好處是電費比油錢便宜很多',
+  roadster: '尖峰實測：每趟約省 20 分鐘（塞車時飛越車陣）',
+  drone: '尖峰實測：每趟約省 82 分鐘；一趟燃料費約 550 元',
+};
 
 export const SHOP = [
   { key: 'nav', name: '導航系統', kind: 'upgrade', desc: '中控螢幕與小地圖顯示建議路線，轉彎前提示。' },
-  { key: 'ev', name: '電動車', kind: 'car', car: 'ev', desc: '可以停停車場裡的電動車專用格（離公司近、可充電），電費比油錢便宜。' },
+  { key: 'ev', name: '電動車', kind: 'car', car: 'ev', desc: '可以停停車場裡的電動車專用格（停的時候順便充電，很少被占滿），電費比油錢便宜很多。' },
   { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車＋高壓氣體推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技另外消耗燃料（每晚在家充滿，用多少算多少錢），也可以停電動車格。' },
   { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', desc: '塞車時按 U 升空（車子伸出四組旋翼），自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。燃料費每分鐘 40 元，飛越久越貴。' },
 ];
 export function priceOf(key) {
-  const m = SAVED_MIN[key] || 1, r = PRICE_RULE;
-  return Math.round(m * r.tripsPerDay * r.perMin * r.paybackDays / 100) * 100;
+  const m = SAVED_MIN[key] || 0, r = PRICE_RULE;
+  return Math.max(r.min, Math.round(m * r.tripsPerDay * r.perMin * r.paybackDays / 100) * 100);
 }
 
 const SAVE_KEY = 'taipei-commute-v2';

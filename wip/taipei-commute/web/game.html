@@ -72,6 +72,8 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #mini { position: absolute; right: 16px; top: calc(12px + env(safe-area-inset-top, 0px)); width: 152px; height: 152px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .28); background: #10141a; }
 #place { position: absolute; left: 16px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--sign); border-radius: 6px; padding: 5px 11px; font-weight: 700; font-size: 14px; max-width: 60%; }
 #place small { display: block; color: var(--mute); font-weight: 400; font-size: 12px; }
+#place { box-sizing: border-box; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#task { box-sizing: border-box; }
 #prompt { position: absolute; left: 50%; bottom: calc(92px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: rgba(10, 13, 16, .88); border: 1px solid var(--line); border-radius: 999px; padding: 8px 18px; font-weight: 700; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
 #prompt kbd { font-family: var(--f-num); background: var(--signal); color: #1a1500; border-radius: 4px; padding: 0 7px; margin: 0 4px; font-weight: 700; }
 #prompt.warn { border-color: var(--alert); color: #ffd2cd; }
@@ -174,7 +176,25 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #stunt .bar i.low { background: #ff6b5e; }
 #stunt b { font-family: var(--f-num); font-variant-numeric: tabular-nums; min-width: 38px; }
 #stunt small { color: var(--mute); }
-.touch #stunt { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+/* 手機：特技燃料改顯示在速度表裡（畫面下方已經很擠） */
+.touch #stunt { display: none !important; }
+@media (max-width: 560px) {
+  .touch #place { max-width: calc(100% - 236px); }
+  .touch #speedo { left: 142px; transform: none; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .touch #prompt { bottom: calc(300px + env(safe-area-inset-bottom, 0px)); }
+  .touch #btnBrake { bottom: calc(74px + env(safe-area-inset-bottom, 0px)); }
+  .touch #btnBoost { bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
+}
+/* 手機橫向（矮螢幕）：後照鏡列移到搖桿上方；特技按鈕排在煞車左邊兩列；避撞面板放在上方任務欄右邊 */
+@media (max-height: 500px) {
+  .touch #btnMirL, .touch #btnMirR, .touch #btnSeat, .touch #btnCenter { bottom: calc(190px + env(safe-area-inset-bottom, 0px)); }
+  .touch #btnBoost { right: 170px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  .touch #btnDrone { right: 236px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  .touch #btnJump { right: 170px; bottom: calc(116px + env(safe-area-inset-bottom, 0px)); }
+  .touch #btnGrip { right: 236px; bottom: calc(116px + env(safe-area-inset-bottom, 0px)); }
+  .touch #btnFlip { right: 302px; bottom: calc(116px + env(safe-area-inset-bottom, 0px)); }
+  .touch #daa { left: 352px; top: calc(12px + env(safe-area-inset-top, 0px)); bottom: auto; width: 110px; height: 115px; }
+}
 .sbtn { background: rgba(111, 211, 255, .22); }
 #btnBoost { right: 96px; bottom: calc(136px + env(safe-area-inset-bottom, 0px)); }
 #btnJump { right: 22px; bottom: calc(204px + env(safe-area-inset-bottom, 0px)); }
@@ -206,6 +226,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #shopList .ihead { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
 #shopList .price { font-family: var(--f-num); font-weight: 700; color: var(--signal); white-space: nowrap; }
 #shopList p { margin: 0; color: var(--mute); font-size: 13px; }
+#shopList p.saved { color: #9fd8b8; font-size: 12.5px; }
 #shopList .buy { justify-self: end; border-radius: 8px; padding: 6px 14px; font-weight: 700; border: 0; background: var(--signal); color: #1a1500; }
 #shopList .buy:disabled { background: rgba(255,255,255,.08); color: var(--mute); cursor: not-allowed; }
 #shopCars { border: 1px solid var(--line); border-radius: 10px; margin: 0; padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 6px 16px; }

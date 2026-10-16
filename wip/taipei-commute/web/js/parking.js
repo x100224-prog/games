@@ -67,7 +67,9 @@ export class Parking {
     const C = this.world.CELL;
     for (let cx = Math.floor((x - r) / C); cx <= Math.floor((x + r) / C); cx++)
       for (let cz = Math.floor((z - r) / C); cz <= Math.floor((z + r) / C); cz++) {
-        const c = this.world.cells.get(cx + ',' + cz); if (!c || !c.bays) return false;
+        const c = this.world.cells.get(cx + ',' + cz); if (!c) return false;
+        if (c.state === 'empty') continue;            // 沒有資料的小格（河面、市界外）不會有車格
+        if (!c.bays) return false;
       }
     return true;
   }
@@ -257,11 +259,13 @@ export class Parking {
   }
 
   /** 目的地附近至少留幾個空的路邊車格（電動車另外有專用格）。 */
-  ensureFreeNear(x, z, want = 3) {
+  ensureFreeNear(x, z, want = 3, minD = 30) {
     const road = [];
-    this.forBaysNear(x, z, 260, (b, d2) => { if (b.type === 'road') { b._d2 = d2; road.push(b); } });
+    this.forBaysNear(x, z, 260, (b, d2) => { if (b.type === 'road' && d2 > minD * minD) { b._d2 = d2; road.push(b); } });
     let free = road.filter(b => !b.occupied).length;
     road.sort((a, b) => a._d2 - b._d2);
-    for (const b of road) { if (free >= want) break; if (b.occupied && b._d2 > 30 * 30) { b.occupied = false; free++; } }
+    for (const b of road) { if (free >= want) break; if (b.occupied) { b.occupied = false; free++; } }
   }
+  /** 早上上班時間：公司附近 r 公尺內的路邊格都已經被停滿（台北早上辦公區的路邊車位很難找；停車場的電動車格不受影響）。 */
+  rushNear(x, z, r) { this.forBaysNear(x, z, r, (b) => { if (b.type === 'road' && !b.reserved) b.occupied = true; }); }
 }

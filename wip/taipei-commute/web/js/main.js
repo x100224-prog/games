@@ -15,7 +15,7 @@ import { EngineSound } from './engine.js';
 import { Nav, polyProgress, nextTurn } from './nav.js';
 import { Stunts } from './stunts.js';
 import { DroneTraffic, DroneFlight, DRONE } from './drone.js';
-import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED } from './economy.js';
+import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE } from './economy.js';
 import { VIEW, TIME, PARK, WORK_DIST, RUSH } from './config.js';
 
 const $ = (id) => document.getElementById(id);
@@ -186,7 +186,8 @@ async function boot() {
   parking.onDecorated = (cell) => {
     if (!G.cfg.work || G.state === 'menu') return;
     const C = world.CELL, cx = (cell.cx + 0.5) * C, cz = (cell.cz + 0.5) * C;
-    for (const t of [G.cfg.work, G.cfg.home]) if (t && Math.hypot(cx - t.x, cz - t.z) < 700) parking.ensureFreeNear(t.x, t.z, 3);
+    if (G.cfg.home && Math.hypot(cx - G.cfg.home.x, cz - G.cfg.home.z) < 700) parking.ensureFreeNear(G.cfg.home.x, G.cfg.home.z, 3);
+    if (Math.hypot(cx - G.cfg.work.x, cz - G.cfg.work.z) < 700) workParking();
   };
   tp = new ThirdPersonCam(camera);
   Object.assign(window.__tc, { world, parking, traffic, signs, tp, meta });
@@ -326,6 +327,12 @@ function toMenu() {
   destBeacon.visible = carBeacon.visible = false; bayMarks.count = 0; routeLine.visible = false;
   traffic.clear(); refreshContinue();
 }
+/** 公司附近的路邊停車：早上 110 m 內都停滿了，110～260 m 至少留 3 個空格（電動車可以停停車場的電動車格，比較近）。 */
+function workParking() {
+  const w = G.cfg.work; if (!w || !parking) return;
+  if (G.leg === 'am') { parking.rushNear(w.x, w.z, PARK.rushR); parking.ensureFreeNear(w.x, w.z, 3, PARK.rushR); }
+  else parking.ensureFreeNear(w.x, w.z, 3);
+}
 function save() { store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft }); }
 
 // ===================================================================== 每日流程
@@ -343,7 +350,7 @@ function startDay() {
   G.wait = {
     cond: () => world.readyAround(h.x, h.z, 320) && parking.readyAround(h.x, h.z, 210),
     then: () => {
-      parking.setDay(G.dayN);
+      parking.setDay(G.dayN); workParking();
       let bay = null;
       if (G.homeCar) { const err = {}; bay = parking.bayAt(G.homeCar.x, G.homeCar.z, G.homeCar.psi, err); if (bay) { bay.reserved = true; bay.occupied = false; } }
       if (!bay) bay = parking.pickHomeBay(h.x, h.z, G.dayN);
@@ -416,6 +423,7 @@ function exitCar() {
   if (Math.abs(car.v) > 0.4) { toast('先停下來才能下車', 1.6); return; }
   const chk = parkingCheck(), near = dist(car, dest()) < 450;
   G.parked = { legal: chk.ok && near, ok: chk.ok, bay: chk.bay, type: chk.bay ? chk.bay.type : null };
+  if (chk.bay) { chk.bay.reserved = true; chk.bay.occupied = false; }   // 自己的車停在這格（之後重新佈置車格也不會被別台車占走）
   G.phase = 'toDest'; engine.shutdown(); engine.stunt(0, 0);
   fadeThen(() => {
     const lx = -Math.cos(car.psi), lz = Math.sin(car.psi);
@@ -497,7 +505,7 @@ function renderShop() {
   for (const it of SHOP) {
     const p = priceOf(it.key), owned = econ.has(it.key), ready = READY[it.key];
     const d = document.createElement('div'); d.className = 'item' + (owned ? ' owned' : '');
-    d.innerHTML = `<div class="ihead"><b>${it.name}</b><span class="price">${owned ? '已擁有' : fmtMoney(p)}</span></div><p>${it.desc}</p>`;
+    d.innerHTML = `<div class="ihead"><b>${it.name}</b><span class="price">${owned ? '已擁有' : fmtMoney(p)}</span></div><p>${it.desc}</p>${SAVED_NOTE[it.key] ? `<p class="saved">${SAVED_NOTE[it.key]}</p>` : ''}`;
     const b = document.createElement('button'); b.type = 'button'; b.className = 'buy';
     if (owned) { b.textContent = '已擁有'; b.disabled = true; }
     else if (!ready) { b.textContent = '製作中'; b.disabled = true; }
@@ -514,7 +522,7 @@ function renderShop() {
     pick.appendChild(l);
   }
   pick.hidden = cars.length < 2;
-  $('shopNote').textContent = SAVED_MEASURED ? '價錢依「每趟平均省下的時間」計算：省越多時間越貴。' : '價錢原則：每趟平均省越多時間越貴。目前是暫定價，之後依尖峰時段實測省下的時間調整。';
+  $('shopNote').textContent = SAVED_MEASURED ? '價錢依「尖峰時段實測，每趟平均省下的時間」計算：省越多時間越貴（大約是 10 個上班日省下的遲到扣款）。' : '價錢原則：每趟平均省越多時間越貴。目前是暫定價，之後依尖峰時段實測省下的時間調整。';
 }
 
 // ===================================================================== 導航
@@ -883,7 +891,7 @@ function hud(dt) {
   const sp = $('speedo');
   if (G.state === 'drive' && (G.camMode !== 'cockpit' || input.touch)) {
     sp.hidden = false; $('spd').textContent = Math.round(car.kmh);
-    $('energy').textContent = (car.spec.key === 'gas' ? '油量 ' : '電量 ') + Math.round(car.energy / car.spec.capacity * 100) + '%';
+    $('energy').textContent = (car.spec.key === 'gas' ? '油量 ' : '電量 ') + Math.round(car.energy / car.spec.capacity * 100) + '%' + (stunts && input.touch ? `・特技 ${Math.round(econ.stuntFuel * 100)}%` : '');
   } else sp.hidden = true;
   placeT -= dt;
   if (placeT <= 0 && G.state !== 'room') { placeT = 0.6; const o = {}, e = world.nearestEdge(P.x, P.z, 40, null, o); $('placeRoad').textContent = (e && e.name) || '　'; $('placeDist').textContent = world.districtAt(P.x, P.z) || '臺北市外'; }
@@ -947,6 +955,43 @@ function toggleBigMap(force) {
 // ===================================================================== 自動示範（選單按鈕或 F8）
 let AUTO = location.hash.includes('autotest') ? { t: 0 } : null;
 function startAuto() { if (!AUTO) AUTO = { t: 0 }; autoSay('啟動'); }
+// 測試用：尖峰時段實測。放一台「通勤車」進車流（跟其他車一樣跟車、等紅燈、排隊），照導航路線開到目的地，量遊戲時間。
+// mode：'gas'（一般車）或 'roadster'（塞住時飛越車陣，同一段路上最多 60 m，每趟最多飛 3 次＝約半箱特技燃料）。
+window.__tc.startMeasure = (o) => {
+  const oo = {}, e = world.nearestEdge(o.from.x, o.from.z, 500, (ed) => ed.cls >= 1 && ed.cls <= 4 && !ed.bridge && !ed.tunnel, oo);
+  if (!e || !nav) return null;
+  const rt = nav.route({ edge: e, s: oo.s }, o.to); if (!rt || !rt.steps.length) return null;
+  // 路線的第一段不是起點那條路（起點路段不在全市路網裡）：改從路線第一段的起點出發
+  let e0 = e, s0 = oo.s;
+  if (rt.steps[0].k !== e.id) { const e1 = world.edges.get(rt.steps[0].k); if (!e1) return null; e0 = e1; s0 = rt.steps[0].dir > 0 ? Math.min(e1.trimA + 2, e1.len / 2) : Math.max(e1.len - e1.trimB - 2, e1.len / 2); }
+  const col = new THREE.Color(o.mode === 'roadster' ? 0xc4161c : 0x2f9e5a);
+  const a = { e: e0, dir: rt.steps[0].dir, lane: 0, s: s0, v: 0, fac: 1, x: 0, y: 0, z: 0, psi: 0, turn: null, next: null, wait: 0, color: col, scale: 1,
+    flyer: o.mode === 'roadster', hop: null, hopCd: 0, hopsLeft: o.mode === 'roadster' ? 3 : undefined, wreck: o.warm || 60, pitch: 0, agent: true, route: rt.steps, ri: 0 };
+  e0.cars.push(a); traffic.cars.push(a);
+  G.measure = { agent: a, mode: o.mode, to: o.to, endR: o.endR || 300, warm: o.warm || 60, t0: null, routeKm: rt.len / 1000, freeMin: rt.time / 60 * 6, done: false };
+  G.state = 'measure'; if (car) car.group.visible = false;
+  return { routeKm: +(rt.len / 1000).toFixed(2), freeFlowGameMin: +(rt.time / 60 * 6).toFixed(1), road: e.name };
+};
+function measureFrame(dt) {
+  const M = G.measure, a = M.agent;
+  world.update(a.x, a.z, dt); parking.update(dt, a.x, a.z);
+  traffic.update(dt, a.x, a.z, null);
+  traffic.events.length = 0;
+  if (drones) drones.update(dt, a.x, a.z, null);
+  if (M.t0 === null) { M.warm -= dt; if (M.warm <= 0) { a.wreck = 0; M.t0 = G.clock; M.km0 = 0; } }
+  else {
+    if (!M.lx) { M.lx = a.x; M.lz = a.z; M.km = 0; }
+    M.km += Math.hypot(a.x - M.lx, a.z - M.lz) / 1000; M.lx = a.x; M.lz = a.z;
+    M.stopT = (M.stopT || 0) + (a.v < 0.5 ? dt : 0);
+    if (!M.done && (Math.hypot(a.x - M.to.x, a.z - M.to.z) < M.endR || a.arrived)) { M.done = true; M.min = G.clock - M.t0; M.hops = 3 - (a.hopsLeft ?? 3); M.wrecked = !!a.wrecked; }
+  }
+  if (a.wreck > 0 && M.t0 !== null) a.wrecked = true;
+  const fx = -Math.sin(a.psi), fz = -Math.cos(a.psi);
+  camera.position.set(a.x - fx * 12, a.y + 6, a.z - fz * 12); camera.lookAt(a.x, a.y + 1, a.z);
+  P.x = a.x; P.z = a.z; P.y = a.y;
+}
+// 測試用：設定自動駕駛（含「實測模式」：遵守紅燈、跟車排隊、到了記錄時間；跑車塞住時飛越；無人機一開始就升空）
+window.__tc.setAuto = (o) => { AUTO = o; };
 window.addEventListener('keydown', (e) => { if (e.code === 'F8' && !AUTO) { startAuto(); if (G.state === 'menu') { autoPick(); newGame(); } } });
 function autoPick() {
   if (G.cfg.home && G.cfg.work) return;
@@ -996,7 +1041,8 @@ function demoPoly(src) {
   const N = src.length / 2, res = src.slice(), q = {};
   for (let k = 1; k < N; k++) {
     const ed = world.nearestEdge(src[k * 2], src[k * 2 + 1], 6, null, q);
-    const off = ed && ed.cls <= 4 && !ed.oneway ? Math.min(1.8, ed.width / 4) : 0; if (!off) continue;
+    // 雙向道靠右開：大路偏半個車道；巷道偏一點點（路邊有停車，不能偏太多）
+    const off = ed && !ed.oneway ? (ed.cls <= 4 ? Math.min(1.8, ed.width / 4) : ed.cls === 5 ? Math.min(0.8, ed.width / 6) : 0) : 0; if (!off) continue;
     const a = Math.max(0, k - 1), b = Math.min(N - 1, k + 1), dx = src[b * 2] - src[a * 2], dz = src[b * 2 + 1] - src[a * 2 + 1], L = Math.hypot(dx, dz) || 1;
     res[k * 2] = src[k * 2] - dz / L * off; res[k * 2 + 1] = src[k * 2 + 1] + dx / L * off;
   }
@@ -1037,7 +1083,24 @@ function autoTest(dt) {
   if (G.state !== 'drive') return;
   if (G.seatAdj) { autoSay('駕駛座調整畫面'); if (AUTO.t > 2.5) $('seatGo').click(); return; }
   if (!AUTO.poly) { if (!G.routePoly) planRoute(); if (!G.routePoly) { autoKeys(); return; } AUTO.poly = demoPoly(G.routePoly); AUTO.ri = 0; window.__tc.autoPoly = AUTO.poly; }
-  const dd = dist(car, dest());
+  const dd = dist(car, dest()), M = AUTO.measure;
+  if (M) {
+    if (M.t0 === undefined) { M.t0 = G.clock; M.km0 = car.odo; M.jumps = 0; M.crash0 = econ.day.repair || 0; }
+    if (M.mode === 'drone' && !M.flew && !flight.active) {
+      const msg = flight.canStart(stunts && stunts.busy);
+      if (!msg && flight.start(drones)) M.flew = true; else if (msg) { autoKeys('KeyW'); M.droneMsg = msg; }
+      return;
+    }
+    if (flight.active) { autoKeys(); return; }
+    if (M.flew && !M.replanned) { M.replanned = true; M.flightMin = G.clock - M.t0; AUTO.poly = null; G.routePoly = null; planRoute(); return; }   // 降落後：從降落點重新規劃
+    if (stunts && stunts.busy) { autoKeys(); return; }
+    if (dd < (M.endR || 160) && !M.done) {
+      Object.assign(M, { done: true, min: G.clock - M.t0, km: (car.odo - M.km0) / 1000, repair: (econ.day.repair || 0) - M.crash0, stunt: Math.round(econ.day.stunt), drone: Math.round(econ.day.drone) });
+      autoKeys(); return;
+    }
+    if (M.done) { autoKeys(car.v > 0.3 ? 'KeyS' : null); return; }
+    if (dd >= 160 && AUTO.poly && AUTO.ri >= AUTO.poly.length - 4) { AUTO.poly = null; G.routePoly = null; planRoute(); return; }   // 路線跑完了但還沒到（例如無人機降落後）：重新規劃
+  }
   // 快到了：示範直接停進最近的空車格
   if (dd < 160) {
     autoSay('到了，停進車格');
@@ -1051,17 +1114,38 @@ function autoTest(dt) {
   const heading = Math.atan2(car.fwdX, -car.fwdZ), ang = (p) => { const d = Math.atan2(p.x - car.x, -(p.z - car.z)) - heading; return Math.atan2(Math.sin(d), Math.cos(d)); };
   const turning = Math.abs(ang(far)) > 0.5, vMax = turning ? 4 : (car.edge && car.edge.cls <= 2 ? 13 : 9);
   const tg = routeTarget(car.x, car.z, car.v < 4.5 ? 5 : 10), e = ang(tg);
-  if (AUTO.rev > 0) { AUTO.rev -= dt; autoSay('卡住了，倒車一下'); autoKeys('KeyS'); return; }
+  // 倒車時把方向盤往反方向打，車頭就會轉向路線（倒車的轉向跟前進相反）
+  if (AUTO.rev > 0) { AUTO.rev -= dt; autoSay('卡住了，倒車一下'); autoKeys('KeyS', e > 0.1 ? 'KeyA' : e < -0.1 ? 'KeyD' : null); return; }
   AUTO.stuckT = car.v < 0.4 ? (AUTO.stuckT || 0) + dt : 0;
   let block = false;
   for (const o of traffic.cars) {
     if (Math.abs(o.x - car.x) > 24 || Math.abs(o.z - car.z) > 24) continue;
     const dx = o.x - car.x, dz = o.z - car.z, fwd = dx * car.fwdX + dz * car.fwdZ, lat = Math.abs(dx * car.fwdZ - dz * car.fwdX);
-    if (fwd > 1 && fwd < 6 + Math.max(0, car.v) * 1.6 && lat < 2.1) { block = true; break; }
+    const opp = -Math.sin(o.psi) * car.fwdX + -Math.cos(o.psi) * car.fwdZ < -0.5;   // 對向來車：只有正對著才算擋住
+    if (fwd > 1 && fwd < 6 + Math.max(0, car.v) * 1.6 && lat < (opp ? 1.5 : 2.1)) { block = true; break; }
   }
-  if (block) { AUTO.waitT = (AUTO.waitT || 0) + dt; AUTO.stuckT = 0; if (AUTO.waitT < 6) { autoSay('前面有車，等一下'); autoKeys(car.v > 0.3 ? 'KeyS' : null); return; } if (AUTO.waitT < 6.1) { AUTO.rev = 1.1; return; } }
+  const waitMax = M ? 40 : 6;     // 實測：排隊跟車要一直等（不是被路邊停的車擋住）
+  if (block && M && stunts && car.v < 0.5 && AUTO.waitT > 2 && econ.stuntFuel >= 0.15 && !M.noJump) {
+    // 飛天跑車：塞住了，前面 100 m 內不轉彎、前面至少 3 台車 → 飛越
+    const pr = polyProgress(G.routePoly || [], car.x, car.z, Math.max(0, G.routeIdx - 4), 300), nt = G.routePoly ? nextTurn(G.routePoly, pr, 400) : null;
+    let ahead = 0; for (const o of traffic.cars) { const dx = o.x - car.x, dz = o.z - car.z, f = dx * car.fwdX + dz * car.fwdZ, l = Math.abs(dx * car.fwdZ - dz * car.fwdX); if (f > 1 && f < 70 && l < 2.5) ahead++; }
+    if ((!nt || nt.dist > 100) && ahead >= 3) { input.hit.add('KeyF'); M.jumps++; AUTO.waitT = 0; autoKeys(); return; }
+  }
+  if (block) { AUTO.waitT = (AUTO.waitT || 0) + dt; AUTO.stuckT = 0; AUTO.pT = 0; if (AUTO.waitT < waitMax) { autoSay('前面有車，等一下'); autoKeys(car.v > 0.3 ? 'KeyS' : null); return; } if (AUTO.waitT < waitMax + 0.1) { AUTO.rev = 1.1; return; } }
   else AUTO.waitT = 0;
+  // 實測：遵守紅綠燈（快到停止線、紅燈或來不及過的黃燈就停）
+  if (M && car.edge && !car.edge.dead) {
+    const e = car.edge, k = Math.max(0, Math.min(e.cum.length - 2, car._segI | 0)), tx = e.pts[k * 2 + 2] - e.pts[k * 2], tz = e.pts[k * 2 + 3] - e.pts[k * 2 + 1];
+    const dir = tx * car.fwdX + tz * car.fwdZ >= 0 ? 1 : -1, stopS = dir > 0 ? e.len - e.trimB : e.trimA, toEnd = (stopS - car.edgeS) * dir;
+    if ((dir > 0 ? e.sigB : e.sigA) && toEnd > 0 && toEnd < 30) {
+      const sig = traffic.signalFor(e, dir);
+      if (sig === 'r' || (sig === 'y' && toEnd > car.v * 1.5)) { autoSay('紅燈，停車等'); AUTO.stuckT = 0; AUTO.pT = 0; autoKeys(car.v > Math.max(0.3, Math.sqrt(Math.max(0, toEnd - 2) * 2 * 3)) ? 'KeyS' : (toEnd > 3 && car.v < 1.5 ? 'KeyW' : null)); return; }
+    }
+  }
   if (AUTO.stuckT > 1.2) { AUTO.stuckT = 0; AUTO.rev = 1.1; return; }
+  // 一直踩油門卻沒前進（頂著牆或護欄慢慢磨）：每 3 秒檢查一次位移
+  AUTO.pT = (AUTO.pT || 0) + dt;
+  if (AUTO.pT > 3) { const moved = Math.hypot(car.x - (AUTO.pX ?? car.x + 9), car.z - (AUTO.pZ ?? car.z)); AUTO.pT = 0; AUTO.pX = car.x; AUTO.pZ = car.z; if (moved < 1.2) { AUTO.rev = 1.4; AUTO.pX = undefined; return; } }
   autoSay(`沿導航路線開往${destName()}，剩 ${fmtDist(dd)}`);
   const keys = [];
   if (car.v < vMax) keys.push('KeyW'); else if (car.v > vMax + 1.5) keys.push('KeyS');
@@ -1082,25 +1166,33 @@ function loop(now) {
   if (!$('bigmap').hidden || !$('shop').hidden) { if (!window.__tc.noRender) render(); input.endFrame(); return; }
   music.update(G.state === 'drive' ? (G.seatAdj ? 'walk' : 'drive') : G.state === 'summary' ? 'done' : G.state === 'menu' ? 'title' : 'walk', car ? car.v : 0);
   const st = G.state;
-  if (st === 'menu') menuFrame(dt);
-  else if (st === 'loading') loadingFrame(dt);
-  else if (st === 'room') { if (AUTO) autoTest(dt); roomFrame(dt); }
-  else if (st === 'walk') { if (AUTO) autoTest(dt); walkFrame(dt); }
-  else if (st === 'drive') { if (AUTO) autoTest(dt); driveFrame(dt); }
-  else if (st === 'summary' || st === 'work') { world.update(P.x, P.z, dt); }
-  if (['walk', 'drive', 'room'].includes(st)) { G.clock += dt * TIME.scale / 60; hud(dt); }
+  // 測試用快轉：window.__tc.steps > 1 時，每一幀跑好幾次遊戲邏輯（只畫一次）。正常遊戲是 1。
+  const steps = Math.max(1, Math.min(12, window.__tc.steps | 0 || 1));
+  for (let k = 0; k < steps && G.state === st; k++) {
+    if (k > 0) { input.hit.clear(); input.lookX = 0; input.lookY = 0; }
+    if (st === 'menu') menuFrame(dt);
+    else if (st === 'loading') loadingFrame(dt);
+    else if (st === 'room') { if (AUTO) autoTest(dt); roomFrame(dt); }
+    else if (st === 'walk') { if (AUTO) autoTest(dt); walkFrame(dt); }
+    else if (st === 'drive') { if (AUTO) autoTest(dt); driveFrame(dt); }
+    else if (st === 'summary' || st === 'work') { world.update(P.x, P.z, dt); }
+    else if (st === 'measure') measureFrame(dt);
+    if (['walk', 'drive', 'room', 'measure'].includes(st)) G.clock += dt * TIME.scale / 60;
+  }
+  if (['walk', 'drive', 'room'].includes(st)) hud(dt);
   if (input.touch) {
     const drv = st === 'drive' && G.camMode === 'cockpit' && !G.seatAdj;
-    const stn = st === 'drive' && !!stunts && !G.seatAdj;
+    const flyingNow = !!(flight && flight.active), busyNow = flyingNow || !!(stunts && stunts.busy);
+    const stn = st === 'drive' && !!stunts && !G.seatAdj && !flyingNow;
     for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (el && el.hidden === stn) el.hidden = !stn; }
     const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone');
     if (dbt) { if (dbt.hidden === showDr) dbt.hidden = !showDr; const lb = flight && flight.active ? '取消飛行' : '無人機'; if (dbt.textContent !== lb) dbt.textContent = lb; }
     for (const id of ['btnMirL', 'btnMirR']) { const el = $(id); if (el && el.hidden === drv) el.hidden = !drv; }
-    const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : 'E') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 ? '下車' : 'E') : st === 'room' ? '出門' : 'E';
+    const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : 'E') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : 'E') : st === 'room' ? '出門' : 'E';
     if (act && act.textContent !== lab) act.textContent = lab;
     const bc = $('btnCenter'), showC = !!(drv && cockpit && (Math.abs(cockpit.lookYaw) > 0.05 || Math.abs(cockpit.lookPitch) > 0.05) && !G.glance);
     if (bc && bc.hidden === showC) bc.hidden = !showC;
-    const sb = $('btnSeat'), showSeat = st === 'drive' && !G.seatAdj && Math.abs(car.v) < 0.3;
+    const sb = $('btnSeat'), showSeat = st === 'drive' && !G.seatAdj && Math.abs(car.v) < 0.3 && !busyNow;
     if (sb && sb.hidden === showSeat) sb.hidden = !showSeat;
   }
   if (!window.__tc.noRender) render();

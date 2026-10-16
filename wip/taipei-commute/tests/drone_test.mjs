@@ -28,6 +28,8 @@ await ev(() => { const { P, car } = window.__tc; P.x = car.x - Math.cos(car.psi)
 await wait(600); await page.keyboard.press('KeyE');
 await page.waitForFunction(() => window.__tc.G.state === 'drive', null, { timeout: 60000 }); await wait(1200);
 await page.keyboard.press('Enter'); await wait(500);
+await until(() => !window.__tc.G.seatAdj, null, 30000); await wait(800);
+await ev(() => { window.__tc.steps = 4; });
 const dist0 = await ev(() => { const { car, G } = window.__tc; return Math.hypot(car.x - G.cfg.work.x, car.z - G.cfg.work.z); });
 console.log('straight distance to work', Math.round(dist0), 'route km', await ev(() => window.__tc.G.route && +(window.__tc.G.route.len / 1000).toFixed(1)));
 // 監看：每 0.3 秒記錄跟其他無人機的最近距離
@@ -50,23 +52,27 @@ console.log('started', await ev(() => { const f = window.__tc.flight; return { l
 await until(() => window.__tc.car.y - window.__tc.world.groundAt(window.__tc.car.x, window.__tc.car.z) > 40, null, 60000);
 await shot('lift', 2200);
 await until(() => window.__tc.flight.phase === 'cruise', null, 120000);
-// 迎面放一架無人機（同一高度層、正對著飛過來）
+// 迎面放一架無人機（同一高度層、正對著飛過來）：等巡航速度穩定、航向對準目的地後再放
+await until(() => { const f = window.__tc.flight; return Math.hypot(f.vx, f.vz) > 45; }, null, 120000);
+const tr0 = await ev(() => Math.atan2(window.__tc.flight.vx, window.__tc.flight.vz));
 const intr = await ev(() => {
-  const { flight, drones } = window.__tc, h = Math.atan2(flight.vx, flight.vz) || flight.track;
+  const { flight, drones } = window.__tc, h = Math.atan2(flight.vx, flight.vz);
   const d = { x: flight.x + Math.sin(h) * 1400, y: flight.y, z: flight.z + Math.cos(h) * 1400, vx: 0, vy: 0, vz: 0, tx: flight.x - Math.sin(h) * 3000, tz: flight.z - Math.cos(h) * 3000, layer: flight.layer, phase: 'cruise', g: 0, track: h + Math.PI, wait: 0, color: drones.cols[0], spin: 0, test: true };
   d.g = flight.y - flight.layer; drones.list.push(d); window.__intr = d;
   return { from: Math.round(Math.hypot(d.x - flight.x, d.z - flight.z)) };
 });
 console.log('intruder placed head-on at', intr);
-let minHead = 1e9, devMax = 0;
+let minHead = 1e9, devMax = 0, maxAlert = 0;
 for (let i = 0; i < 160; i++) {
-  const s = await ev(() => { const f = window.__tc.flight, d = window.__intr; const want = Math.atan2(f.spot.x - f.x, f.spot.z - f.z), tr = Math.atan2(f.vx, f.vz); let dv = tr - want; dv = Math.atan2(Math.sin(dv), Math.cos(dv)); return { sep: Math.hypot(d.x - f.x, d.z - f.z), dz: Math.abs(d.y - f.y), dev: Math.abs(dv) * 180 / Math.PI, alert: f.r ? f.r.alert : -1, ph: f.phase }; });
+  const s = await ev((tr0) => { const f = window.__tc.flight, d = window.__intr; const tr = Math.atan2(f.vx, f.vz); let dv = tr - tr0; dv = Math.atan2(Math.sin(dv), Math.cos(dv)); return { sep: Math.hypot(d.x - f.x, d.z - f.z), dz: Math.abs(d.y - f.y), dev: Math.abs(dv) * 180 / Math.PI, alert: f.r ? f.r.alert : -1, ph: f.phase }; }, tr0);
+  maxAlert = Math.max(maxAlert, s.alert);
   minHead = Math.min(minHead, s.sep); devMax = Math.max(devMax, s.dev);
   if (i === 14) await shot('daa', 2000);
   if (s.sep > 900 && i > 40) break;
   await wait(150);
 }
-console.log('head-on encounter:', { minHorizontalSep: Math.round(minHead), maxDeviationDeg: Math.round(devMax), wellClear: 70 });
+console.log('head-on encounter:', { minHorizontalSep: Math.round(minHead), maxDeviationDeg: Math.round(devMax), maxAlert, wellClear: 70 });
+if (process.argv[2] === 'headon') { await browser.close(); process.exit(0); }
 // 到降落點上方：放一台車在降落點，看會不會等
 await until(() => ['hover', 'descend'].includes(window.__tc.flight.phase), null, 240000);
 await ev(() => {
