@@ -1,0 +1,15 @@
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 1000, height: 560 } });
+page.setDefaultTimeout(300000);
+await page.goto('http://localhost:8766/index.html#lowq');
+await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'title');
+await page.screenshot({ path: 'shots/r00_title.png' });
+await page.click('#btnStart');
+await page.waitForFunction(() => window.__tc.G.state === 'walk');
+const [x, z, y] = [+process.argv[2], +process.argv[3], +process.argv[4]];
+await page.evaluate(([x, z, y]) => { const { P, world } = window.__tc; P.x = x + 30; P.z = z + 400; window.__tc.debugCam = { x: x + 260, y: y + 140, z: z + 260, tx: x, ty: y, tz: z }; document.getElementById('hud').hidden = true; }, [x, z, y]);
+await page.waitForFunction(([x, z]) => window.__tc.world.readyAround(x, z, 500), [x, z]);
+await page.waitForTimeout(6000);
+await page.screenshot({ path: 'shots/r01_bridge.png' });
+await browser.close();

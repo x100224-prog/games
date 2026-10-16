@@ -1,0 +1,13 @@
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 900, height: 560 } });
+const logs = []; page.on('pageerror', e => logs.push('PAGEERROR: ' + e.message));
+page.setDefaultTimeout(200000);
+await page.goto('http://localhost:8766/index.html#lowq');
+await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'title');
+await page.click('#btnAuto');
+await page.waitForFunction(() => window.__tc.G.state === 'walk');
+await page.waitForTimeout(4000);
+await page.screenshot({ path: 'shots/autobtn.png' });
+console.log(await page.evaluate(() => document.body.lastChild.textContent), logs.join('\n'));
+await browser.close();

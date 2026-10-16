@@ -1,0 +1,94 @@
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const out = process.argv[2] || 'shots';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 760 } });
+const logs = []; page.on('pageerror', e => logs.push('PAGEERROR: ' + e.message + ' ' + e.stack)); page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.text()); });
+const ev = (f, a) => page.evaluate(f, a);
+const waitFor = (f, t = 60000) => page.waitForFunction(f, null, { timeout: t });
+await page.goto('http://localhost:8765/index.html');
+await waitFor(() => window.__tc && window.__tc.G.state === 'menu');
+await ev(() => { const G = window.__tc.G; G.cfg.di = 6; G.cfg.home = G.meta.homes[6][3]; const h = G.cfg.home; G.cfg.work = G.meta.works.find(w => w.k === '學校' && Math.hypot(w.x - h.x, w.z - h.z) > 1800 && Math.hypot(w.x - h.x, w.z - h.z) < 4500) || G.meta.works.find(w => Math.hypot(w.x - h.x, w.z - h.z) > 1800); G.cfg.car = 'ev'; G.carPicked = true; document.getElementById('btnGo').disabled = false; document.getElementById('btnGo').click(); });
+await waitFor(() => window.__tc.G.state === 'room', 90000);
+await ev(() => { const P = window.__tc.P; P.x = 1.2; P.z = -2.2; });
+await page.keyboard.press('KeyE');
+await waitFor(() => window.__tc.G.state === 'walk');
+await page.waitForTimeout(600);
+await ev(() => { const { P, G } = window.__tc; P.x = G.car.x - Math.cos(G.car.psi) * 1.8; P.z = G.car.z + Math.sin(G.car.psi) * 1.8; });
+await page.waitForTimeout(300);
+await page.keyboard.press('KeyE');
+await waitFor(() => window.__tc.G.state === 'drive');
+await page.waitForTimeout(800);
+// 車流是否在動
+const t1 = await ev(() => window.__tc.G.traffic.cars.slice(0, 30).map(c => [c.x, c.z]));
+await page.waitForTimeout(3000);
+const t2 = await ev(() => window.__tc.G.traffic.cars.slice(0, 30).map(c => [c.x, c.z]));
+let moved = 0; for (let i = 0; i < Math.min(t1.length, t2.length); i++) if (Math.hypot(t1[i][0] - t2[i][0], t1[i][1] - t2[i][1]) > 0.5) moved++;
+console.log('traffic', t1.length, 'moved', moved);
+// 傳送到公司附近
+const w = await ev(() => { const { G } = window.__tc; const w = G.cfg.work; const o = {}; G.world.update(w.x, w.z, 0.3); return { w, cfgwork: w.n }; });
+console.log('work', JSON.stringify(w));
+await ev(() => { const { G } = window.__tc; const w = G.cfg.work; G.car.place(w.x + 60, w.z + 60, 0); });
+await waitFor(() => { const { G } = window.__tc; const w = G.cfg.work; return G.world.readyAround(w.x, w.z, 300) && G.parking.readyAround(w.x, w.z, 150); }, 120000);
+await page.waitForTimeout(1500);
+const bays = await ev(() => { const { G } = window.__tc; const w = G.cfg.work; const r = { road: 0, roadFree: 0, ev: 0, evFree: 0, lot: 0 }; G.parking.forBaysNear(w.x, w.z, 450, (b) => { r[b.type]++; if (!b.occupied) r[b.type + 'Free'] = (r[b.type + 'Free'] || 0) + 1; }); return r; });
+console.log('bays near work', JSON.stringify(bays));
+// 把車放進最近的可停空格
+const bay = await ev(() => { const { G } = window.__tc; const w = G.cfg.work; let best = null, bd = 1e9; G.parking.forBaysNear(w.x, w.z, 450, (b, d2) => { if (!b.occupied && (b.type === 'road' || b.type === 'ev') && d2 < bd) { bd = d2; best = b; } }); if (!best) return null; G.car.place(best.x, best.z, best.psi); return { type: best.type, x: best.x, z: best.z, d: Math.sqrt(bd) }; });
+console.log('bay', JSON.stringify(bay));
+await page.waitForTimeout(1500);
+await ev(() => { window.__tc.G.cam = 'chase'; });
+await page.waitForTimeout(1200);
+await page.screenshot({ path: out + '/10_parked_chase.png' });
+await ev(() => { window.__tc.G.cam = 'cockpit'; });
+await page.keyboard.press('KeyE');
+await waitFor(() => window.__tc.G.state === 'walk');
+await page.waitForTimeout(800);
+console.log('parked', JSON.stringify(await ev(() => { const p = window.__tc.G.parked; return { legal: p.legal, ok: p.ok, near: p.near, type: p.type }; })));
+await page.screenshot({ path: out + '/11_walk_to_work.png' });
+await ev(() => { const { P, G } = window.__tc; P.x = G.cfg.work.x + 1; P.z = G.cfg.work.z + 1; });
+await waitFor(() => window.__tc.G.state === 'summary', 10000).catch(() => console.log('no summary'));
+await page.waitForTimeout(500);
+await page.screenshot({ path: out + '/12_summary.png' });
+// 高架測試：下一天，把車放到高架路段
+await page.click('#btnNext');
+await waitFor(() => window.__tc.G.state === 'room', 90000);
+await ev(() => { const P = window.__tc.P; P.x = 1.2; P.z = -2.2; });
+await page.keyboard.press('KeyE');
+await waitFor(() => window.__tc.G.state === 'walk');
+await page.waitForTimeout(500);
+await ev(() => { const { P, G } = window.__tc; P.x = G.car.x - Math.cos(G.car.psi) * 1.8; P.z = G.car.z + Math.sin(G.car.psi) * 1.8; });
+await page.waitForTimeout(300);
+await page.keyboard.press('KeyE');
+await waitFor(() => window.__tc.G.state === 'drive');
+// 建國高架：找名字含「建國」且高度 > 6 的路段
+const viaduct = await ev(() => {
+  const { G } = window.__tc; const pj = G.meta.proj;
+  const x = (121.5375 - pj.lon0) * pj.mlon, z = -(25.0420 - pj.lat0) * pj.mlat;
+  G.car.place(x, z, 0); return { x, z };
+});
+await waitFor(() => { const { G } = window.__tc; return G.world.readyAround(G.car.x, G.car.z, 250); }, 120000);
+const vd = await ev(() => {
+  const { G } = window.__tc; let best = null;
+  for (const e of G.world.edges.values()) { if (e.hs && e.cls <= 2 && Math.max(...e.hs) > 6 && e.len > 100) { const d = Math.hypot(e.pts[0] - G.car.x, e.pts[1] - G.car.z); if (!best || d < best.d) best = { e, d }; } }
+  if (!best) return null;
+  const e = best.e, i = Math.floor(e.pts.length / 4) * 2;
+  const dx = e.pts[i + 2] - e.pts[i], dz = e.pts[i + 3] - e.pts[i + 1];
+  const y = e.hs[i / 2];
+  const off = e.oneway ? 0 : e.laneW * 0.5, L = Math.hypot(dx, dz);
+  G.car.place(e.pts[i] - dz / L * off, e.pts[i + 1] + dx / L * off, Math.atan2(-dx, -dz), y);
+  return { name: e.name, y, cls: e.cls, oneway: e.oneway };
+});
+console.log('viaduct', JSON.stringify(vd));
+await page.waitForTimeout(1500);
+await page.keyboard.down('KeyW'); await page.waitForTimeout(5000);
+await page.screenshot({ path: out + '/13_viaduct_cockpit.png' });
+await page.keyboard.up('KeyW');
+console.log('after', JSON.stringify(await ev(() => { const c = window.__tc.G.car; return { y: c.y, v: c.v, edge: c.edge && c.edge.name, bumps: c.bumps }; })));
+await ev(() => { window.__tc.G.cam = 'chase'; });
+await page.waitForTimeout(1500);
+await page.screenshot({ path: out + '/14_viaduct_chase.png' });
+await ev(() => { const c = window.__tc.G.car; window.__tc.debugCam = { x: c.x + 70, y: 45, z: c.z + 50, tx: c.x, tz: c.z, ty: 5 }; });
+await page.waitForTimeout(1500);
+await page.screenshot({ path: out + '/15_viaduct_overview.png' });
+console.log(logs.slice(0, 20).join('\n'));
+await browser.close();

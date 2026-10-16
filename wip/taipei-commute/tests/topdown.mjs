@@ -1,0 +1,13 @@
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
+page.setDefaultTimeout(300000);
+await page.goto('http://localhost:8766/index.html#lowq');
+await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'title');
+await page.click('#btnStart');
+await page.waitForFunction(() => window.__tc.G.state === 'walk');
+const H = +(process.argv[2] || 420);
+await page.evaluate((H) => { const { M, camera } = window.__tc; const s = M.start; camera.up.set(0, 0, -1); window.__tc.debugCam = { x: s.x, y: H, z: s.z + 0.01, tx: s.x, ty: 0, tz: s.z }; camera.fov = 60; camera.updateProjectionMatrix(); document.querySelectorAll('#hud,#help,#mini,.hud,#touch').forEach(e => e.style.display = 'none'); }, H);
+await page.waitForTimeout(8000);
+await page.screenshot({ path: 'shots/top_start.png' });
+await browser.close();

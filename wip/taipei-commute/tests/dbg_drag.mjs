@@ -1,0 +1,23 @@
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const port = process.argv[2];
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 1100, height: 620 } });
+const ev = (f, a) => page.evaluate(f, a);
+page.setDefaultTimeout(240000);
+await page.goto(`http://localhost:${port}/index.html#lowq`);
+await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'title', null, { timeout: 120000 });
+await ev(() => { window.__tc.noRender = true; window.__mm = 0; window.addEventListener('mousemove', (e) => { window.__mm += e.movementX; }); });
+await page.click('#btnStart');
+await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout: 150000 });
+await ev(() => { const { P, car } = window.__tc; P.x = car.x - Math.cos(car.psi) * 2; P.z = car.z + Math.sin(car.psi) * 2; });
+await page.waitForTimeout(1500);
+await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'drive', null, { timeout: 60000 });
+await page.waitForTimeout(2000);
+await page.keyboard.press('Enter'); await page.waitForTimeout(1000);
+const yaw = () => ev(() => { const d = new window.__tc.camera.position.constructor(); window.__tc.camera.getWorldDirection(d); let a = Math.atan2(d.x, -d.z) - Math.atan2(window.__tc.car.fwdX, -window.__tc.car.fwdZ); a = Math.atan2(Math.sin(a), Math.cos(a)); return +(a * 180 / Math.PI).toFixed(1); });
+console.log('start', await yaw(), 'seat', await ev(() => window.__tc.G.seatAdj));
+await page.mouse.move(550, 300); await page.mouse.down(); await page.mouse.move(350, 300, { steps: 8 }); await page.mouse.up();
+for (const w of [100, 500, 1500, 3000]) { await page.waitForTimeout(w); console.log('after drag +' + w, await yaw(), 'movementX sum', await ev(() => window.__mm), 'locked', await ev(() => !!document.pointerLockElement)); }
+await page.keyboard.press('KeyR'); await page.waitForTimeout(2500); console.log('after R', await yaw());
+await browser.close();

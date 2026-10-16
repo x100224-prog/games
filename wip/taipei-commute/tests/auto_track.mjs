@@ -1,0 +1,17 @@
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+import fs from 'fs';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
+const page = await browser.newPage({ viewport: { width: 480, height: 300 } });
+const ev = (f, a) => page.evaluate(f, a);
+page.setDefaultTimeout(180000);
+await page.goto('http://localhost:8767/index.html#lowq');
+await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'title', null, { timeout: 90000 });
+await ev(() => { window.__tc.noRender = true; window.__trk = []; const f = () => { const c = window.__tc.car; if (c && window.__tc.G.state === 'drive') window.__trk.push([c.x, c.z, c.v]); requestAnimationFrame(f); }; f(); });
+await page.click('#btnAuto');
+await page.waitForTimeout(45000);
+const d = await ev(() => { const { car, parking, world, traffic } = window.__tc; const out = { trk: window.__trk.filter((_, i) => i % 3 === 0), parked: parking.parked.filter(b => Math.hypot(b.x - car.x, b.z - car.z) < 120).map(b => [b.x, b.z, b.psiCar]), edges: [], traffic: traffic.cars.filter(c => Math.hypot(c.x - car.x, c.z - car.z) < 120).map(c => [c.x, c.z]) };
+  world.forEdgesNear(car.x, car.z, 150, e => out.edges.push([Array.from(e.pts), e.hw])); return out; });
+d.poly = await ev(() => { const a = window.__tc.autoPoly; return a ? Array.from(a).slice(0, 200) : null; });
+fs.writeFileSync('shots/auto_track.json', JSON.stringify(d));
+console.log('track pts', d.trk.length, 'poly', d.poly && d.poly.length);
+await browser.close();

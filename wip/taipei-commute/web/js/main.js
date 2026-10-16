@@ -1,0 +1,1150 @@
+// 台北上班路 — 主程式。每天：房間起床 → 走到路邊的車 → 開去公司 → 停進合法車格 → 走進公司打卡
+// → 下班走回車上 → 開回家 → 停好車走進家門 → 結算日薪與花費。賺的錢可以在商店買導航、電動車、飛天跑車、無人機飛行系統。
+// 走路是第三人稱，開車是第一人稱駕駛座（含左右後照鏡、座椅調整、舒適設定）。
+import * as THREE from '../lib/three.module.min.js';
+import { World, hash2 } from './world.js';
+import { Parking } from './parking.js';
+import { Traffic } from './traffic.js';
+import { PlayerCar, Cockpit, carSpec } from './vehicles.js';
+import { Input } from './input.js';
+import { Avatar } from './avatar.js';
+import { ThirdPersonCam } from './tpcam.js';
+import { SignManager, genShopName, genVerticalName } from './signs.js';
+import { Music } from './music.js';
+import { EngineSound } from './engine.js';
+import { Nav, polyProgress, nextTurn } from './nav.js';
+import { Stunts } from './stunts.js';
+import { DroneTraffic, DroneFlight, DRONE } from './drone.js';
+import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED } from './economy.js';
+import { VIEW, TIME, PARK, WORK_DIST, RUSH } from './config.js';
+
+const $ = (id) => document.getElementById(id);
+// 目前已經做好、可以買的項目（其他的會顯示「製作中」）
+const READY = { nav: true, ev: true, roadster: true, drone: true };
+
+// ===================================================================== 場景與光線
+const canvas = $('view');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.autoClear = false;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.08;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+const HAZE = new THREE.Color(0xd5d9d8);
+scene.fog = new THREE.Fog(HAZE, VIEW.fogNear, VIEW.fogFar);
+const camera = new THREE.PerspectiveCamera(62, 1, 0.15, 2600);
+const sky = new THREE.Mesh(new THREE.SphereGeometry(2300, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: { top: { value: new THREE.Color(0x4f86c6) }, mid: { value: new THREE.Color(0xa9c4dd) }, hor: { value: new THREE.Color(0xe3e2d6) }, sunDir: { value: new THREE.Vector3() } },
+  vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 hor; uniform vec3 sunDir; varying vec3 vP;
+    void main(){ vec3 d = normalize(vP); float h = d.y;
+      vec3 c = h < 0.0 ? hor : mix(mix(hor, mid, smoothstep(0.0, 0.14, h)), top, smoothstep(0.14, 0.65, h));
+      float s = max(0.0, dot(d, normalize(sunDir)));
+      c += vec3(1.0, 0.86, 0.62) * (pow(s, 600.0) * 2.5 + pow(s, 12.0) * 0.18);
+      gl_FragColor = vec4(c, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+}));
+sky.renderOrder = -1; scene.add(sky);
+const hemi = new THREE.HemisphereLight(0xcfe0f2, 0x6a5f50, 1.05); scene.add(hemi);
+// 早上太陽在東南方，傍晚在西方、偏暖色
+const SUN = {
+  am: { dir: new THREE.Vector3(0.62, 0.5, 0.36).normalize(), color: 0xfff1d8, i: 2.4, hor: 0xe3e2d6, hemi: 1.05 },
+  pm: { dir: new THREE.Vector3(-0.72, 0.3, 0.2).normalize(), color: 0xffcf96, i: 2.1, hor: 0xf0cfa8, hemi: 0.9 },
+};
+const SUN_DIR = new THREE.Vector3();
+const sun = new THREE.DirectionalLight(0xffe4bd, 2.4);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -85, right: 85, top: 85, bottom: -85, near: 10, far: 520 });
+sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.5;
+scene.add(sun); scene.add(sun.target);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000), new THREE.MeshLambertMaterial({ color: 0xa9aaa4 }));
+ground.rotation.x = -Math.PI / 2; ground.position.y = -15; scene.add(ground);
+
+function makeBeacon(color, r) {
+  const g = new THREE.Group();
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.55, r * 0.55, 90, 18, 1, true),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, depthWrite: false, fog: false, side: THREE.DoubleSide, toneMapped: false }));
+  beam.position.y = 45; g.add(beam);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.75, r, 40), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.3; g.add(ring);
+  g.visible = false; scene.add(g); return g;
+}
+const destBeacon = makeBeacon(0xf5c518, 3.4), carBeacon = makeBeacon(0x6fd3ff, 2.2);
+const bayMarks = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false }), 48);
+bayMarks.count = 0; bayMarks.frustumCulled = false; bayMarks.renderOrder = 3; scene.add(bayMarks);
+bayMarks.setColorAt(0, new THREE.Color(1, 1, 1));
+// 導航路線：畫在路面上的藍線
+const routeLine = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0x3aa0ff, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+routeLine.frustumCulled = false; routeLine.renderOrder = 2; routeLine.visible = false; scene.add(routeLine);
+
+// ===================================================================== 房間（另一個小場景，第三人稱）
+function buildRoom() {
+  const s = new THREE.Scene(); s.background = new THREE.Color(0x1a1d22);
+  s.add(new THREE.HemisphereLight(0xfff4e6, 0xcfc2ae, 2.6));
+  const lamp = new THREE.PointLight(0xffe2b8, 14, 10, 1.3); lamp.position.set(0, 2.5, 0); s.add(lamp);
+  const win = new THREE.DirectionalLight(0xcfe6ff, 2.2); win.position.set(1, 0.6, -0.3); s.add(win);
+  const W = 4.4, D = 5.6, H = 2.7, boxes = [];
+  const M = (c) => new THREE.MeshLambertMaterial({ color: c });
+  const box = (w, h, d, x, y, z, c, solid = true) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M(c)); m.position.set(x, y, z); s.add(m); if (solid) boxes.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, h: y + h / 2 }); return m; };
+  const shell = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), [M(0xe6e1d8), M(0xe6e1d8), M(0xf3f1ec), M(0x9b7b5e), M(0xdcd6cb), M(0xdcd6cb)]);
+  shell.material.forEach(m => { m.side = THREE.BackSide; }); shell.position.y = H / 2; s.add(shell);
+  box(1.5, 0.45, 2.05, -1.42, 0.23, 1.72, 0x6e7f99);               // 床
+  box(1.5, 0.12, 0.5, -1.42, 0.5, 2.5, 0xf4f2ec, false);           // 枕頭
+  box(1.5, 0.9, 0.08, -1.42, 0.7, 2.76, 0x5a4636, false);          // 床頭板
+  box(0.62, 0.75, 1.3, -1.88, 0.38, -1.2, 0x8a6a4c);               // 書桌
+  box(0.05, 0.36, 0.6, -2.0, 1.0, -1.2, 0x1d2126, false);          // 電腦螢幕（商店）
+  box(0.45, 0.45, 0.45, -1.35, 0.25, -1.2, 0x30343a);              // 椅子
+  box(0.62, 2.1, 1.6, 1.88, 1.05, 1.6, 0xc9b79c);                  // 衣櫃
+  box(1.6, 0.02, 1.2, 0, 0.01, 0.2, 0x9c4f45, false);              // 地毯
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.1), new THREE.MeshBasicMaterial({ color: 0xcfe8ff }));
+  glass.position.set(2.19, 1.55, -0.6); glass.rotation.y = -Math.PI / 2; s.add(glass);
+  box(0.95, 2.06, 0.06, 1.2, 1.03, -2.78, 0x7a5a3d, false);        // 門
+  box(0.06, 0.06, 0.08, 0.86, 1.0, -2.72, 0xd8c690, false);
+  const label = (text, bg, x, y, z, ry, w = 0.7) => {
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 96;
+    const g = cv.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, 256, 96); g.strokeStyle = '#fff'; g.lineWidth = 6; g.strokeRect(6, 6, 244, 84);
+    g.fillStyle = '#fff'; g.font = '900 46px "Noto Sans TC", "PingFang TC", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 128, 50);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 0.375), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false })); m.position.set(x, y, z); m.rotation.y = ry; s.add(m);
+  };
+  label('出 門 →', '#0b6b4f', 1.2, 2.3, -2.77, 0);
+  label('商店', '#8a5a00', -1.97, 1.45, -1.2, Math.PI / 2, 0.5);
+  return { scene: s, boxes, door: { x: 1.2, z: -2.45 }, desk: { x: -1.25, z: -0.45 }, W, D, H };
+}
+const room = buildRoom();
+
+// ===================================================================== 狀態
+const input = new Input(canvas, $('touch'));
+const music = new Music({ key: 'taipei-music', rapUrl: null });
+for (const [id, code] of [['btnMirL', 'KeyZ'], ['btnMirR', 'KeyX']]) {
+  const el = $(id); if (!el) continue;
+  el.addEventListener('touchstart', (e) => { input.keys.add(code); e.preventDefault(); }, { passive: false });
+  for (const ev of ['touchend', 'touchcancel']) el.addEventListener(ev, (e) => { input.keys.delete(code); e.preventDefault(); }, { passive: false });
+}
+for (const [id, code] of [['btnSeat', 'KeyV'], ['btnCenter', 'KeyR'], ['btnJump', 'KeyF'], ['btnGrip', 'KeyG'], ['btnFlip', 'KeyT'], ['btnDrone', 'KeyU']]) if ($(id)) $(id).addEventListener('touchstart', (e) => { input.hit.add(code); e.preventDefault(); }, { passive: false });
+if ($('btnBoost')) {   // 推進器：按住
+  $('btnBoost').addEventListener('touchstart', (e) => { input.keys.add('ShiftLeft'); e.preventDefault(); }, { passive: false });
+  for (const ev of ['touchend', 'touchcancel']) $('btnBoost').addEventListener(ev, (e) => { input.keys.delete('ShiftLeft'); e.preventDefault(); }, { passive: false });
+}
+const engine = new EngineSound('gas');
+music.keepAlive = () => engine.on;
+const sfxBtn = () => { const b = $('btnSfx'); if (b) { b.textContent = engine.on ? '引擎聲 開' : '引擎聲 關'; b.setAttribute('aria-pressed', engine.on ? 'true' : 'false'); } };
+engine.onChange = sfxBtn;
+function audioStart() { music.start(); if (music.ctx) { engine.attach(music.ctx); if (engine.on) music.ctx.resume(); } }
+const musicBtn = () => { const b = $('btnMusic'); if (b) { b.textContent = music.on ? '♪ 音樂 開' : '♪ 音樂 關'; b.setAttribute('aria-pressed', music.on ? 'true' : 'false'); } };
+music.onChange = musicBtn;
+
+const econ = new Economy();
+const G = {
+  state: 'boot', cam: 'cockpit', phase: 'room', leg: 'am', parked: null, clock: TIME.startMin, dayN: 1,
+  cfg: { di: -1, home: null, work: null }, menuAngle: 0, menuCenter: { x: 0, z: 0 }, menuTarget: { x: 0, z: 0, r: 520, h: 300 },
+  homeCar: null, route: null, routePoly: null, routeIdx: 0,
+};
+const P = { x: 0, y: 0, z: 0, yaw: 0, speed: 0, inRoom: false };
+let world, parking, traffic, signs, car, cockpit, avatar, tp, meta, nav = null, stunts = null, drones = null, flight = null, statics = [];
+window.__tc = { G, P, renderer, scene, camera, econ, engine };
+if (location.hash.startsWith('#lowq')) { renderer.shadowMap.enabled = false; renderer.setPixelRatio(0.75); }
+
+function resize() {
+  const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+const fmtClock = (m) => { m = Math.floor(m); return String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+const fmtDist = (d) => d >= 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m';
+const fmtMoney = (n) => (n < 0 ? '−' : '') + Math.abs(Math.round(n)).toLocaleString('zh-TW') + ' 元';
+const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const districtName = (i) => meta.districts[i] ? meta.districts[i].name : '';
+let toastT = 0;
+function toast(msg, sec = 3) { const t = $('toast'); t.textContent = msg; t.hidden = false; toastT = performance.now() + sec * 1000; }
+function setPrompt(html, cls = '') { const p = $('prompt'); if (!html) { p.hidden = true; return; } if (p._h !== html) { p.innerHTML = html; p._h = html; } p.className = cls; p.hidden = false; }
+function fadeThen(fn, hold = 60) { const f = $('fade'); f.classList.add('on'); setTimeout(() => { fn(); setTimeout(() => f.classList.remove('on'), hold); }, 360); }
+const dest = () => G.leg === 'am' ? G.cfg.work : G.cfg.home;
+const destName = () => G.leg === 'am' ? G.cfg.work.n : '家';
+
+// ===================================================================== 啟動
+async function boot() {
+  resize();
+  $('loadText').textContent = '載入台北市地圖…';
+  try { const r = await fetch('data/meta.json'); if (!r.ok) throw new Error('HTTP ' + r.status); meta = await r.json(); }
+  catch (err) { $('loadText').textContent = '地圖資料載入失敗'; $('loadSub').textContent = '請透過網頁伺服器開啟這個資料夾（不要直接雙擊 HTML 檔）。'; return; }
+  world = new World(scene, meta, '');
+  parking = new Parking(scene, world);
+  traffic = new Traffic(scene, world);
+  signs = new SignManager(scene);
+  world.onCellReady.push((c) => {
+    if (!c.signs) return;
+    for (const s of c.signs) if (!s.text) s.text = s.vertical ? genVerticalName(s.seed) : genShopName(s.seed, s.cat);
+    signs.addCell(c, c.signs);
+  });
+  world.onCellUnload.push((c) => signs.removeCell(c));
+  for (const m of world.root.children) m.castShadow = false;
+  parking.onDecorated = (cell) => {
+    if (!G.cfg.work || G.state === 'menu') return;
+    const C = world.CELL, cx = (cell.cx + 0.5) * C, cz = (cell.cz + 0.5) * C;
+    for (const t of [G.cfg.work, G.cfg.home]) if (t && Math.hypot(cx - t.x, cz - t.z) < 700) parking.ensureFreeNear(t.x, t.z, 3);
+  };
+  tp = new ThirdPersonCam(camera);
+  Object.assign(window.__tc, { world, parking, traffic, signs, tp, meta });
+  Nav.load('data/nav.json').then(n => {
+    nav = n; window.__tc.nav = n;
+    // 全市會用無人機飛行系統的車（千分之一）：一直在全市飛，靠近你的才畫出來
+    drones = new DroneTraffic(scene, world, nav, RUSH.factor); drones.statics = statics; window.__tc.drones = drones;
+  }).catch(err => console.warn('nav load failed', err));
+  // 超高大樓（台北 101 等）：無人機要繞開
+  for (const lm of meta.landmarks || []) {
+    const n = lm.pts.length / 2; let cx = 0, cz = 0; for (let i = 0; i < n; i++) { cx += lm.pts[i * 2]; cz += lm.pts[i * 2 + 1]; } cx /= n; cz /= n;
+    let r = 0; for (let i = 0; i < n; i++) r = Math.max(r, Math.hypot(lm.pts[i * 2] - cx, lm.pts[i * 2 + 1] - cz));
+    statics.push({ x: cx, z: cz, r, top: (lm.base || 0) + lm.h, name: lm.n });
+  }
+  avatar = await Avatar.load('models/hero.json');
+  if (avatar) avatar.attach(scene);
+  window.__tc.avatar = avatar;
+  if (!avatar) setTimeout(() => toast('人物模型載入失敗：' + (Avatar.lastError || '未知原因'), 12), 4000);
+  const pj = meta.proj, tx = (121.5170 - pj.lon0) * pj.mlon, tz = -(25.0478 - pj.lat0) * pj.mlat;
+  G.menuCenter = { x: tx, z: tz }; Object.assign(G.menuTarget, { x: tx, z: tz });
+  buildMenu();
+  $('btnMusic').onclick = () => { audioStart(); music.toggle(); }; musicBtn();
+  $('btnSfx').onclick = () => { audioStart(); engine.toggle(); }; sfxBtn();
+  G.state = 'menu'; $('loading').hidden = true;
+  requestAnimationFrame(loop);
+}
+
+// ===================================================================== 選單
+function buildMenu() {
+  const svg = $('distMap'), [x0, z0, x1, z1] = meta.bounds, pad = 400;
+  svg.setAttribute('viewBox', `${x0 - pad} ${z0 - pad} ${x1 - x0 + pad * 2} ${z1 - z0 + pad * 2}`);
+  svg.innerHTML = '';
+  meta.districts.forEach((d, i) => {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d.poly.map(r => 'M' + r.reduce((s, v, k) => s + (k % 2 ? ',' : (k ? ' L' : '')) + v, '') + 'Z').join(''));
+    path.setAttribute('tabindex', '0'); path.setAttribute('role', 'button'); path.setAttribute('aria-label', d.name);
+    path.dataset.i = i;
+    path.addEventListener('click', () => pickDistrict(i));
+    path.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickDistrict(i); } });
+    svg.appendChild(path);
+  });
+  meta.districts.forEach((d) => {
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', d.c[0]); t.setAttribute('y', d.c[1] + 260); t.textContent = d.name.replace('區', '');
+    svg.appendChild(t);
+  });
+  $('homeMore').onclick = () => { G.homePage = (G.homePage || 0) + 1; renderHomes(); };
+  $('workMore').onclick = () => { G.workSeed = (G.workSeed || 0) + 1; renderWorks(); };
+  $('btnGo').onclick = () => newGame();
+  $('btnAuto').onclick = () => { startAuto(); autoPick(); newGame(); };
+  refreshContinue();
+  $('btnNext').onclick = () => { $('summary').hidden = true; G.dayN++; startDay(); };
+  $('btnMenu').onclick = () => { $('summary').hidden = true; toMenu(); };
+  $('btnSumShop').onclick = () => openShop();
+  $('shopClose').onclick = () => closeShop();
+  $('bigClose').onclick = () => toggleBigMap(false);
+}
+function refreshContinue() {
+  const sv = store.get(), b = $('btnContinue');
+  if (sv && sv.cfg && sv.cfg.home && sv.cfg.work) {
+    b.hidden = false;
+    b.textContent = `繼續：第 ${sv.day} 天　${sv.cfg.home.a} → ${sv.cfg.work.n}　存款 ${fmtMoney((sv.econ && sv.econ.money) || 0)}`;
+    b.onclick = () => { G.cfg = sv.cfg; G.dayN = sv.day; econ.fromJSON(sv.econ); G.homeCar = sv.homeCar || null; startGame(); };
+  } else b.hidden = true;
+}
+function pickDistrict(i) {
+  G.cfg.di = i; G.homePage = 0;
+  for (const p of $('distMap').querySelectorAll('path')) p.classList.toggle('on', +p.dataset.i === i);
+  const d = meta.districts[i];
+  Object.assign(G.menuTarget, { x: d.c[0], z: d.c[1], r: 520, h: 300 });
+  $('step2').hidden = false; renderHomes();
+  G.cfg.home = null; G.cfg.work = null; $('step3').hidden = true; updateGo();
+}
+function renderHomes() {
+  const list = meta.homes[G.cfg.di] || [], n = 6, page = (G.homePage || 0) % Math.max(1, Math.ceil(list.length / n));
+  const box = $('homeOpts'); box.innerHTML = '';
+  const dn = districtName(G.cfg.di);
+  $('homeHint').textContent = list.some(h => !h.approx) ? '門牌取自開放地圖資料' : '';
+  for (const h of list.slice(page * n, page * n + n)) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'opt' + (G.cfg.home === h ? ' on' : '');
+    b.innerHTML = `<b>臺北市${dn}${h.a}</b><span class="sub">${h.road ? '門前道路：' + h.road : ''}${h.approx ? '（約略位置）' : ''}</span>`;
+    b.onclick = () => { G.cfg.home = h; renderHomes(); Object.assign(G.menuTarget, { x: h.x, z: h.z, r: 170, h: 95 }); $('step3').hidden = false; G.cfg.work = null; renderWorks(); updateGo(); };
+    box.appendChild(b);
+  }
+}
+function workCands(h) { return meta.works.filter(w => { const d = Math.hypot(w.x - h.x, w.z - h.z); return d >= WORK_DIST.min && d <= WORK_DIST.max; }); }
+function renderWorks() {
+  const h = G.cfg.home; if (!h) return;
+  const cands = workCands(h), seed = (G.workSeed || 0) * 7919 + Math.round(h.x);
+  const scored = cands.map((w, i) => ({ w, r: hash2(i + seed, seed * 3 + 1) })).sort((a, b) => a.r - b.r);
+  const pick = [], kinds = new Set();
+  for (const { w } of scored) { if (pick.length >= 4) break; if (kinds.has(w.k) && pick.length < 3) continue; kinds.add(w.k); pick.push(w); }
+  const box = $('workOpts'); box.innerHTML = '';
+  if (!pick.length) { box.innerHTML = '<p class="fine">這個住址附近找不到合適的工作地點，換一個住址試試。</p>'; return; }
+  for (const w of pick) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'opt' + (G.cfg.work === w ? ' on' : '');
+    b.innerHTML = `<b>${w.n}</b><span class="meta">${fmtDist(Math.hypot(w.x - h.x, w.z - h.z))}</span><span class="sub">${w.k}・${districtName(w.d)}</span>`;
+    b.onclick = () => { G.cfg.work = w; renderWorks(); updateGo(); };
+    box.appendChild(b);
+  }
+}
+function updateGo() { $('btnGo').disabled = !(G.cfg.home && G.cfg.work); }
+function newGame() { G.dayN = 1; econ.reset(); G.homeCar = null; startGame(); }
+
+function startGame() {
+  audioStart();
+  $('menu').hidden = true;
+  input.enabled = true;
+  startDay();
+}
+function makeCar(key) {
+  const spec = carSpec(key);
+  if (car) scene.remove(car.group);
+  car = new PlayerCar(scene, world, spec);
+  car.onBump = (s) => { if (s > 0.4) toast(s > 1.5 ? '碰！撞到了' : '擦撞', 1.3); };
+  car.group.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  cockpit = new Cockpit(spec);
+  cockpit.hemi.intensity = 5.0; cockpit.sun.intensity = 3.2;
+  engine.setKind(spec.key === 'gas' ? 'gas' : 'ev');
+  // 飛天跑車：特技系統（燃料從存檔裡的特技燃料扣，用掉的量當天算錢）
+  stunts = spec.stunt ? new Stunts(car, world, {
+    fuel: () => econ.stuntFuel,
+    burn: (f) => { if (econ.stuntFuel <= 1e-4 || (f > 0.005 && econ.stuntFuel < f)) return false; const u = Math.min(econ.stuntFuel, f); econ.stuntFuel -= u; econ.addStunt(u); return true; },
+    toast: (m, sec) => toast(m, sec),
+    crash: (fee, msg) => { econ.addRepair(fee); toast(`${msg}　修車費 ${fmtMoney(fee)}`, 2.8); },
+    bump: (st) => car._bump(st),
+  }) : null;
+  flight = new DroneFlight(car, world, {
+    toast: (m, sec) => toast(m, sec), cost: (f) => econ.addDrone(f), traffic: () => traffic, dest: () => dest(), gameMinPerSec: () => TIME.scale / 60,
+  });
+  window.__tc.car = car; window.__tc.cockpit = cockpit; window.__tc.stunts = stunts; window.__tc.flight = flight;
+  applyComfort();
+}
+function toMenu() {
+  input.enabled = false; input.releaseLock(); engine.shutdown();
+  G.state = 'menu'; $('hud').hidden = true; $('menu').hidden = false; $('touch').hidden = true;
+  destBeacon.visible = carBeacon.visible = false; bayMarks.count = 0; routeLine.visible = false;
+  traffic.clear(); refreshContinue();
+}
+function save() { store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft }); }
+
+// ===================================================================== 每日流程
+function startDay() {
+  const h = G.cfg.home;
+  if (!car || car.spec.key !== econ.carKey) makeCar(econ.carKey);
+  G.state = 'loading'; G.leg = 'am'; G.phase = 'room'; G.parked = null; G.clock = TIME.startMin;
+  setSun('am'); traffic.factor = RUSH.factor;
+  $('hud').hidden = true; $('loading').hidden = false;
+  $('loadText').textContent = `第 ${G.dayN} 天｜載入${districtName(G.cfg.di)}街區…`;
+  $('loadSub').textContent = '道路、建物、招牌與停車格';
+  G.focus = { x: h.x, z: h.z };
+  parking.setDay(G.dayN); traffic.clear();
+  econ.startDay();
+  G.wait = {
+    cond: () => world.readyAround(h.x, h.z, 320) && parking.readyAround(h.x, h.z, 210),
+    then: () => {
+      parking.setDay(G.dayN);
+      let bay = null;
+      if (G.homeCar) { const err = {}; bay = parking.bayAt(G.homeCar.x, G.homeCar.z, G.homeCar.psi, err); if (bay) { bay.reserved = true; bay.occupied = false; } }
+      if (!bay) bay = parking.pickHomeBay(h.x, h.z, G.dayN);
+      if (stunts) stunts.reset();
+      if (bay) { car.place(bay.x, bay.z, bay.psi, bay.y); G.homeBay = bay; }
+      else { const o = {}; world.nearestEdge(h.x, h.z, 120, e => e.cls >= 4 && !e.bridge, o); const x = o.x ?? h.rx, z = o.z ?? h.rz; car.place(x, z, 0, world.groundAt(x, z)); G.homeBay = null; }
+      // 電動車晚上在家充飽；油車沿用昨天剩的油，低於兩成就順路加滿（錢算在油錢裡）
+      const sp = car.spec;
+      car.energy = sp.capacity;
+      if (sp.key === 'gas' && typeof G.gasLeft === 'number' && G.gasLeft / sp.capacity >= 0.2) car.energy = G.gasLeft;
+      G.stats = { leave: null, odo0: car.odo, bumps0: car.bumps };
+      G.legE0 = car.energy;
+      enterRoom();
+    },
+  };
+}
+
+function enterRoom() {
+  G.state = 'room'; P.inRoom = true;
+  P.x = -0.6; P.z = 1.0; P.y = 0; P.yaw = Math.PI * 0.85; tp.yaw = P.yaw; tp.dist = 2.4; tp.curDist = 2.4; tp.pitch = 0.32;
+  if (avatar) room.scene.add(avatar.group);
+  $('loading').hidden = true; $('hud').hidden = false;
+  if (input.touch) $('touch').hidden = false;
+  camera.near = 0.05; camera.fov = 62; camera.updateProjectionMatrix();
+  toast(`第 ${G.dayN} 天早上 7:30。走到門口出門上班（書桌的電腦可以開商店）`, 4);
+  save();
+}
+function leaveRoom() {
+  fadeThen(() => {
+    const h = G.cfg.home;
+    G.state = 'walk'; G.phase = 'toCar'; P.inRoom = false;
+    if (avatar) scene.add(avatar.group);
+    P.x = h.x; P.z = h.z; P.y = world.groundAt(h.x, h.z); P.yaw = Math.atan2(-(car.x - P.x), -(car.z - P.z)); tp.yaw = P.yaw;
+    tp.dist = 4.4; tp.curDist = 4.4; tp.pitch = 0.22;
+    G.stats.leave = G.clock;
+    camera.near = 0.15; camera.updateProjectionMatrix();
+    traffic.update(0.016, P.x, P.z, [], true);
+    toast(`車停在${G.homeBay && G.homeBay.edge.name ? G.homeBay.edge.name + '的' : ''}路邊，跟著藍色光柱走過去`);
+  });
+}
+
+let seatShown = false;
+function enterCar() {
+  fadeThen(() => {
+    G.state = 'drive'; G.phase = 'drive'; G.parked = null;
+    if (avatar) avatar.group.visible = false;
+    audioStart(); engine.ignite();
+    cockpit.lookYaw = 0; cockpit.lookPitch = 0;
+    camera.near = 0.8; camera.updateProjectionMatrix();
+    planRoute();
+    if (!seatShown) { seatShown = true; openSeat(); }
+    else { loadSeat(); applySeat(); toast(input.touch ? '按住「左鏡／右鏡」看後照鏡' : '按住 Z／X 看後照鏡，停車時按 V 調座椅', 2.5); }
+  });
+}
+
+const _err = { along: 0, lat: 0, ang: 0 };
+function bayAllowed(b) { return b.type === 'road' || (b.type === 'ev' && car.spec.key !== 'gas'); }
+function parkingCheck() {
+  const b = parking.bayAt(car.x, car.z, car.psi, _err);
+  if (!b) return { bay: null, ok: false, msg: '' };
+  if (!bayAllowed(b)) return { bay: b, ok: false, msg: b.type === 'ev' ? '這是電動車專用格，油車不能停' : '停車場車位要月租或計時付費（之後開放）' };
+  if (Math.abs(_err.ang) > PARK.angTol) return { bay: b, ok: false, msg: '車身要擺正' };
+  if (Math.abs(_err.lat) > PARK.latTol) return { bay: b, ok: false, msg: '壓到格線了，往格子中間一點' };
+  if (Math.abs(_err.along) > PARK.posTol) return { bay: b, ok: false, msg: _err.along > 0 ? '再往後一點' : '再往前一點' };
+  return { bay: b, ok: true, msg: '已停妥' };
+}
+function exitCar() {
+  if (flight && flight.active) { toast('飛行中不能下車', 1.6); return; }
+  if (stunts && stunts.busy) { toast(stunts.mode === 'roof' ? '屋頂上不能下車，先開下去' : '特技中不能下車', 1.6); return; }
+  if (Math.abs(car.v) > 0.4) { toast('先停下來才能下車', 1.6); return; }
+  const chk = parkingCheck(), near = dist(car, dest()) < 450;
+  G.parked = { legal: chk.ok && near, ok: chk.ok, bay: chk.bay, type: chk.bay ? chk.bay.type : null };
+  G.phase = 'toDest'; engine.shutdown(); engine.stunt(0, 0);
+  fadeThen(() => {
+    const lx = -Math.cos(car.psi), lz = Math.sin(car.psi);
+    P.x = car.x + lx * 1.7; P.z = car.z + lz * 1.7; P.y = car.y; P.yaw = car.psi + Math.PI / 2; tp.yaw = car.psi;
+    const p = { x: P.x, z: P.z }; if (world.collide(p, 0.4)) { P.x = car.x - lx * 1.7; P.z = car.z - lz * 1.7; }
+    if (avatar) avatar.group.visible = true;
+    G.state = 'walk'; camera.near = 0.15; camera.updateProjectionMatrix();
+    routeLine.visible = false;
+    const where = G.leg === 'am' ? '公司' : '家', go = G.leg === 'am' ? '走去公司打卡' : '走回家';
+    toast(G.parked.legal ? (chk.bay.type === 'ev' ? `停進電動車格（會順便充電），${go}` : `停好了！${go}`)
+      : chk.ok ? `停好了，但離${where}太遠（要 450 m 內）` : chk.msg ? '沒停好：' + chk.msg : '這裡不是停車格');
+  });
+}
+
+/** 到達公司（早上）或家（晚上）。 */
+function arrive() {
+  const c = car;
+  econ.addEnergy(c.spec, Math.max(0, G.legE0 - c.energy), true);     // 這一趟用掉的油或電
+  if (G.leg === 'am') {
+    const late = Math.max(0, G.clock - TIME.workMin);
+    econ.clockIn(late);
+    if (G.parked.type === 'road') econ.addParking('road');
+    if (G.parked.type === 'ev') { const need = c.spec.capacity - c.energy; econ.day.charge += need * PAY.bayKwh; c.energy = c.spec.capacity; }
+    G.amClock = G.clock;
+    G.state = 'work'; setPrompt(''); input.releaseLock();
+    const f = $('fade'); $('workText').textContent = late > 0.5 ? `${fmtClock(G.clock)} 打卡，遲到 ${Math.round(late)} 分鐘` : `${fmtClock(G.clock)} 準時打卡`;
+    f.classList.add('on'); $('workCard').hidden = false;
+    setTimeout(() => {
+      // 下班：18:00 從公司門口出來，走回車上
+      G.leg = 'pm'; G.phase = 'toCar'; G.clock = TIME.homeMin; setSun('pm'); traffic.clear();
+      const w = G.cfg.work; P.x = w.x; P.z = w.z; P.y = world.groundAt(w.x, w.z); P.yaw = Math.atan2(-(car.x - P.x), -(car.z - P.z)); tp.yaw = P.yaw;
+      G.parked = null; G.legE0 = c.energy; G.state = 'walk';
+      traffic.update(0.016, P.x, P.z, [], true);
+      $('workCard').hidden = true; f.classList.remove('on');
+      toast('18:00 下班了，走回車上開回家');
+    }, 3200);
+  } else finishDay();
+}
+
+function finishDay() {
+  const c = car, s = G.stats, km = (c.odo - s.odo0) / 1000, bumps = c.bumps - s.bumps0;
+  G.gasLeft = c.spec.key === 'gas' ? c.energy : undefined;
+  G.homeCar = G.parked && G.parked.bay ? { x: G.parked.bay.x, z: G.parked.bay.z, psi: G.parked.bay.psi } : { x: car.x, z: car.z, psi: car.psi };
+  const charge = Math.round(econ.day.charge || 0), r = econ.endDay(km);
+  G.state = 'summary'; input.releaseLock(); setPrompt('');
+  $('sumTitle').textContent = r.late ? `第 ${G.dayN} 天｜遲到 ${r.late} 分鐘` : `第 ${G.dayN} 天｜準時上班`;
+  $('sumLead').textContent = `${fmtClock(G.clock)} 回到家。`;
+  const rows = [
+    ['出門', fmtClock(s.leave || TIME.startMin), ''],
+    ['打卡', fmtClock(G.amClock), r.late ? 'bad' : 'good'],
+    ['到家', fmtClock(G.clock), ''],
+    ['今天開了', km.toFixed(1) + ' km', ''],
+    ['擦撞', bumps + ' 次', bumps ? 'bad' : 'good'],
+    ['日薪', fmtMoney(r.pay) + (r.late ? `（遲到扣 ${fmtMoney(PAY.daily - r.pay)}）` : ''), 'good'],
+    [c.spec.key === 'gas' ? '油錢' : '電費', '−' + fmtMoney(r.energy), ''],
+    ['停車／充電', '−' + fmtMoney(r.parking + charge), ''],
+  ];
+  if (r.stunt) rows.push(['特技燃料', '−' + fmtMoney(r.stunt), '']);
+  if (r.drone) rows.push(['無人機燃料', '−' + fmtMoney(r.drone), '']);
+  if (r.repair) rows.push(['修車', '−' + fmtMoney(r.repair), 'bad']);
+  rows.push(['今天淨賺', fmtMoney(r.net), r.net >= 0 ? 'good' : 'bad'], ['存款', fmtMoney(r.money), '']);
+  $('sumStats').innerHTML = rows.map(([k, v, cl]) => `<dt>${k}</dt><dd class="${cl}">${v}</dd>`).join('');
+  $('summary').hidden = false;
+  save();
+  if (AUTO) AUTO.done = true;
+}
+
+// ===================================================================== 商店
+function openShop() {
+  input.releaseLock(); input.noLock = true;
+  // 從結算畫面打開時，先把結算收起來（不然結算視窗會蓋住商店）
+  G.shopFromSummary = !$('summary').hidden; if (G.shopFromSummary) $('summary').hidden = true;
+  renderShop(); $('shop').hidden = false;
+}
+function closeShop() { $('shop').hidden = true; input.noLock = false; if (G.shopFromSummary) { G.shopFromSummary = false; $('summary').hidden = false; } }
+function renderShop() {
+  $('shopMoney').textContent = fmtMoney(econ.money);
+  const box = $('shopList'); box.innerHTML = '';
+  for (const it of SHOP) {
+    const p = priceOf(it.key), owned = econ.has(it.key), ready = READY[it.key];
+    const d = document.createElement('div'); d.className = 'item' + (owned ? ' owned' : '');
+    d.innerHTML = `<div class="ihead"><b>${it.name}</b><span class="price">${owned ? '已擁有' : fmtMoney(p)}</span></div><p>${it.desc}</p>`;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'buy';
+    if (owned) { b.textContent = '已擁有'; b.disabled = true; }
+    else if (!ready) { b.textContent = '製作中'; b.disabled = true; }
+    else if (econ.money < p) { b.textContent = `還差 ${fmtMoney(p - econ.money)}`; b.disabled = true; }
+    else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(r.msg, 2.5); save(); renderShop(); }; }
+    d.appendChild(b); box.appendChild(d);
+  }
+  const cars = econ.cars(), names = { gas: '油車', ev: '電動車', roadster: '飛天跑車' };
+  const pick = $('shopCars'); pick.innerHTML = '<legend>明天開哪台車</legend>';
+  for (const k of cars) {
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="radio" name="carPick" value="${k}"${econ.carKey === k ? ' checked' : ''}> ${names[k] || k}`;
+    l.querySelector('input').onchange = () => { econ.carKey = k; save(); toast(`明天開${names[k]}`, 1.8); };
+    pick.appendChild(l);
+  }
+  pick.hidden = cars.length < 2;
+  $('shopNote').textContent = SAVED_MEASURED ? '價錢依「每趟平均省下的時間」計算：省越多時間越貴。' : '價錢原則：每趟平均省越多時間越貴。目前是暫定價，之後依尖峰時段實測省下的時間調整。';
+}
+
+// ===================================================================== 導航
+function planRoute() {
+  G.route = null; G.routePoly = null; routeLine.visible = false;
+  if (!nav || !car) return;
+  const o = {}, e = world.nearestEdge(car.x, car.z, 30, ed => ed.cls <= 6, o);
+  let fwdOK = true;
+  if (e) { const k = Math.max(0, e.cum.findIndex(c => c > o.s) - 1), dx = e.pts[k * 2 + 2] - e.pts[k * 2], dz = e.pts[k * 2 + 3] - e.pts[k * 2 + 1]; fwdOK = dx * car.fwdX + dz * car.fwdZ >= 0; }
+  const d = dest();
+  // 先試著沿車頭方向走；單行道只能順向
+  let rt = e ? nav.route({ edge: e, s: o.s, fwdOK: fwdOK, backOK: !fwdOK }, { x: d.x, z: d.z }) : null;
+  if (!rt && e) rt = nav.route({ edge: e, s: o.s }, { x: d.x, z: d.z });
+  if (!rt) rt = nav.route({ x: car.x, z: car.z }, { x: d.x, z: d.z });
+  if (!rt) return;
+  G.route = rt; G.routeS = e ? o.s : undefined;
+  G.routePoly = nav.polyline(rt, world, { x: car.x, z: car.z }, G.routeS); G.routeIdx = 0;
+  if (econ.has('nav')) buildRouteMesh();
+}
+function buildRouteMesh() {
+  const p = G.routePoly; if (!p || p.length < 4) { routeLine.visible = false; return; }
+  const pos = [], idx = [], W = 1.1, q = {};
+  let n = 0;
+  for (let i = Math.max(0, G.routeIdx - 2); i + 3 < p.length && n < 3000; i += 2) {
+    const ax = p[i], az = p[i + 1], bx = p[i + 2], bz = p[i + 3], L = Math.hypot(bx - ax, bz - az); if (L < 0.3) continue;
+    if (Math.hypot(ax - car.x, az - car.z) > 900) break;
+    const nx = -(bz - az) / L * W, nz = (bx - ax) / L * W;
+    const sa = world.surfaceAt(ax, az, car.y + 0.5, q), ya = (sa ? sa.y : world.groundAt(ax, az)) + 0.3;
+    const sb = world.surfaceAt(bx, bz, car.y + 0.5, q), yb = (sb ? sb.y : world.groundAt(bx, bz)) + 0.3;
+    pos.push(ax + nx, ya, az + nz, ax - nx, ya, az - nz, bx + nx, yb, bz + nz, bx - nx, yb, bz - nz);
+    idx.push(n * 4, n * 4 + 1, n * 4 + 2, n * 4 + 1, n * 4 + 3, n * 4 + 2); n++;
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+  routeLine.geometry.dispose(); routeLine.geometry = g; routeLine.visible = n > 0;
+}
+function navTick(dt) {
+  if (!G.routePoly) { G.routeT = (G.routeT || 0) + dt; if (G.routeT > 2 && nav) { G.routeT = 0; planRoute(); } return null; }
+  const pr = polyProgress(G.routePoly, car.x, car.z, Math.max(0, G.routeIdx - 4), 300);
+  G.routeIdx = pr.i;
+  // 偏離路線 35 m 以上超過 1.5 秒：重新規劃
+  G.offT = pr.d > 35 ? (G.offT || 0) + dt : 0;
+  if (G.offT > 1.5) { G.offT = 0; planRoute(); if (econ.has('nav')) toast('重新規劃路線', 1.5); return null; }
+  // 每 4 秒用剛載入的真實道路形狀更新路線（前方路段載入後會更準）
+  G.meshT = (G.meshT || 0) - dt;
+  if (G.meshT <= 0) { G.meshT = 4; G.routePoly = nav.polyline(G.route, world, null); G.routeIdx = polyProgress(G.routePoly, car.x, car.z, 0, 100000).i; if (econ.has('nav')) buildRouteMesh(); }
+  let rest = 0; for (let i = pr.i; i + 3 < G.routePoly.length; i += 2) rest += Math.hypot(G.routePoly[i + 2] - G.routePoly[i], G.routePoly[i + 3] - G.routePoly[i + 1]);
+  const turn = nextTurn(G.routePoly, pr, 1200);
+  let road = '';
+  if (turn) { const q = {}, k = Math.min(G.routePoly.length - 2, turn.idx + 2), e = world.nearestEdge((turn.x + G.routePoly[k]) / 2, (turn.z + G.routePoly[k + 1]) / 2, 20, null, q); road = e ? e.name : ''; }
+  return { rest, turn, road };
+}
+
+// ===================================================================== 走路（第三人稱）與房間
+const _q = { x: 0, z: 0 }, _surf = { y: 0, edge: null, s: 0, lat: 0, i: 0, t: 0, _d2: 0 };
+const obsList = [];
+function gatherObstacles(x, z, R) {
+  obsList.length = 0;
+  for (const c of traffic.cars) if (Math.abs(c.x - x) < R && Math.abs(c.z - z) < R) obsList.push(c);
+  for (const b of parking.parked) if (Math.abs(b.x - x) < R && Math.abs(b.z - z) < R) obsList.push({ x: b.x, z: b.z, y: b.y, psi: b.psiCar });
+  for (const b of world.barriers) {
+    if (Math.abs(b.x - x) > R + b.w || Math.abs(b.z - z) > R + b.w) continue;
+    const k = Math.max(1, Math.ceil(b.w / 4)), psi = Math.atan2(-b.nx, -b.nz);
+    for (let i = 0; i < k; i++) { const t = (i + 0.5) / k - 0.5; obsList.push({ x: b.x + b.nx * t * b.w, z: b.z + b.nz * t * b.w, y: b.y, psi }); }
+  }
+  return obsList;
+}
+const camBlocked = (x, y, z) => { const b = world.buildingAt(x, z); return !!(b && y < b.y0 + b.h + 1.0); };
+const groundAt = (x, z) => world.groundAt(x, z, P.y);
+const roomBlocked = (x, y, z) => {
+  const m = 0.12;
+  if (x < -room.W / 2 + m || x > room.W / 2 - m || z < -room.D / 2 + m || z > room.D / 2 - m || y > room.H - 0.1) return true;
+  for (const b of room.boxes) if (x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1 && y < b.h) return true;
+  return false;
+};
+/** 第三人稱移動：依鏡頭方向移動，角色轉向行進方向。 */
+function stepWalk(dt, speedMul = 1) {
+  const fw = Math.max(-1, Math.min(1, input.forward)), st = Math.max(-1, Math.min(1, input.strafe));
+  const fx = tp.fwdX, fz = tp.fwdZ;
+  let mx = fx * fw - fz * st, mz = fz * fw + fx * st;
+  const mag = Math.min(1, Math.hypot(mx, mz));
+  if (mag > 0.05) {
+    const l = Math.hypot(mx, mz); mx /= l; mz /= l;
+    const sp = (input.run ? 4.8 : 1.9) * mag * speedMul;
+    P.x += mx * sp * dt; P.z += mz * sp * dt;
+    const want = Math.atan2(-mx, -mz); let d = want - P.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+    P.yaw += d * Math.min(1, dt * 10);
+  }
+}
+function roomFrame(dt) {
+  tp.input(input.lookX, input.lookY);
+  const ox = P.x, oz = P.z;
+  stepWalk(dt, 0.8);
+  const m = 0.3;
+  P.x = Math.max(-room.W / 2 + m, Math.min(room.W / 2 - m, P.x)); P.z = Math.max(-room.D / 2 + m, Math.min(room.D / 2 - m, P.z));
+  for (const b of room.boxes) {
+    if (P.x > b.x0 - m && P.x < b.x1 + m && P.z > b.z0 - m && P.z < b.z1 + m) {
+      const dx0 = P.x - (b.x0 - m), dx1 = b.x1 + m - P.x, dz0 = P.z - (b.z0 - m), dz1 = b.z1 + m - P.z, mn = Math.min(dx0, dx1, dz0, dz1);
+      if (mn === dx0) P.x = b.x0 - m; else if (mn === dx1) P.x = b.x1 + m; else if (mn === dz0) P.z = b.z0 - m; else P.z = b.z1 + m;
+    }
+  }
+  P.speed = Math.hypot(P.x - ox, P.z - oz) / Math.max(dt, 1e-4);
+  if (avatar) { avatar.group.visible = true; avatar.update(dt, P.x, 0, P.z, P.yaw, P.speed); }
+  tp.update(dt, P.x, 0, P.z, roomBlocked, () => 0);
+  const nearDoor = Math.hypot(P.x - room.door.x, P.z - room.door.z) < 1.25, nearDesk = Math.hypot(P.x - room.desk.x, P.z - room.desk.z) < 1.0;
+  setPrompt(nearDoor ? '<kbd>E</kbd> 出門' : nearDesk ? '<kbd>E</kbd> 打開電腦（商店）' : '走到房門口出門上班');
+  if (input.pressed('KeyE')) { if (nearDoor) leaveRoom(); else if (nearDesk) openShop(); }
+  world.update(G.cfg.home.x, G.cfg.home.z, dt);
+  parking.update(dt, G.cfg.home.x, G.cfg.home.z);
+}
+function walkFrame(dt) {
+  tp.input(input.lookX, input.lookY);
+  const ox = P.x, oz = P.z;
+  stepWalk(dt);
+  const gr = world.groundAt(P.x, P.z, P.y);
+  _q.x = P.x; _q.z = P.z;
+  if (P.y - gr < 2.5 && P.y - gr > -2.0) { world.collide(_q, 0.32); P.x = _q.x; P.z = _q.z; }
+  for (const o of gatherObstacles(P.x, P.z, 8).concat([{ x: car.x, z: car.z, y: car.y, psi: car.psi }])) {
+    if (Math.abs((o.y || 0) - P.y) > 1.5) continue;
+    for (const off of [1.3, 0, -1.3]) {
+      const px = o.x - Math.sin(o.psi) * off, pz = o.z - Math.cos(o.psi) * off, dx = P.x - px, dz = P.z - pz, d = Math.hypot(dx, dz), R = 1.25;
+      if (d < R && d > 1e-4) { P.x += dx / d * (R - d); P.z += dz / d * (R - d); }
+    }
+  }
+  const s = world.surfaceAt(P.x, P.z, P.y, _surf);
+  if (!s && P.y - gr > 1.3) { P.x = ox; P.z = oz; }
+  else P.y += ((s ? s.y : world.groundAt(P.x, P.z, P.y)) - P.y) * Math.min(1, dt * 10);
+  P.speed = Math.hypot(P.x - ox, P.z - oz) / Math.max(dt, 1e-4);
+  if (avatar) { avatar.group.visible = true; avatar.update(dt, P.x, P.y, P.z, P.yaw, P.speed); }
+  tp.update(dt, P.x, P.y, P.z, camBlocked, groundAt);
+  world.update(P.x, P.z, dt); parking.update(dt, P.x, P.z); signs.update(dt, P.x, P.z);
+  traffic.update(dt, P.x, P.z, [{ x: P.x, z: P.z, y: P.y, r: 0.6 }, { x: car.x, z: car.z, y: car.y, r: 2.3 }]);
+  traffic.events.length = 0;
+  if (drones) drones.update(dt, P.x, P.z, null);
+  car.body.visible = true; car.sync();
+  engine.update(dt, { v: 0, throttle: 0, brake: 0, cockpit: false });
+  if (tunnelF > 0.001) tunnelLight(dt, null);
+  const d = dest(), dCar = dist(P, car), dDest = dist(P, d);
+  carBeacon.visible = G.phase === 'toCar' || (G.phase === 'toDest' && G.parked && !G.parked.legal);
+  carBeacon.position.set(car.x, car.y, car.z);
+  destBeacon.visible = G.phase !== 'toCar'; destBeacon.position.set(d.x, world.groundAt(d.x, d.z), d.z);
+  bayMarks.count = 0;
+  if (dCar < 3.0) { setPrompt('<kbd>E</kbd> 上車'); if (input.pressed('KeyE')) enterCar(); }
+  else if (G.phase === 'toDest' && dDest < 4.5) {
+    if (G.parked && G.parked.legal) { setPrompt(G.leg === 'am' ? '打卡中…' : '到家了', 'good'); arrive(); }
+    else setPrompt('車還沒停進合法車格，回去停好', 'warn');
+  } else setPrompt('');
+}
+
+// ===================================================================== 駕駛座調整、舒適設定
+const SEAT_DEF = { h: 0, f: 0, fov: 46, tilt: 10 };
+const seatKey = () => 'taipei-seat-' + (car ? car.spec.key : 'gas');
+let seat = Object.assign({}, SEAT_DEF);
+const seatDef = () => Object.assign({}, SEAT_DEF, (car && car.spec.seat) || {});   // 跑車坐得低、車頂低：預設視線不往上抬
+function loadSeat() { try { seat = Object.assign(seatDef(), JSON.parse(localStorage.getItem(seatKey()) || '{}')); } catch (err) { seat = seatDef(); } }
+function applySeat() {
+  if (!cockpit) return;
+  cockpit.eye.set(cockpit.eyeBase.x, cockpit.eyeBase.y + seat.h / 100, cockpit.eyeBase.z - seat.f / 100);
+  cockpit.basePitch = seat.tilt * Math.PI / 180;
+  $('seatH').value = seat.h; $('seatF').value = seat.f; $('seatV').value = seat.fov; $('seatT').value = seat.tilt;
+  $('seatTv').textContent = (seat.tilt > 0 ? '往上 ' : seat.tilt < 0 ? '往下 ' : '') + Math.abs(seat.tilt) + '°';
+  $('seatHv').textContent = (seat.h > 0 ? '+' : '') + seat.h + ' cm'; $('seatFv').textContent = (seat.f > 0 ? '+' : '') + seat.f + ' cm'; $('seatVv').textContent = seat.fov + '°';
+  try { localStorage.setItem(seatKey(), JSON.stringify(seat)); } catch (err) { /* 存不了就算了 */ }
+}
+for (const [id, k] of [['seatH', 'h'], ['seatF', 'f'], ['seatV', 'fov'], ['seatT', 'tilt']]) $(id).addEventListener('input', (e) => { seat[k] = +e.target.value; applySeat(); });
+$('seatReset').onclick = () => { Object.assign(seat, seatDef()); applySeat(); };
+$('seatGo').onclick = () => closeSeat();
+const COMFORT_KEY = 'drive-comfort', COMFORT_DEF = { autoCenter: false, followPitch: false, quality: 'high', inch: 14, cm: 55 };
+const comfort = (() => { try { return Object.assign({}, COMFORT_DEF, JSON.parse(localStorage.getItem(COMFORT_KEY) || '{}')); } catch (err) { return Object.assign({}, COMFORT_DEF); } })();
+function applyComfort() {
+  if (cockpit) { cockpit.autoCenter = comfort.autoCenter; cockpit.followPitch = comfort.followPitch; }
+  const smooth = comfort.quality === 'smooth' || location.hash.startsWith('#lowq');
+  sun.castShadow = !smooth;
+  renderer.setPixelRatio(location.hash.startsWith('#lowq') ? 0.75 : Math.min(window.devicePixelRatio || 1, smooth ? 1 : 1.5)); resize();
+  $('cfAuto').checked = comfort.autoCenter; $('cfPitch').checked = comfort.followPitch;
+  for (const r of document.querySelectorAll('input[name=cfQ]')) r.checked = r.value === comfort.quality;
+  $('cfInch').value = comfort.inch; $('cfCm').value = comfort.cm;
+  try { localStorage.setItem(COMFORT_KEY, JSON.stringify(comfort)); } catch (err) { /* 存不了就算了 */ }
+}
+$('cfAuto').addEventListener('change', (e) => { comfort.autoCenter = e.target.checked; applyComfort(); });
+$('cfPitch').addEventListener('change', (e) => { comfort.followPitch = e.target.checked; applyComfort(); });
+for (const r of document.querySelectorAll('input[name=cfQ]')) r.addEventListener('change', () => { comfort.quality = r.value; applyComfort(); });
+$('cfCalc').onclick = () => {
+  comfort.inch = Math.max(5, Math.min(100, +$('cfInch').value || 14)); comfort.cm = Math.max(20, Math.min(400, +$('cfCm').value || 55));
+  const ar = (screen.width || 16) / (screen.height || 10), diag = comfort.inch * 2.54, h = diag / Math.sqrt(1 + ar * ar);
+  let v = 2 * Math.atan(h / 2 / comfort.cm) * 180 / Math.PI; if (camera.aspect < 1) v -= 26;
+  seat.fov = Math.round(Math.max(20, Math.min(80, v))); applySeat(); applyComfort();
+  $('cfCalcOut').textContent = `依你的螢幕算出 ${Math.round(2 * Math.atan(h / 2 / comfort.cm) * 180 / Math.PI)}°，已套用到「視野寬窄」`;
+};
+let fpsN = 0, fpsT = 0;
+function fpsTick(dt) {
+  fpsN++; fpsT += dt;
+  if (fpsT >= 1) { const f = fpsN / fpsT; fpsN = 0; fpsT = 0; const el = $('cfFps'); if (el && !$('seat').hidden) el.textContent = `目前畫面每秒 ${Math.round(f)} 張${f < 40 && comfort.quality === 'high' ? '，不夠順，建議改「順暢優先」' : ''}`; }
+}
+function openSeat() {
+  loadSeat();
+  G.seatAdj = true; G.cam = 'cockpit'; camera.near = 0.8; camera.updateProjectionMatrix();
+  input.releaseLock(); input.noLock = true; $('seat').hidden = false; applySeat(); applyComfort();
+}
+function closeSeat() {
+  if (!G.seatAdj) return;
+  G.seatAdj = false; input.noLock = false; $('seat').hidden = true;
+  cockpit.lookYaw = 0; cockpit.lookPitch = 0;
+  if (AUTO) AUTO.t = 0;
+  toast(input.touch ? '開車囉！按住「左鏡／右鏡」看後照鏡，視線轉開了按「回正」' : '開車囉！按住 Z／X 看後照鏡，視線轉開了按 R 回正', 3.5);
+}
+
+// ===================================================================== 開車（第一人稱駕駛座）
+let markT = 0, lotT = 0, frameN = 0;
+function glance(dt) {
+  const L = input.has('KeyZ'), R = input.has('KeyX'), k = Math.min(1, dt * 10);
+  if (L || R) {
+    const ty = L ? 0.56 : -0.94;
+    cockpit.lookYaw += (ty - cockpit.lookYaw) * k; cockpit.lookPitch += (-0.1 - (cockpit.basePitch || 0) - cockpit.lookPitch) * k; cockpit._idle = 0; G.glance = true;
+  } else if (G.glance) {
+    cockpit.lookYaw -= cockpit.lookYaw * k; cockpit.lookPitch -= cockpit.lookPitch * k;
+    if (Math.abs(cockpit.lookYaw) < 0.01) { cockpit.lookYaw = 0; cockpit.lookPitch = 0; G.glance = false; }
+  }
+}
+function driveFrame(dt) {
+  const c = car;
+  if (input.pressed('KeyC')) {
+    if (flight && flight.active) G.droneView = G.droneView === 'cockpit' ? 'ext' : 'cockpit';   // 飛行中：車外／駕駛座
+    else { G.cam = G.cam === 'cockpit' ? 'chase' : 'cockpit'; camera.near = G.cam === 'cockpit' ? 0.8 : 0.3; camera.updateProjectionMatrix(); }
+  }
+  // 無人機飛行：U 升空／取消；飛行中按 C 切換車外／駕駛座
+  if (input.pressed('KeyU') && !G.seatAdj) {
+    if (!econ.has('drone')) toast('要先在商店買「無人機飛行系統」', 2);
+    else if (flight.active) flight.abort();
+    else { const msg = flight.canStart(stunts && stunts.busy); if (msg) toast(msg, 2); else flight.start(drones); }
+  }
+  const flying = flight && flight.active;
+  // 特技（飛越、翻轉、垂直開、倒著開）時自動切到車外視角，落地後回到原本的視角
+  const ext = !!(stunts && stunts.external) || (flying && G.droneView !== 'cockpit');
+  if (ext !== !!G.extCam) {
+    G.extCam = ext; if (ext && stunts && stunts.external) stunts.camFrom(camera); if (ext && flying) flight.cp = null;
+    camera.near = ext || G.cam !== 'cockpit' ? 0.3 : 0.8; camera.updateProjectionMatrix();
+  }
+  G.camMode = ext ? (flying ? 'drone' : 'stunt') : G.cam;
+  const fov = G.camMode === 'cockpit' ? seat.fov + (camera.aspect < 1 ? 26 : 0) : (camera.aspect < 1 ? 76 : 62);
+  if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  if (G.seatAdj && input.pressed('Enter')) closeSeat();
+  if (!G.seatAdj && input.pressed('KeyV') && Math.abs(c.v) < 0.3) openSeat();
+  if (input.pressed('KeyR') && G.cam === 'cockpit') cockpit.recenter();
+  const fw = G.seatAdj ? 0 : input.forward;
+  const ctl = G.seatAdj ? { throttle: 0, brake: 1, steer: 0, handbrake: true } : { throttle: Math.max(0, Math.min(1, fw > 0.15 ? fw : 0)) || input.tGas, brake: Math.max(0, Math.min(1, fw < -0.15 ? -fw : 0)) || input.tBrake,
+    steer: -Math.max(-1, Math.min(1, input.strafe)), handbrake: input.has('Space') };
+  lotT -= dt; if (lotT <= 0) { lotT = 0.2; c.onLot = parking.inLot(c.x, c.z) || !!parking.bayAt(c.x, c.z, c.psi, _err); }
+  const obs = gatherObstacles(c.x, c.z, 14);
+  if (flying) flight.update(dt, TIME.scale / 60, drones, statics);
+  else if (stunts) {
+    const sk = G.seatAdj ? {} : { boost: input.has('ShiftLeft', 'ShiftRight'), jump: input.pressed('KeyF'), grip: input.pressed('KeyG'), flip: input.pressed('KeyT') };
+    stunts.update(dt, ctl, sk, obs, traffic);
+  } else c.update(dt, ctl, obs);
+  if (drones) drones.update(dt, c.x, c.z, flying ? [{ x: flight.x, y: flight.y, z: flight.z, vx: flight.vx, vy: flight.vy, vz: flight.vz }] : null);
+  engine.update(dt, { v: flying ? 0 : c.v, throttle: c.energy > 0 && !flying ? c.thrF : 0, brake: c.brkF, cockpit: G.camMode === 'cockpit' });
+  engine.stunt(flying ? 0.22 : stunts ? stunts.thrust : 0, flying ? 0.9 : stunts ? stunts.suction : 0);
+  world.update(c.x, c.z, dt); parking.update(dt, c.x, c.z); signs.update(dt, c.x, c.z);
+  traffic.update(dt, c.x, c.z, [{ x: c.x, z: c.z, y: c.y, r: 2.3 }]);
+  for (const ev of traffic.events.splice(0)) {
+    if (ev.type === 'hitPlayer') { c._bump(2); toast('被飛過來的飛天跑車壓到了！（對方負責修車費）', 2.6); }
+    else if (Math.hypot(ev.x - c.x, ev.z - c.z) < 150) toast('前面有飛天跑車落地壓到別的車，撞成一團', 2.4);
+  }
+  if (G.camMode === 'drone') { c.body.visible = true; flight.camera(camera, dt); }
+  else if (G.camMode === 'stunt') { c.body.visible = true; stunts.camera(camera, dt); }
+  else if (G.camMode === 'cockpit') { cockpit.look(input.lookX, input.lookY, dt, Math.abs(c.v) > 1 && !G.seatAdj); glance(dt); cockpit.applyTo(camera, c); c.body.visible = false; }
+  else {
+    c.body.visible = true;
+    const back = 7.5, up = 3.0, tx = c.x - c.fwdX * back, tz = c.z - c.fwdZ * back, ty = c.y + up, k = Math.min(1, dt * 5);
+    if (!G.chase) G.chase = { x: tx, y: ty, z: tz };
+    G.chase.x += (tx - G.chase.x) * k; G.chase.y += (ty - G.chase.y) * k; G.chase.z += (tz - G.chase.z) * k;
+    camera.position.set(G.chase.x, G.chase.y, G.chase.z); camera.lookAt(c.x, c.y + 1.2, c.z);
+  }
+  P.x = c.x; P.z = c.z; P.y = c.y;
+  tunnelLight(dt, c.edge);
+  const d = dest(), dDest = dist(c, d);
+  destBeacon.visible = true; destBeacon.position.set(d.x, world.groundAt(d.x, d.z), d.z); carBeacon.visible = false;
+  markT -= dt;
+  if (markT <= 0) {
+    markT = 0.4; let n = 0;
+    if (dDest < 420) {
+      const list = [];
+      parking.forBaysNear(c.x, c.z, 120, (b, d2) => { if (!b.occupied && !b.reserved && bayAllowed(b) && dist(b, d) < 450) { b._d2 = d2; list.push(b); } });
+      list.sort((a, b) => a._d2 - b._d2);
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+      for (const b of list.slice(0, 48)) {
+        e.set(0, b.psi, 0); q.setFromEuler(e); v.set(b.x, b.y + 0.24, b.z); sc.set(b.wid - 0.3, 1, b.len - 0.3); m.compose(v, q, sc);
+        bayMarks.setMatrixAt(n, m); bayMarks.setColorAt(n, b.type === 'ev' ? new THREE.Color(0x3fe08f) : new THREE.Color(0xf5c518)); n++;
+      }
+    }
+    bayMarks.count = n; bayMarks.instanceMatrix.needsUpdate = true; if (bayMarks.instanceColor) bayMarks.instanceColor.needsUpdate = true;
+  }
+  let pr = '', cls = '';
+  if (Math.abs(c.v) < 1.2) {
+    const chk = dDest < 450 ? parkingCheck() : { bay: null };
+    if (chk.bay) { if (chk.ok) { pr = '已停妥　<kbd>E</kbd> 下車'; cls = 'good'; } else { pr = chk.msg; cls = 'warn'; } }
+    else if (Math.abs(c.v) < 0.3) pr = '<kbd>E</kbd> 下車';
+  }
+  if ((stunts && stunts.busy) || flying) { pr = ''; cls = ''; }
+  if (G.seatAdj) { pr = '調整好座椅後按「開始開車」（或 Enter）'; cls = ''; }
+  setPrompt(pr, cls);
+  if (input.pressed('KeyE')) { if (G.seatAdj) { closeSeat(); if (!input.touch) exitCar(); } else exitCar(); }
+  const ni = navTick(dt);
+  if (G.camMode === 'cockpit') {
+    cockpit.drawDash(c, dt);
+    if (frameN % 6 === 0) {
+      const ang = Math.atan2(d.x - c.x, -(d.z - c.z)), heading = Math.atan2(c.fwdX, -c.fwdZ);
+      const info = { title: G.leg === 'am' ? d.n : '回家', dist: fmtDist(dDest), bearing: ang - heading };
+      if (econ.has('nav') && ni) Object.assign(info, { nav: true, turn: ni.turn, road: ni.road, rest: fmtDist(ni.rest) });
+      cockpit.drawNav(info);
+    }
+  }
+}
+
+// ===================================================================== 隧道光線（不閃白光）
+let tunnelF = 0;
+function tunnelLight(dt, e) {
+  let inside = false;
+  if (e && e.tunnel && e.cover && !e.dead) { const k = Math.min(e.cum.length - 2, Math.max(0, (car._segI | 0))); inside = (e.cover[k] + e.cover[k + 1]) / 2 > 5; }
+  tunnelF += ((inside ? 1 : 0) - tunnelF) * Math.min(1, dt * (inside ? 1.6 : 1.2));
+  const b = G.sunBase || { sun: 2.4, hemi: 1.05 };
+  sun.intensity = b.sun * (1 - 0.82 * tunnelF); hemi.intensity = b.hemi * (1 - 0.62 * tunnelF);
+}
+function setSun(leg) {
+  const s = SUN[leg]; SUN_DIR.copy(s.dir); sun.color.set(s.color); sun.intensity = s.i; hemi.intensity = s.hemi;
+  sky.material.uniforms.sunDir.value.copy(SUN_DIR); sky.material.uniforms.hor.value.set(s.hor);
+  G.sunBase = { sun: s.i, hemi: s.hemi };
+}
+
+// ===================================================================== HUD、小地圖、全市地圖
+let miniT = 0, placeT = 0;
+function hud(dt) {
+  const ck = $('clock');
+  $('dayChip').textContent = `第 ${G.dayN} 天`;
+  ck.textContent = fmtClock(G.clock); ck.classList.toggle('late', G.leg === 'am' && G.clock > TIME.workMin);
+  $('due').textContent = G.leg === 'am' ? '09:00 上班' : '下班回家';
+  $('money').textContent = fmtMoney(econ.money);
+  let t = '', sub = '';
+  const d = dest();
+  if (G.state === 'room') { t = '起床了，出門上班'; sub = `${districtName(G.cfg.di)}${G.cfg.home.a}`; }
+  else if (G.phase === 'toCar') { t = '走到你的車'; sub = fmtDist(dist(P, car)); }
+  else if (G.phase === 'drive') {
+    const dd = dist(car, d);
+    if (flight && flight.active) {
+      t = flight.phase === 'hover' && flight.blocked ? '下方有車，在空中等待降落' : { lift: '無人機升空中', cruise: `無人機飛往 ${G.leg === 'am' ? d.n : '家'}`, approach: '接近降落點', hover: '對準降落點', descend: '降落中' }[flight.phase] || '無人機飛行';
+      sub = `高度 ${Math.round(car.y - world.groundAt(car.x, car.z, car.y - 50))} m・${Math.round(car.v * 3.6)} km/h・剩 ${fmtDist(dist(car, flight.spot))}・燃料費 ${Math.round(flight.costSum)} 元`;
+    } else if (dd < 420) { t = G.leg === 'am' ? '在公司附近找車位' : '在家附近找車位'; sub = car.spec.key !== 'gas' ? '黃色：路邊空格　綠色：電動車格' : '黃色標示的是空的路邊車格'; }
+    else { t = G.leg === 'am' ? `開車到 ${d.n}` : '開車回家'; sub = `直線 ${fmtDist(dd)}${econ.has('nav') ? '・跟著藍色導航線' : ''}`; }
+  } else if (G.phase === 'toDest') {
+    if (G.parked && G.parked.legal) { t = G.leg === 'am' ? `走進 ${d.n}` : '走回家'; sub = fmtDist(dist(P, d)); }
+    else { t = '車沒停好'; sub = '回到車上（藍色光柱）重新停進車格'; }
+  }
+  $('taskText').textContent = t; $('taskSub').textContent = sub;
+  const sb = $('stunt'), showS = !!(G.state === 'drive' && stunts);
+  if (sb.hidden === showS) sb.hidden = !showS;
+  if (showS) {
+    const f = Math.max(0, econ.stuntFuel);
+    $('stuntBar').style.width = (f * 100).toFixed(1) + '%'; $('stuntBar').classList.toggle('low', f < 0.15);
+    $('stuntPct').textContent = Math.round(f * 100) + '%';
+    const lb = stunts.label(), hint = input.touch ? '' : stunts.mode === 'air' ? 'T 翻轉　A/D 轉向' : stunts.mode === 'wall' ? 'W 往上　A/D 轉向　G 跳離' : stunts.mode === 'under' ? 'W 前進　A/D 左右　G 翻轉落地' : stunts.mode === 'roof' ? 'F 飛下去　邊緣按 G 沿牆開下去' : 'Shift 推進　F 飛越　G 吸附';
+    const t = lb ? lb + (hint ? '・' + hint : '') : hint;
+    if ($('stuntMode').textContent !== t) $('stuntMode').textContent = t;
+  }
+  const dp = $('daa'), showD = !!(G.state === 'drive' && flight && flight.active);
+  if (dp.hidden === showD) dp.hidden = !showD;
+  if (showD) { G.daaT = (G.daaT || 0) - dt; if (G.daaT <= 0) { G.daaT = 0.15; flight.drawPanel(dp, drones); } }
+  const sp = $('speedo');
+  if (G.state === 'drive' && (G.camMode !== 'cockpit' || input.touch)) {
+    sp.hidden = false; $('spd').textContent = Math.round(car.kmh);
+    $('energy').textContent = (car.spec.key === 'gas' ? '油量 ' : '電量 ') + Math.round(car.energy / car.spec.capacity * 100) + '%';
+  } else sp.hidden = true;
+  placeT -= dt;
+  if (placeT <= 0 && G.state !== 'room') { placeT = 0.6; const o = {}, e = world.nearestEdge(P.x, P.z, 40, null, o); $('placeRoad').textContent = (e && e.name) || '　'; $('placeDist').textContent = world.districtAt(P.x, P.z) || '臺北市外'; }
+  else if (G.state === 'room') { $('placeRoad').textContent = '家裡'; $('placeDist').textContent = districtName(G.cfg.di); }
+  miniT -= dt; if (miniT <= 0) { miniT = 0.1; drawMini(); }
+}
+const ROADCOL = ['#e9c46a', '#e9c46a', '#f1f3f4', '#d7dbdf', '#b9c0c6', '#8f99a3', '#6b757e', '#d7dbdf'], ROADW = [5, 5, 4.5, 4, 3.2, 2.4, 1.6, 2.6];
+function drawMini() {
+  const cv = $('mini'), g = cv.getContext('2d'), S = cv.width, R = S / 2;
+  const inCar = G.state === 'drive', cx = inCar ? car.x : P.x, cz = inCar ? car.z : P.z, head = inCar ? car.psi : (G.state === 'walk' ? tp.yaw : 0);
+  const scale = R / (inCar ? 300 : 160);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#10141a'; g.fillRect(0, 0, S, S);
+  if (G.state === 'room') { g.fillStyle = '#9aa6b0'; g.font = '700 26px "Noto Sans TC", sans-serif'; g.textAlign = 'center'; g.fillText('家', R, R + 8); return; }
+  g.save(); g.beginPath(); g.arc(R, R, R - 2, 0, Math.PI * 2); g.clip();
+  g.translate(R, R); g.rotate(head); g.scale(scale, scale); g.translate(-cx, -cz);
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  const span = R / scale * 1.45, lists = [[], [], [], [], [], [], [], []];
+  world.forEdgesNear(cx, cz, span, (e) => { if (Math.abs(e.pts[0] - cx) < span + 250 && Math.abs(e.pts[1] - cz) < span + 250) lists[e.cls].push(e); });
+  for (let cls = 7; cls >= 0; cls--) {
+    g.strokeStyle = ROADCOL[cls]; g.lineWidth = Math.max(ROADW[cls] / scale * 0.9, ROADW[cls] * 1.6); g.beginPath();
+    for (const e of lists[cls]) { const p = e.pts; g.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) g.lineTo(p[i], p[i + 1]); }
+    g.stroke();
+  }
+  const r = econ.has('nav') ? G.routePoly : null;
+  if (r && G.phase === 'drive') { g.strokeStyle = 'rgba(80,170,255,0.9)'; g.lineWidth = Math.max(6, 9 / scale * 0.5); g.beginPath(); g.moveTo(r[0], r[1]); for (let i = 2; i < r.length; i += 2) g.lineTo(r[i], r[i + 1]); g.stroke(); }
+  if (G.state === 'walk' && G.phase !== 'toCar') { g.fillStyle = '#6fd3ff'; g.beginPath(); g.arc(car.x, car.z, 4 / scale, 0, Math.PI * 2); g.fill(); }
+  g.restore();
+  const d = dest(), tgt = G.phase === 'toCar' || (G.phase === 'toDest' && G.parked && !G.parked.legal) ? car : d;
+  const dx = tgt.x - cx, dz = tgt.z - cz, c = Math.cos(head), s = Math.sin(head);
+  let mx = (dx * c - dz * s) * scale, mz = (dx * s + dz * c) * scale; const dd = Math.hypot(mx, mz), lim = R - 12, inside = dd < lim;
+  if (!inside) { mx *= lim / dd; mz *= lim / dd; }
+  g.fillStyle = tgt === car ? '#6fd3ff' : '#f5c518'; g.strokeStyle = '#10141a'; g.lineWidth = 3; g.beginPath(); g.arc(R + mx, R + mz, inside ? 9 : 7, 0, Math.PI * 2); g.fill(); g.stroke();
+  g.fillStyle = '#fff'; g.beginPath(); g.moveTo(R, R - 12); g.lineTo(R + 8, R + 9); g.lineTo(R, R + 4); g.lineTo(R - 8, R + 9); g.closePath(); g.fill();
+  g.fillStyle = 'rgba(255,255,255,.75)'; g.font = '700 20px "Barlow Semi Condensed", sans-serif'; g.textAlign = 'center';
+  g.fillText('N', R + Math.sin(head) * (R - 16), R - Math.cos(head) * (R - 16) + 7);
+}
+function toggleBigMap(force) {
+  const el = $('bigmap'), show = force !== undefined ? force : el.hidden;
+  el.hidden = !show; if (!show) return;
+  input.releaseLock();
+  const cv = $('bigCv'), dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr;
+  const g = cv.getContext('2d'), [x0, z0, x1, z1] = meta.bounds;
+  const sc = Math.min(cv.width / (x1 - x0), cv.height / (z1 - z0)) * 0.94;
+  const ox = (cv.width - (x1 - x0) * sc) / 2 - x0 * sc, oz = (cv.height - (z1 - z0) * sc) / 2 - z0 * sc;
+  const X = (x) => x * sc + ox, Z = (z) => z * sc + oz;
+  g.fillStyle = '#0d1115'; g.fillRect(0, 0, cv.width, cv.height);
+  meta.districts.forEach((d, i) => {
+    g.beginPath();
+    for (const r of d.poly) { for (let k = 0; k < r.length; k += 2) k ? g.lineTo(X(r[k]), Z(r[k + 1])) : g.moveTo(X(r[k]), Z(r[k + 1])); g.closePath(); }
+    g.fillStyle = i === G.cfg.di ? '#1d4a3c' : '#1c232b'; g.fill(); g.strokeStyle = '#3a4652'; g.lineWidth = 2 * dpr; g.stroke();
+    g.fillStyle = '#9aa6b0'; g.font = `500 ${13 * dpr}px "Noto Sans TC", sans-serif`; g.textAlign = 'center'; g.fillText(d.name, X(d.c[0]), Z(d.c[1]));
+  });
+  if (econ.has('nav') && G.routePoly) { const r = G.routePoly; g.strokeStyle = 'rgba(80,170,255,0.95)'; g.lineWidth = 3 * dpr; g.beginPath(); g.moveTo(X(r[0]), Z(r[1])); for (let i = 2; i < r.length; i += 2) g.lineTo(X(r[i]), Z(r[i + 1])); g.stroke(); }
+  const dot = (x, z, col, r) => { g.fillStyle = col; g.beginPath(); g.arc(X(x), Z(z), r * dpr, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#0d1115'; g.lineWidth = 2 * dpr; g.stroke(); };
+  dot(G.cfg.home.x, G.cfg.home.z, '#4fd08c', 7); dot(G.cfg.work.x, G.cfg.work.z, '#f5c518', 8);
+  const inCar = G.state === 'drive', px = inCar ? car.x : P.x, pz = inCar ? car.z : P.z, hd = inCar ? car.psi : P.yaw;
+  if (G.state !== 'room') { g.save(); g.translate(X(px), Z(pz)); g.rotate(-hd); g.fillStyle = '#fff'; g.beginPath(); g.moveTo(0, -12 * dpr); g.lineTo(8 * dpr, 9 * dpr); g.lineTo(0, 4 * dpr); g.lineTo(-8 * dpr, 9 * dpr); g.closePath(); g.fill(); g.restore(); }
+}
+
+// ===================================================================== 自動示範（選單按鈕或 F8）
+let AUTO = location.hash.includes('autotest') ? { t: 0 } : null;
+function startAuto() { if (!AUTO) AUTO = { t: 0 }; autoSay('啟動'); }
+window.addEventListener('keydown', (e) => { if (e.code === 'F8' && !AUTO) { startAuto(); if (G.state === 'menu') { autoPick(); newGame(); } } });
+function autoPick() {
+  if (G.cfg.home && G.cfg.work) return;
+  const di = G.cfg.di >= 0 ? G.cfg.di : Math.floor(Math.random() * meta.districts.length), hs = meta.homes[di];
+  for (let k = 0; k < hs.length; k++) { const h = hs[(k + Math.floor(Math.random() * hs.length)) % hs.length], ws = workCands(h); if (ws.length) { G.cfg = { di, home: h, work: ws[Math.floor(Math.random() * ws.length)] }; return; } }
+}
+let autoLbl = null;
+function autoSay(msg) {
+  if (!autoLbl) { autoLbl = document.createElement('div'); autoLbl.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:99;background:#c0392b;color:#fff;font:700 15px/1.4 sans-serif;padding:6px 14px;border-radius:8px;pointer-events:none'; document.body.appendChild(autoLbl); }
+  autoLbl.textContent = '自動示範：' + msg;
+}
+function autoKeys(...codes) { for (const c of ['KeyW', 'KeyA', 'KeyD', 'KeyS', 'ShiftLeft', 'KeyZ', 'KeyX']) input.keys.delete(c); for (const c of codes) if (c) input.keys.add(c); }
+function walkPath(a, b) {
+  const S = 1.5, pad = 60, x0 = Math.min(a.x, b.x) - pad, z0 = Math.min(a.z, b.z) - pad;
+  const W = Math.ceil((Math.max(a.x, b.x) + pad - x0) / S), H = Math.ceil((Math.max(a.z, b.z) + pad - z0) / S);
+  if (W * H > 250000) return null;
+  const block = new Uint8Array(W * H);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const x = x0 + (i + 0.5) * S, z = z0 + (j + 0.5) * S;
+    if (world.buildingAt(x, z) || world.buildingAt(x + 0.6, z) || world.buildingAt(x - 0.6, z) || world.buildingAt(x, z + 0.6) || world.buildingAt(x, z - 0.6)) block[j * W + i] = 1;
+  }
+  const id = (x, z) => Math.max(0, Math.min(H - 1, Math.floor((z - z0) / S))) * W + Math.max(0, Math.min(W - 1, Math.floor((x - x0) / S)));
+  for (const o of gatherObstacles((a.x + b.x) / 2, (a.z + b.z) / 2, Math.hypot(a.x - b.x, a.z - b.z) / 2 + pad)) for (const off of [1.3, 0, -1.3]) {
+    const px = o.x - Math.sin(o.psi) * off, pz = o.z - Math.cos(o.psi) * off;
+    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) { const x = px + dx * S * 0.6, z = pz + dz * S * 0.6; if (Math.hypot(x - px, z - pz) < 1.9) block[id(x, z)] = 1; }
+  }
+  const st = id(a.x, a.z), gl = id(b.x, b.z); block[st] = 0; block[gl] = 0;
+  const g = new Float32Array(W * H).fill(1e9), from = new Int32Array(W * H).fill(-1), open = [[0, st]]; g[st] = 0;
+  const hx = (k) => Math.hypot(k % W - gl % W, Math.floor(k / W) - Math.floor(gl / W));
+  let guard = 0;
+  while (open.length && guard++ < 60000) {
+    let bi = 0; for (let i = 1; i < open.length; i++) if (open[i][0] < open[bi][0]) bi = i;
+    const [, k] = open.splice(bi, 1)[0]; if (k === gl) break;
+    const ci = k % W, cj = Math.floor(k / W);
+    for (const [di, dj, c] of [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.41], [1, -1, 1.41], [-1, 1, 1.41], [-1, -1, 1.41]]) {
+      const ni = ci + di, nj = cj + dj; if (ni < 0 || nj < 0 || ni >= W || nj >= H) continue;
+      const nk = nj * W + ni; if (block[nk]) continue;
+      const ng = g[k] + c; if (ng < g[nk]) { g[nk] = ng; from[nk] = k; open.push([ng + hx(nk), nk]); }
+    }
+  }
+  if (from[gl] < 0) return null;
+  const out = []; for (let k = gl; k !== st && k >= 0; k = from[k]) out.push({ x: x0 + (k % W + 0.5) * S, z: z0 + (Math.floor(k / W) + 0.5) * S });
+  return out.reverse().filter((_, i, arr) => i % 2 === 0 || i === arr.length - 1);
+}
+/** 示範用路線：導航路線往右偏半個車道（大路），每 2 m 一個點。 */
+function demoPoly(src) {
+  const N = src.length / 2, res = src.slice(), q = {};
+  for (let k = 1; k < N; k++) {
+    const ed = world.nearestEdge(src[k * 2], src[k * 2 + 1], 6, null, q);
+    const off = ed && ed.cls <= 4 && !ed.oneway ? Math.min(1.8, ed.width / 4) : 0; if (!off) continue;
+    const a = Math.max(0, k - 1), b = Math.min(N - 1, k + 1), dx = src[b * 2] - src[a * 2], dz = src[b * 2 + 1] - src[a * 2 + 1], L = Math.hypot(dx, dz) || 1;
+    res[k * 2] = src[k * 2] - dz / L * off; res[k * 2 + 1] = src[k * 2 + 1] + dx / L * off;
+  }
+  const dense = [res[0], res[1]];
+  for (let k = 1; k < N; k++) {
+    const ax = res[k * 2 - 2], az = res[k * 2 - 1], bx = res[k * 2], bz = res[k * 2 + 1], L = Math.hypot(bx - ax, bz - az), m = Math.ceil(L / 2);
+    for (let j = 1; j <= m; j++) dense.push(ax + (bx - ax) * j / m, az + (bz - az) * j / m);
+  }
+  return dense;
+}
+function routeTarget(x, z, ahead) {
+  const r = AUTO.poly; if (!r) return null;
+  const i0 = AUTO.ri || 0;
+  let bi = i0, bd = 1e18; for (let i = i0; i < Math.min(r.length, i0 + 120); i += 2) { const d = (r[i] - x) ** 2 + (r[i + 1] - z) ** 2; if (d < bd) { bd = d; bi = i; } }
+  AUTO.ri = bi;
+  let acc = 0, i = bi; while (i + 2 < r.length && acc < ahead) { acc += Math.hypot(r[i + 2] - r[i], r[i + 3] - r[i + 1]); i += 2; }
+  return { x: r[i], z: r[i + 1] };
+}
+function autoTest(dt) {
+  AUTO.t += dt;
+  if (G.state === 'room') {
+    autoSay('走到房門口出門');
+    const dx = room.door.x - P.x, dz = room.door.z - P.z;
+    tp.yaw = Math.atan2(-dx, -dz);
+    if (Math.hypot(dx, dz) > 1.0) autoKeys('KeyW'); else { autoKeys(); input.hit.add('KeyE'); }
+    return;
+  }
+  if (G.state === 'walk') {
+    const tgt = G.phase === 'toCar' ? car : dest();
+    if (!AUTO.path || AUTO.pathFor !== G.phase + G.leg) { AUTO.path = walkPath(P, tgt) || [{ x: tgt.x, z: tgt.z }]; AUTO.pathFor = G.phase + G.leg; }
+    let wp = AUTO.path[0];
+    while (AUTO.path.length > 1 && Math.hypot(wp.x - P.x, wp.z - P.z) < 1.6) { AUTO.path.shift(); wp = AUTO.path[0]; }
+    autoSay(G.phase === 'toCar' ? `走向車子，剩 ${dist(P, car).toFixed(0)} m` : `走向${destName()}，剩 ${dist(P, tgt).toFixed(0)} m`);
+    tp.yaw = Math.atan2(-(wp.x - P.x), -(wp.z - P.z));
+    if (G.phase === 'toCar' && dist(P, car) < 2.6) { autoKeys(); input.hit.add('KeyE'); AUTO.t = 0; AUTO.poly = null; return; }
+    autoKeys('KeyW', 'ShiftLeft'); return;
+  }
+  if (G.state !== 'drive') return;
+  if (G.seatAdj) { autoSay('駕駛座調整畫面'); if (AUTO.t > 2.5) $('seatGo').click(); return; }
+  if (!AUTO.poly) { if (!G.routePoly) planRoute(); if (!G.routePoly) { autoKeys(); return; } AUTO.poly = demoPoly(G.routePoly); AUTO.ri = 0; window.__tc.autoPoly = AUTO.poly; }
+  const dd = dist(car, dest());
+  // 快到了：示範直接停進最近的空車格
+  if (dd < 160) {
+    autoSay('到了，停進車格');
+    if (car.v > 0.4) { autoKeys('KeyS'); return; }
+    autoKeys();
+    let best = null; parking.forBaysNear(car.x, car.z, 200, (b, d2) => { if (!b.occupied && !b.reserved && bayAllowed(b) && dist(b, dest()) < 440 && (!best || d2 < best.d2)) best = { b, d2 }; });
+    if (best) { car.place(best.b.x, best.b.z, best.b.psi, best.b.y); input.hit.add('KeyE'); AUTO.path = null; }
+    return;
+  }
+  const far = routeTarget(car.x, car.z, 18); if (!far) { autoKeys(); return; }
+  const heading = Math.atan2(car.fwdX, -car.fwdZ), ang = (p) => { const d = Math.atan2(p.x - car.x, -(p.z - car.z)) - heading; return Math.atan2(Math.sin(d), Math.cos(d)); };
+  const turning = Math.abs(ang(far)) > 0.5, vMax = turning ? 4 : (car.edge && car.edge.cls <= 2 ? 13 : 9);
+  const tg = routeTarget(car.x, car.z, car.v < 4.5 ? 5 : 10), e = ang(tg);
+  if (AUTO.rev > 0) { AUTO.rev -= dt; autoSay('卡住了，倒車一下'); autoKeys('KeyS'); return; }
+  AUTO.stuckT = car.v < 0.4 ? (AUTO.stuckT || 0) + dt : 0;
+  let block = false;
+  for (const o of traffic.cars) {
+    if (Math.abs(o.x - car.x) > 24 || Math.abs(o.z - car.z) > 24) continue;
+    const dx = o.x - car.x, dz = o.z - car.z, fwd = dx * car.fwdX + dz * car.fwdZ, lat = Math.abs(dx * car.fwdZ - dz * car.fwdX);
+    if (fwd > 1 && fwd < 6 + Math.max(0, car.v) * 1.6 && lat < 2.1) { block = true; break; }
+  }
+  if (block) { AUTO.waitT = (AUTO.waitT || 0) + dt; AUTO.stuckT = 0; if (AUTO.waitT < 6) { autoSay('前面有車，等一下'); autoKeys(car.v > 0.3 ? 'KeyS' : null); return; } if (AUTO.waitT < 6.1) { AUTO.rev = 1.1; return; } }
+  else AUTO.waitT = 0;
+  if (AUTO.stuckT > 1.2) { AUTO.stuckT = 0; AUTO.rev = 1.1; return; }
+  autoSay(`沿導航路線開往${destName()}，剩 ${fmtDist(dd)}`);
+  const keys = [];
+  if (car.v < vMax) keys.push('KeyW'); else if (car.v > vMax + 1.5) keys.push('KeyS');
+  if (e > 0.06) keys.push('KeyD'); else if (e < -0.06) keys.push('KeyA');
+  autoKeys(...keys);
+}
+
+// ===================================================================== 主迴圈
+let last = performance.now();
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; frameN++; fpsTick(dt);
+  if (toastT > 0 && performance.now() > toastT) { toastT = 0; $('toast').hidden = true; }
+  if (input.pressed('KeyH')) $('help').hidden = !$('help').hidden;
+  if (input.pressed('KeyN')) { audioStart(); music.toggle(); toast(music.on ? '音樂：開' : '音樂：關', 1.2); }
+  if (input.pressed('KeyB')) { audioStart(); engine.toggle(); toast(engine.on ? '引擎聲：開' : '引擎聲：關', 1.2); }
+  if (input.pressed('KeyM') && ['walk', 'drive', 'room'].includes(G.state)) toggleBigMap();
+  if (!$('bigmap').hidden || !$('shop').hidden) { if (!window.__tc.noRender) render(); input.endFrame(); return; }
+  music.update(G.state === 'drive' ? (G.seatAdj ? 'walk' : 'drive') : G.state === 'summary' ? 'done' : G.state === 'menu' ? 'title' : 'walk', car ? car.v : 0);
+  const st = G.state;
+  if (st === 'menu') menuFrame(dt);
+  else if (st === 'loading') loadingFrame(dt);
+  else if (st === 'room') { if (AUTO) autoTest(dt); roomFrame(dt); }
+  else if (st === 'walk') { if (AUTO) autoTest(dt); walkFrame(dt); }
+  else if (st === 'drive') { if (AUTO) autoTest(dt); driveFrame(dt); }
+  else if (st === 'summary' || st === 'work') { world.update(P.x, P.z, dt); }
+  if (['walk', 'drive', 'room'].includes(st)) { G.clock += dt * TIME.scale / 60; hud(dt); }
+  if (input.touch) {
+    const drv = st === 'drive' && G.camMode === 'cockpit' && !G.seatAdj;
+    const stn = st === 'drive' && !!stunts && !G.seatAdj;
+    for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (el && el.hidden === stn) el.hidden = !stn; }
+    const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone');
+    if (dbt) { if (dbt.hidden === showDr) dbt.hidden = !showDr; const lb = flight && flight.active ? '取消飛行' : '無人機'; if (dbt.textContent !== lb) dbt.textContent = lb; }
+    for (const id of ['btnMirL', 'btnMirR']) { const el = $(id); if (el && el.hidden === drv) el.hidden = !drv; }
+    const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : 'E') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 ? '下車' : 'E') : st === 'room' ? '出門' : 'E';
+    if (act && act.textContent !== lab) act.textContent = lab;
+    const bc = $('btnCenter'), showC = !!(drv && cockpit && (Math.abs(cockpit.lookYaw) > 0.05 || Math.abs(cockpit.lookPitch) > 0.05) && !G.glance);
+    if (bc && bc.hidden === showC) bc.hidden = !showC;
+    const sb = $('btnSeat'), showSeat = st === 'drive' && !G.seatAdj && Math.abs(car.v) < 0.3;
+    if (sb && sb.hidden === showSeat) sb.hidden = !showSeat;
+  }
+  if (!window.__tc.noRender) render();
+  input.endFrame();
+}
+function menuFrame(dt) {
+  const t = G.menuTarget, c = G.menuCenter;
+  c.x += (t.x - c.x) * Math.min(1, dt * 1.2); c.z += (t.z - c.z) * Math.min(1, dt * 1.2);
+  G.menuR = (G.menuR || t.r) + (t.r - (G.menuR || t.r)) * Math.min(1, dt * 1.2);
+  G.menuH = (G.menuH || t.h) + (t.h - (G.menuH || t.h)) * Math.min(1, dt * 1.2);
+  G.menuAngle += dt * 0.06;
+  const gy = world.groundAt(c.x, c.z, G.menuGy || 0); G.menuGy = (G.menuGy || gy) + (gy - (G.menuGy || gy)) * Math.min(1, dt * 1.5);
+  camera.position.set(c.x + Math.sin(G.menuAngle) * G.menuR, G.menuH + G.menuGy, c.z + Math.cos(G.menuAngle) * G.menuR);
+  camera.lookAt(c.x, G.menuGy, c.z);
+  world.update(c.x, c.z, dt); parking.update(dt, c.x, c.z); signs.update(dt, c.x, c.z);
+}
+function loadingFrame(dt) {
+  const f = G.focus;
+  world.update(f.x, f.z, dt, 14); parking.update(dt, f.x, f.z); parking.update(0, f.x, f.z);
+  const pend = world.pending + parking.pending.length;
+  G.loadMax = Math.max(G.loadMax || 0, pend);
+  $('loadFill').style.width = (G.loadMax ? 100 * (1 - pend / G.loadMax) : 100).toFixed(0) + '%';
+  const fg = world.groundAt(f.x, f.z);
+  camera.position.set(f.x + 60, fg + 70, f.z + 60); camera.lookAt(f.x, fg, f.z);
+  if (G.wait && G.wait.cond()) { const w = G.wait; G.wait = null; G.loadMax = 0; w.then(); }
+}
+function render() {
+  if (G.state === 'room') { renderer.clear(); renderer.render(room.scene, camera); return; }
+  sky.position.copy(camera.position);
+  ground.position.set(Math.round(camera.position.x / 50) * 50, -15, Math.round(camera.position.z / 50) * 50);
+  const inCar = G.state === 'drive', fx = inCar ? car.x : P.x, fz = inCar ? car.z : P.z, fy = inCar ? car.y : P.y;
+  const sx = Math.round(fx / 4) * 4, sz = Math.round(fz / 4) * 4;
+  sun.target.position.set(sx, fy, sz); sun.position.set(sx + SUN_DIR.x * 260, fy + SUN_DIR.y * 260, sz + SUN_DIR.z * 260);
+  sun.target.updateMatrixWorld();
+  const cockpitOn = inCar && G.camMode === 'cockpit';
+  const mirrorEvery = comfort.quality === 'smooth' ? 3 : 1;
+  if (cockpitOn && !location.hash.startsWith('#lowq') && frameN % mirrorEvery === 0) {
+    const k = (frameN / mirrorEvery | 0) % 3, m = k === 0 ? { rt: cockpit.mirrorRT, cam: cockpit.mirrorCam } : k === 1 ? cockpit.mirrorL : cockpit.mirrorR;
+    const sm = renderer.shadowMap.autoUpdate; renderer.shadowMap.autoUpdate = false;
+    renderer.setRenderTarget(m.rt); renderer.clear(); renderer.render(scene, m.cam); renderer.setRenderTarget(null);
+    renderer.shadowMap.autoUpdate = sm; renderer.shadowMap.needsUpdate = true;
+  }
+  renderer.clear(); renderer.render(scene, camera);
+  if (cockpitOn) { renderer.clearDepth(); renderer.render(cockpit.scene, cockpit.cam); }
+}
+
+boot();

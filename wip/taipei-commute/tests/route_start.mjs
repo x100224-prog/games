@@ -1,0 +1,14 @@
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 480, height: 300 } });
+const ev = (f, a) => page.evaluate(f, a);
+page.setDefaultTimeout(180000);
+await page.goto('http://localhost:8767/index.html#lowq');
+await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'title', null, { timeout: 90000 });
+await ev(() => { window.__tc.noRender = true; });
+await page.click('#btnStart');
+await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout: 150000 });
+console.log(JSON.stringify(await ev(() => { const { car, M, world } = window.__tc; const r = M.routes.fastest;
+  const o = {}; const e = world.nearestEdge(car.x, car.z, 30, null, o);
+  return { car: [car.x.toFixed(1), car.z.toFixed(1), car.psi.toFixed(2)], start: [M.start.x, M.start.z], route: Array.from(r.slice(0, 16)).map(v => +v.toFixed(1)), road: e && e.name, roadPts: e && Array.from(e.pts).map(v => +v.toFixed(1)) }; })));
+await browser.close();

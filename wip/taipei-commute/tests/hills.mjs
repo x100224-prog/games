@@ -1,0 +1,34 @@
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 760 } });
+const logs = []; page.on('pageerror', e => logs.push('PAGEERROR: ' + e.message + ' ' + e.stack)); page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.text()); });
+const ev = (f, a) => page.evaluate(f, a);
+await page.goto('http://localhost:8765/index.html');
+await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'menu');
+await page.waitForTimeout(5000);
+await page.screenshot({ path: 'shots/h0_menu.png' });
+await ev(() => { const G = window.__tc.G; G.cfg.di = 1; G.cfg.home = G.meta.homes[1][0]; const h = G.cfg.home; G.cfg.work = G.meta.works.find(w => Math.hypot(w.x - h.x, w.z - h.z) > 2000); G.cfg.car = 'gas'; G.carPicked = true; document.getElementById('btnGo').disabled = false; document.getElementById('btnGo').click(); });
+await page.waitForFunction(() => window.__tc.G.state === 'room', null, { timeout: 120000 });
+await ev(() => { const P = window.__tc.P; P.x = 1.2; P.z = -2.2; }); await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'walk');
+await ev(() => { const { P, G } = window.__tc; P.x = G.car.x - Math.cos(G.car.psi) * 1.8; P.z = G.car.z + Math.sin(G.car.psi) * 1.8; });
+await page.waitForTimeout(400); await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'drive');
+const spots = { yangde: [121.5530, 25.1150], zhengda: [121.5780, 24.9870], tamsui_bridge: [121.5000, 25.0640], yangming: [121.5440, 25.1360] };
+for (const [name, [lon, lat]] of Object.entries(spots)) {
+  await ev(([lon, lat]) => { const { G } = window.__tc; const pj = G.meta.proj; G.car.place((lon - pj.lon0) * pj.mlon, -(lat - pj.lat0) * pj.mlat, 0, 50); }, [lon, lat]);
+  await page.waitForFunction(() => { const { G } = window.__tc; return G.world.readyAround(G.car.x, G.car.z, 400); }, null, { timeout: 120000 });
+  const info = await ev(() => { const { G } = window.__tc; const o = {}; const e = G.world.nearestEdge(G.car.x, G.car.z, 300, x => !x.bridge, o); if (e) { G.car.place(o.x, o.z, Math.atan2(-(e.pts[2] - e.pts[0]), -(e.pts[3] - e.pts[1])), o.s !== undefined ? e.hs[0] : 0); } const g = G.world.groundAt(G.car.x, G.car.z); return { road: e && e.name, ground: g, hs: e && Array.from(e.hs).slice(0, 4) }; });
+  console.log(name, JSON.stringify(info));
+  await page.waitForTimeout(1500);
+  await ev(() => { window.__tc.G.cam = 'chase'; });
+  await page.keyboard.down('KeyW'); await page.waitForTimeout(3000); await page.keyboard.up('KeyW');
+  console.log(' after', JSON.stringify(await ev(() => { const c = window.__tc.G.car; return { y: c.y, g: window.__tc.G.world.groundAt(c.x, c.z), v: c.v, edge: c.edge && c.edge.name }; })));
+  await page.screenshot({ path: `shots/h_${name}_chase.png` });
+  await ev(() => { const c = window.__tc.G.car; window.__tc.debugCam = { x: c.x + 260, y: c.y + 160, z: c.z + 220, tx: c.x, tz: c.z, ty: c.y }; });
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `shots/h_${name}_over.png` });
+  await ev(() => { window.__tc.debugCam = null; });
+}
+console.log(logs.slice(0, 15).join('\n'));
+await browser.close();

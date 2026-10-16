@@ -1,0 +1,11 @@
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 500, height: 300 } });
+page.setDefaultTimeout(300000);
+await page.goto('http://localhost:8766/index.html#lowq');
+await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'title');
+await page.click('#btnStart');
+await page.waitForFunction(() => window.__tc.G.state === 'walk');
+const r = await page.evaluate(() => { const { P, car } = window.__tc; const t0 = performance.now(); const p = window.__walkPath(P, car); return { ms: performance.now() - t0, n: p && p.length, first: p && p.slice(0, 6).map(q => [q.x.toFixed(1), q.z.toFixed(1)]), P: [P.x, P.z] }; });
+console.log(JSON.stringify(r));
+await browser.close();

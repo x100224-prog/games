@@ -1,0 +1,358 @@
+<title>台北上班路</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* 版面：全螢幕 3D 畫面當底，上面疊一層 HUD；選單是左側一欄的「路牌」面板。單一深色風格（夜色柏油＋路牌綠＋號誌黃）。 */
+:root {
+  color-scheme: dark;
+  --asphalt: #14171c;
+  --panel: rgba(17, 21, 26, .86);
+  --panel-solid: #171c22;
+  --ink: #eef2f3;
+  --mute: #9aa6b0;
+  --line: rgba(255, 255, 255, .13);
+  --sign: #0b6b4f;
+  --sign-deep: #08513c;
+  --signal: #f5c518;
+  --alert: #ff6b5e;
+  --ok: #4fd08c;
+  --f-ui: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --f-num: "Barlow Semi Condensed", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--asphalt); color: var(--ink); font-family: var(--f-ui); font-size: 15px; line-height: 1.5; overflow: hidden; -webkit-user-select: none; user-select: none; }
+#app { position: relative; width: 100%; height: 100%; overflow: hidden; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+/* ---------- 選單 ---------- */
+#menu { position: absolute; inset: 0; display: flex; align-items: stretch; pointer-events: none; }
+#menuPanel { pointer-events: auto; width: min(440px, 100%); box-sizing: border-box; padding: 20px 20px 28px; background: linear-gradient(90deg, rgba(13, 16, 20, .93), rgba(13, 16, 20, .82)); border-right: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
+.sign { background: var(--sign); border: 3px solid #fff; border-radius: 10px; padding: 14px 18px 12px; box-shadow: 0 0 0 3px var(--sign), 0 10px 30px rgba(0, 0, 0, .45); display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 4px 12px; }
+.sign h1 { margin: 0; font-size: clamp(30px, 8vw, 40px); font-weight: 900; letter-spacing: .08em; line-height: 1.1; color: #fff; }
+.sign .en { font-family: var(--f-num); font-weight: 700; letter-spacing: .16em; font-size: 14px; color: #dff3ea; grid-column: 1; }
+.sign .arrow { grid-row: 1 / span 2; grid-column: 2; align-self: center; font-size: 44px; line-height: 1; color: #fff; }
+.lede { margin: 0; color: var(--mute); font-size: 14px; }
+.step { display: flex; flex-direction: column; gap: 10px; }
+.step h2 { margin: 0; font-size: 15px; font-weight: 700; display: flex; align-items: baseline; gap: 8px; }
+.step h2 small { font-weight: 400; color: var(--mute); font-size: 13px; }
+#distMap { width: 100%; height: auto; display: block; background: rgba(255, 255, 255, .03); border: 1px solid var(--line); border-radius: 8px; }
+#distMap path { fill: #26303a; stroke: #0e1216; stroke-width: 60; cursor: pointer; transition: fill .15s; }
+#distMap path:hover { fill: #35525a; }
+#distMap path.on { fill: var(--sign); }
+#distMap text { fill: #dfe7ea; font-size: 760px; font-weight: 700; text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: rgba(10, 13, 16, .7); stroke-width: 120px; }
+.opts { display: grid; gap: 8px; }
+.opt { text-align: left; background: rgba(255, 255, 255, .045); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline; min-width: 0; }
+.opt:hover { background: rgba(255, 255, 255, .09); }
+.opt.on { border-color: var(--signal); background: rgba(245, 197, 24, .12); }
+.opt b { font-weight: 700; overflow-wrap: anywhere; }
+.opt span { color: var(--mute); font-size: 13px; }
+.opt .meta { font-family: var(--f-num); font-weight: 700; color: var(--signal); font-size: 15px; white-space: nowrap; }
+.opt .sub { grid-column: 1 / -1; }
+.cars { grid-template-columns: 1fr 1fr; }
+.link { background: none; border: 0; padding: 0; color: var(--mute); text-decoration: underline; font-size: 13px; justify-self: start; }
+.go { background: var(--signal); color: #1a1500; border: 0; border-radius: 8px; padding: 13px 16px; font-weight: 900; font-size: 17px; letter-spacing: .1em; }
+.go:disabled { opacity: .35; cursor: not-allowed; }
+.ghost { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; font-weight: 700; }
+.fine { color: var(--mute); font-size: 12px; margin: 0; }
+.fine a { color: inherit; }
+
+/* ---------- HUD ---------- */
+#hud { position: absolute; inset: 0; pointer-events: none; }
+#task { position: absolute; left: 16px; top: calc(12px + env(safe-area-inset-top, 0px)); max-width: min(440px, calc(100% - 176px)); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px; display: grid; gap: 3px; }
+#taskRow { display: flex; gap: 10px; align-items: baseline; font-family: var(--f-num); font-weight: 700; }
+#dayChip { background: var(--sign); border-radius: 5px; padding: 0 8px; font-family: var(--f-ui); font-size: 13px; }
+#clock { font-size: 24px; font-variant-numeric: tabular-nums; }
+#clock.late { color: var(--alert); }
+#due { color: var(--mute); font-size: 13px; font-family: var(--f-ui); font-weight: 500; }
+#taskText { font-weight: 700; overflow-wrap: anywhere; }
+#taskSub { color: var(--mute); font-size: 13px; }
+#mini { position: absolute; right: 16px; top: calc(12px + env(safe-area-inset-top, 0px)); width: 152px; height: 152px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .28); background: #10141a; }
+#place { position: absolute; left: 16px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--sign); border-radius: 6px; padding: 5px 11px; font-weight: 700; font-size: 14px; max-width: 60%; }
+#place small { display: block; color: var(--mute); font-weight: 400; font-size: 12px; }
+#prompt { position: absolute; left: 50%; bottom: calc(92px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: rgba(10, 13, 16, .88); border: 1px solid var(--line); border-radius: 999px; padding: 8px 18px; font-weight: 700; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+#prompt kbd { font-family: var(--f-num); background: var(--signal); color: #1a1500; border-radius: 4px; padding: 0 7px; margin: 0 4px; font-weight: 700; }
+#prompt.warn { border-color: var(--alert); color: #ffd2cd; }
+#prompt.good { border-color: var(--ok); }
+#speedo { position: absolute; right: 16px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); text-align: right; font-family: var(--f-num); font-weight: 700; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px 6px; }
+#speedo b { font-size: 34px; font-variant-numeric: tabular-nums; line-height: 1; }
+#speedo span { color: var(--mute); font-size: 13px; margin-left: 4px; }
+#speedo i { display: block; font-style: normal; font-family: var(--f-ui); font-weight: 500; font-size: 12px; color: var(--mute); }
+#toast { position: absolute; left: 50%; top: calc(88px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); background: rgba(10, 13, 16, .9); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; max-width: min(520px, calc(100% - 32px)); box-sizing: border-box; text-align: center; transition: opacity .3s; }
+#help { position: absolute; left: 16px; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font-size: 13px; color: var(--mute); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
+#help kbd { font-family: var(--f-num); color: var(--ink); font-weight: 700; }
+.touch #help { display: none; }
+#osm { position: absolute; right: 8px; bottom: 2px; font-size: 10px; color: rgba(255, 255, 255, .55); pointer-events: auto; }
+#osm a { color: inherit; }
+
+/* ---------- 覆蓋層 ---------- */
+#fade { position: absolute; inset: 0; background: #07090b; opacity: 0; pointer-events: none; transition: opacity .35s; }
+#fade.on { opacity: 1; }
+#flash { position: absolute; inset: 0; background: #fffbea; opacity: 0; pointer-events: none; }
+#flash.go { animation: flash 0.9s ease-out; }
+@keyframes flash { from { opacity: 0.55; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #flash.go { animation: none; } }
+#loading { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; background: rgba(9, 11, 14, .86); text-align: center; padding: 16px; box-sizing: border-box; }
+#loading b { font-size: 18px; }
+#loadBar { width: min(260px, 70vw); height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+#loadBar i { display: block; height: 100%; width: 20%; background: var(--signal); transition: width .2s; }
+#loading span { color: var(--mute); font-size: 13px; }
+.modal { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(6, 8, 10, .72); padding: 16px; box-sizing: border-box; pointer-events: auto; }
+.card { width: min(430px, 100%); max-height: 100%; overflow-y: auto; box-sizing: border-box; background: var(--panel-solid); border: 1px solid var(--line); border-top: 5px solid var(--sign); border-radius: 12px; padding: 20px; display: grid; gap: 14px; }
+.card h2 { margin: 0; font-size: 22px; font-weight: 900; }
+.card p { margin: 0; color: var(--mute); }
+.stats { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+.stats dt { color: var(--mute); }
+.stats dd { margin: 0; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stats dd.bad { color: var(--alert); } .stats dd.good { color: var(--ok); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+.row > * { flex: 1 1 140px; }
+#bigmap { position: absolute; inset: 0; background: rgba(8, 10, 13, .93); display: grid; grid-template-rows: auto 1fr; padding: 14px 16px; box-sizing: border-box; gap: 8px; pointer-events: auto; }
+#bigmap header { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-weight: 700; }
+#bigCv { width: 100%; height: 100%; min-height: 0; }
+
+/* ---------- 觸控 ---------- */
+#touch { position: absolute; inset: 0; pointer-events: none; }
+#joy { position: absolute; left: 22px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); width: 116px; height: 116px; border-radius: 50%; background: rgba(255, 255, 255, .08); border: 1px solid var(--line); pointer-events: auto; touch-action: none; }
+#joyKnob { position: absolute; left: 34px; top: 34px; width: 48px; height: 48px; border-radius: 50%; background: rgba(255, 255, 255, .32); }
+.tbtn { position: absolute; pointer-events: auto; touch-action: none; width: 62px; height: 62px; border-radius: 50%; border: 1px solid var(--line); background: rgba(17, 21, 26, .7); font-weight: 900; font-size: 15px; }
+#btnGas { right: 22px; bottom: calc(130px + env(safe-area-inset-bottom, 0px)); background: rgba(79, 208, 140, .3); }
+#btnBrake { right: 96px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); background: rgba(255, 107, 94, .3); }
+#btnAct { right: 22px; bottom: calc(56px + env(safe-area-inset-bottom, 0px)); background: var(--signal); color: #1a1500; }
+#btnCam { right: 22px; top: calc(176px + env(safe-area-inset-top, 0px)); width: 48px; height: 48px; font-size: 12px; }
+#btnMap { right: 78px; top: calc(176px + env(safe-area-inset-top, 0px)); width: 48px; height: 48px; font-size: 12px; }
+.touch #place { bottom: auto; top: calc(176px + env(safe-area-inset-top, 0px)); max-width: 46%; }
+.touch #speedo { right: auto; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+.touch #prompt { bottom: calc(200px + env(safe-area-inset-bottom, 0px)); white-space: normal; text-align: center; border-radius: 14px; }
+
+@media (max-width: 560px) {
+  #mini { width: 112px; height: 112px; }
+  #task { max-width: calc(100% - 152px); }
+  #clock { font-size: 20px; }
+  #toast { top: calc(140px + env(safe-area-inset-top, 0px)); }
+  #menuPanel { border-right: 0; background: rgba(13, 16, 20, .9); }
+}
+@media (prefers-reduced-motion: reduce) { #fade, #toast, #loadBar i, #distMap path { transition: none; } }
+/* ---------- 駕駛座調整 ---------- */
+#seat { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); width: min(300px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow-y: auto; box-sizing: border-box; background: var(--panel); border: 1px solid var(--line); border-top: 5px solid var(--signal); border-radius: 12px; padding: 16px; display: grid; gap: 12px; pointer-events: auto; -webkit-user-select: none; user-select: none; }
+#seat h2 { margin: 0; font-size: 18px; font-weight: 900; }
+#seat label { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; font-size: 14px; }
+#seat label b { font-family: var(--f-num); font-variant-numeric: tabular-nums; color: var(--signal); }
+#seat input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--signal); }
+#seat p { margin: 0; color: var(--mute); font-size: 12.5px; line-height: 1.5; }
+#seat .row2 { display: flex; gap: 8px; }
+#comfort { border-top: 1px solid var(--line); padding-top: 8px; display: grid; gap: 6px; }
+#comfort summary { cursor: pointer; font-weight: 700; font-size: 14px; color: var(--signal); }
+#comfort[open] { display: grid; gap: 6px; }
+#comfort .ck { display: flex; gap: 8px; align-items: center; grid-template-columns: none; }
+#comfort .q, #comfort .calc { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 14px; }
+#comfort .q > span, #comfort .calc > span { font-weight: 700; width: 100%; }
+#comfort .q label, #comfort .calc label { display: flex; gap: 4px; align-items: center; grid-template-columns: none; }
+#comfort input[type=number] { width: 58px; background: rgba(255,255,255,.08); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font: inherit; }
+#comfort .calc button { border-radius: 8px; padding: 5px 12px; font-weight: 700; border: 1px solid var(--line); background: rgba(255,255,255,.08); }
+#comfort input[type=checkbox], #comfort input[type=radio] { accent-color: var(--signal); }
+#seat .row2 button { flex: 1; border-radius: 8px; padding: 9px 10px; font-weight: 700; border: 1px solid var(--line); background: rgba(255,255,255,.06); }
+#seat .row2 button.go2 { background: var(--signal); color: #1a1500; border-color: transparent; }
+#btnMusic { position: absolute; right: 16px; top: calc(172px + env(safe-area-inset-top, 0px)); width: 152px; box-sizing: border-box; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); padding: 4px 10px; font-size: 13px; font-weight: 700; pointer-events: auto; }
+#btnMusic[aria-pressed="false"], #btnSfx[aria-pressed="false"] { color: var(--mute); }
+#btnSfx { position: absolute; right: 16px; top: calc(206px + env(safe-area-inset-top, 0px)); width: 152px; box-sizing: border-box; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); padding: 4px 10px; font-size: 13px; font-weight: 700; pointer-events: auto; }
+.touch #btnSfx { width: auto; right: 134px; top: calc(212px + env(safe-area-inset-top, 0px)); }
+.touch #btnMusic { width: auto; right: 134px; top: calc(176px + env(safe-area-inset-top, 0px)); }
+/* 手機：後照鏡、座椅按鈕；橫向（矮螢幕）時把上方按鈕排到小地圖左邊，避免跟油門疊在一起 */
+.mbtn { position: absolute; pointer-events: auto; touch-action: none; height: 44px; min-width: 56px; padding: 0 10px; border-radius: 22px; border: 1px solid var(--line); background: rgba(17, 21, 26, .72); font-weight: 700; font-size: 13px; }
+#btnMirL { left: 22px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); }
+#btnMirR { left: 92px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); }
+#btnSeat { left: 162px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); }
+#btnCenter { left: 232px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); background: rgba(245, 197, 24, .25); }
+/* 飛天跑車：特技燃料、特技按鈕 */
+#stunt { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; font-size: 13px; pointer-events: none; white-space: nowrap; }
+#stunt .lab { color: var(--mute); font-weight: 700; }
+#stunt .bar { width: 96px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.12); overflow: hidden; }
+#stunt .bar i { display: block; height: 100%; width: 100%; background: #6fd3ff; }
+#stunt .bar i.low { background: #ff6b5e; }
+#stunt b { font-family: var(--f-num); font-variant-numeric: tabular-nums; min-width: 38px; }
+#stunt small { color: var(--mute); }
+.touch #stunt { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+.sbtn { background: rgba(111, 211, 255, .22); }
+#btnBoost { right: 96px; bottom: calc(136px + env(safe-area-inset-bottom, 0px)); }
+#btnJump { right: 22px; bottom: calc(204px + env(safe-area-inset-bottom, 0px)); }
+#btnGrip { right: 96px; bottom: calc(204px + env(safe-area-inset-bottom, 0px)); }
+#btnFlip { right: 170px; bottom: calc(204px + env(safe-area-inset-bottom, 0px)); }
+#btnDrone { right: 170px; bottom: calc(136px + env(safe-area-inset-bottom, 0px)); background: rgba(245, 197, 24, .25); }
+#daa { position: absolute; right: 16px; top: calc(250px + env(safe-area-inset-top, 0px)); width: 176px; height: 184px; pointer-events: none; }
+.touch #daa { top: auto; right: auto; left: 16px; bottom: calc(190px + env(safe-area-inset-bottom, 0px)); width: 132px; height: 138px; }
+.touch #seat { top: 12px; bottom: auto; transform: none; max-height: calc(100% - 24px); }
+@media (max-height: 500px) {
+  .touch #btnCam { top: calc(12px + env(safe-area-inset-top, 0px)); right: 180px; }
+  .touch #btnMap { top: calc(12px + env(safe-area-inset-top, 0px)); right: 236px; }
+  .touch #btnMusic { top: calc(16px + env(safe-area-inset-top, 0px)); right: 292px; }
+  .touch #btnSfx { top: calc(56px + env(safe-area-inset-top, 0px)); right: 292px; }
+  .touch #place { top: auto; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); left: 150px; }
+  #btnMirL, #btnMirR, #btnSeat, #btnCenter { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+  #seat { gap: 6px; padding: 10px 14px; } #seat p { display: none; } #seat h2 { font-size: 15px; }
+}
+
+/* ---------- 錢、商店、上班中 ---------- */
+#money { margin-left: auto; color: var(--signal); font-family: var(--f-num); font-weight: 700; font-size: 16px; }
+#taskRow { flex-wrap: wrap; }
+#shop .card { width: min(520px, 100%); }
+#shopHead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+#shopMoney { color: var(--signal); font-family: var(--f-num); font-weight: 700; font-size: 20px; }
+#shopList { display: grid; gap: 10px; }
+#shopList .item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+#shopList .item.owned { border-color: var(--ok); }
+#shopList .ihead { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+#shopList .price { font-family: var(--f-num); font-weight: 700; color: var(--signal); white-space: nowrap; }
+#shopList p { margin: 0; color: var(--mute); font-size: 13px; }
+#shopList .buy { justify-self: end; border-radius: 8px; padding: 6px 14px; font-weight: 700; border: 0; background: var(--signal); color: #1a1500; }
+#shopList .buy:disabled { background: rgba(255,255,255,.08); color: var(--mute); cursor: not-allowed; }
+#shopCars { border: 1px solid var(--line); border-radius: 10px; margin: 0; padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+#shopCars legend { color: var(--mute); font-size: 13px; padding: 0 4px; }
+#shopCars label { display: flex; gap: 6px; align-items: center; }
+#shopCars input { accent-color: var(--signal); }
+#workCard { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; pointer-events: none; }
+#workCard b { font-size: 26px; font-weight: 900; } #workCard span { color: var(--mute); }
+</style>
+
+<div id="app">
+  <canvas id="view" tabindex="0" aria-label="遊戲畫面"></canvas>
+
+  <div id="hud" hidden>
+    <div id="task">
+      <div id="taskRow"><span id="dayChip">第 1 天</span><span id="clock">07:30</span><span id="due">09:00 上班</span><span id="money">0 元</span></div>
+      <div id="taskText"></div>
+      <div id="taskSub"></div>
+    </div>
+    <canvas id="mini" width="304" height="304" aria-label="小地圖"></canvas>
+    <button id="btnMusic" type="button" aria-pressed="true">♪ 音樂 開</button>
+    <button id="btnSfx" type="button" aria-pressed="true">引擎聲 開</button>
+    <div id="help">
+      <kbd>W A S D</kbd><span>走路（Shift 跑步）／油門、煞車、方向盤</span>
+      <kbd>滑鼠</kbd><span>轉動視角（點一下畫面鎖定游標）</span>
+      <kbd>E</kbd><span>出門、上車、下車、開商店</span>
+      <kbd>空白鍵</kbd><span>手煞車</span>
+      <kbd>C</kbd><span>駕駛座／車外視角</span>
+      <kbd>Z X</kbd><span>按住看左／右後照鏡</span>
+      <kbd>R</kbd><span>視線轉回正前方</span>
+      <kbd>Shift</kbd><span>飛天跑車：推進器（約 1 秒破百）</span>
+      <kbd>F</kbd><span>飛天跑車：垂直升空飛越車陣（約 10 台車）</span>
+      <kbd>T</kbd><span>飛天跑車：空中翻轉（落地前要轉正）</span>
+      <kbd>G</kbd><span>飛天跑車：吸附大樓外牆／高架橋底（再按一次脫離）</span>
+      <kbd>U</kbd><span>無人機飛行系統：升空自動飛到目的地（再按一次取消）</span>
+      <kbd>V</kbd><span>停車時調整駕駛座（含舒適設定）</span>
+      <kbd>M</kbd><span>全市地圖</span>
+      <kbd>N B</kbd><span>配樂／引擎聲開關</span>
+      <kbd>H</kbd><span>收起這張說明</span>
+    </div>
+    <div id="place"><span id="placeRoad"></span><small id="placeDist"></small></div>
+    <div id="speedo" hidden><b id="spd">0</b><span>km/h</span><i id="energy"></i></div>
+    <canvas id="daa" width="220" height="230" hidden aria-label="無人機避撞面板"></canvas>
+    <div id="stunt" hidden><span class="lab">特技燃料</span><span class="bar"><i id="stuntBar"></i></span><b id="stuntPct">100%</b><small id="stuntMode"></small></div>
+    <div id="prompt" hidden></div>
+    <div id="toast" hidden></div>
+  </div>
+
+  <div id="touch" hidden>
+    <div id="joy"><div id="joyKnob"></div></div>
+    <button class="tbtn" id="btnGas" type="button">油門</button>
+    <button class="tbtn" id="btnBrake" type="button">煞車</button>
+    <button class="tbtn" id="btnAct" type="button">E</button>
+    <button class="tbtn" id="btnCam" type="button">視角</button>
+    <button class="tbtn" id="btnMap" type="button">地圖</button>
+    <button class="mbtn" id="btnMirL" type="button" hidden>◀ 左鏡</button>
+    <button class="mbtn" id="btnMirR" type="button" hidden>右鏡 ▶</button>
+    <button class="mbtn" id="btnSeat" type="button" hidden>座椅</button>
+    <button class="mbtn" id="btnCenter" type="button" hidden>回正</button>
+    <button class="mbtn sbtn" id="btnBoost" type="button" hidden>推進</button>
+    <button class="mbtn sbtn" id="btnJump" type="button" hidden>飛越</button>
+    <button class="mbtn sbtn" id="btnGrip" type="button" hidden>吸附</button>
+    <button class="mbtn sbtn" id="btnFlip" type="button" hidden>翻轉</button>
+    <button class="mbtn sbtn" id="btnDrone" type="button" hidden>無人機</button>
+  </div>
+
+  <div id="menu">
+    <div id="menuPanel">
+      <div class="sign">
+        <h1>台北上班路</h1>
+        <div class="en">TAIPEI COMMUTE</div>
+        <div class="arrow" aria-hidden="true">↑</div>
+      </div>
+      <p class="lede">住在台北，每天開車上下班。從房間出門、走到路邊找到你的車、坐進駕駛座，開過真實的台北街道，停好車走進公司打卡；下班再開回家。準時上班有日薪，遲到會扣錢。</p>
+      <button class="ghost" id="btnContinue" type="button" hidden></button>
+
+      <section class="step" id="step1">
+        <h2>1　你住哪一區 <small>點地圖選擇</small></h2>
+        <svg id="distMap" role="group" aria-label="台北市行政區地圖"></svg>
+      </section>
+      <section class="step" id="step2" hidden>
+        <h2>2　住址 <small id="homeHint"></small></h2>
+        <div class="opts" id="homeOpts"></div>
+        <button class="link" id="homeMore" type="button">換一批住址</button>
+      </section>
+      <section class="step" id="step3" hidden>
+        <h2>3　在哪裡上班 <small>每天 09:00 前打卡</small></h2>
+        <div class="opts" id="workOpts"></div>
+        <button class="link" id="workMore" type="button">換一批工作</button>
+      </section>
+      <section class="step"><h2>開什麼車</h2><p class="lede" style="font-size:13px">一開始開油車。每天準時上班領日薪，存錢在商店買導航、電動車（可停電動車專用格）、飛天跑車、無人機飛行系統。</p></section>
+      <button class="go" id="btnGo" type="button" disabled>出發上班</button>
+      <button class="ghost" id="btnAuto" type="button">自動示範（隨機選住址，看遊戲自己玩）</button>
+      <p class="fine">提醒：看別人開（包括自動示範）比自己開更容易頭暈；覺得不舒服就停下來休息。</p>
+      <p class="fine">剛搬來沒有錢租車位，車只能停路邊。人物：Quaternius（CC0）；配樂與引擎聲為本遊戲原創、即時合成。地圖資料 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 貢獻者；地形資料：內政部 20 公尺網格數值地形模型（政府資料開放授權條款第 1 版）。</p>
+    </div>
+  </div>
+
+  <div id="bigmap" hidden>
+    <header><span>臺北市　<small style="color:var(--mute);font-weight:400">黃色：公司　綠色：住家　白色箭頭：你</small></span><button class="ghost" id="bigClose" type="button">關閉 (M)</button></header>
+    <canvas id="bigCv"></canvas>
+  </div>
+
+  <div id="seat" hidden>
+    <h2>駕駛座調整</h2>
+    <label>座椅高低 <b id="seatHv">0</b><input id="seatH" type="range" min="-12" max="12" step="1" value="0"></label>
+    <label>座椅前後 <b id="seatFv">0</b><input id="seatF" type="range" min="-15" max="15" step="1" value="0"></label>
+    <label>視野寬窄 <b id="seatVv">46°</b><input id="seatV" type="range" min="20" max="80" step="1" value="46"></label>
+    <label>視線上下 <b id="seatTv">往上 12°</b><input id="seatT" type="range" min="-10" max="20" step="1" value="12"></label>
+    <p>可以先轉動視角看看前擋風、左右後照鏡的位置。開車時畫面以前擋風玻璃為主，滑鼠往左右轉就看得到後照鏡；按住 Z／X 直接看左／右後照鏡。停車時按 V 可以再調。</p>
+    <details id="comfort">
+      <summary>舒適設定（容易頭暈看這裡）</summary>
+      <label class="ck"><input id="cfAuto" type="checkbox"> 視線自動轉回正前方</label>
+      <p>建議關閉：畫面自己轉動容易頭暈。關閉時，視線轉開後按 R（手機按「回正」）轉回來。</p>
+      <label class="ck"><input id="cfPitch" type="checkbox"> 鏡頭跟著車身上下坡前後傾</label>
+      <p>建議關閉（鎖定地平線，賽車遊戲的「Lock to horizon」）。</p>
+      <div class="q"><span>畫質</span><label><input type="radio" name="cfQ" value="high"> 高畫質</label><label><input type="radio" name="cfQ" value="smooth"> 順暢優先</label></div>
+      <p id="cfFps">畫面卡卡的也會暈：順暢優先會關掉陰影、降低後照鏡更新。</p>
+      <div class="calc"><span>依螢幕算視野</span><label>螢幕 <input id="cfInch" type="number" min="5" max="100" step="0.5" value="14"> 吋</label><label>眼睛距離 <input id="cfCm" type="number" min="20" max="400" step="5" value="55"> 公分</label><button id="cfCalc" type="button">套用</button></div>
+      <p id="cfCalcOut">賽車遊戲的做法：讓畫面上的視角等於你眼睛看螢幕的角度，轉彎時畫面移動才接近真實。算出來可能比較窄，可以再用「視野寬窄」微調。</p>
+    </details>
+    <div class="row2"><button id="seatReset" type="button">恢復預設</button><button class="go2" id="seatGo" type="button">開始開車</button></div>
+  </div>
+
+  <div class="modal" id="shop" hidden>
+    <div class="card">
+      <div id="shopHead"><h2>商店</h2><span id="shopMoney">0 元</span></div>
+      <div id="shopList"></div>
+      <fieldset id="shopCars" hidden></fieldset>
+      <p class="fine" id="shopNote"></p>
+      <button class="ghost" id="shopClose" type="button">關閉</button>
+    </div>
+  </div>
+
+  <div class="modal" id="summary" hidden>
+    <div class="card">
+      <h2 id="sumTitle"></h2>
+      <p id="sumLead"></p>
+      <dl class="stats" id="sumStats"></dl>
+      <div class="row"><button class="go" id="btnNext" type="button">明天繼續</button><button class="ghost" id="btnSumShop" type="button">商店</button><button class="ghost" id="btnMenu" type="button">回主選單</button></div>
+    </div>
+  </div>
+
+  <div id="loading"><b id="loadText">載入台北市…</b><div id="loadBar"><i id="loadFill"></i></div><span id="loadSub">第一次載入需要下載地圖資料</span></div>
+  <div id="flash"></div>
+  <div id="fade"></div>
+  <div id="workCard" hidden><b id="workText"></b><span>上班中……</span></div>
+  <div id="osm">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors・地形：內政部 DTM</div>
+</div>
+<script type="module" src="js/main.js"></script>
