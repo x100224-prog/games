@@ -69,7 +69,7 @@ function cySection(bar) {
   return { name: 'break', i: b - 20 };
 }
 
-const CYBER_LOOP = [16.27118, 97.62712];   // 「夜行高架」循環：從第 8 小節到第 48 小節（118 BPM）
+const CYBER_LOOP = [14.88372, 89.30234];   // 「鉻色脈衝」循環：從第 8 小節到第 48 小節（129 BPM）
 
 const PREF_KEY = 'yingge-music';
 
@@ -82,7 +82,7 @@ export class Music {
     this.mode = 'walk'; this.speed = 0;
     this.step = 0; this.next = 0; this.onChange = null; this.style = 'drive';
     this.rapOn = p.rap !== false; this.rapBuf = null; this.rapSrc = null; this.rapUrl = opts.rapUrl === undefined ? 'audio/rap.mp3' : opts.rapUrl;
-    // 看示範的配樂：事先算好的原創曲「夜行高架」（tools/synthwave_render.js）。載入前先用即時合成的版本代替
+    // 看示範的配樂：事先算好的原創曲「鉻色脈衝」（tools/pulse_render.js）。載入前先用即時合成的版本代替
     this.cyberUrl = opts.cyberUrl || null; this.cyberBuf = null; this.cyberSrc = null; this.cyberLoading = false;
   }
 
