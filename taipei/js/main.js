@@ -15,7 +15,8 @@ import { Music } from './music.js';
 import { EngineSound } from './engine.js';
 import { Nav, polyProgress, nextTurn } from './nav.js';
 import { Stunts } from './stunts.js';
-import { DroneTraffic, DroneFlight, DRONE } from './drone.js';
+import { DroneTraffic, DroneFlight, DRONE, overheadAt } from './drone.js';
+import { Control } from './control.js';
 import { DenseSky, SKY } from './sky.js';
 import { DemoRunner, DEMOS } from './demo.js';
 import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES } from './economy.js';
@@ -178,6 +179,7 @@ store.setMode(G.mode);
 const P = { x: 0, y: 0, z: 0, yaw: 0, speed: 0, inRoom: false };
 let world, parking, traffic, signs, car, cockpit, avatar, tp, meta, nav = null, stunts = null, drones = null, flight = null, statics = [];
 let droneCity = null, droneSky = null;   // 一般：全市千分之一的無人機；全城無人機：你附近的整片天空
+let ctl = null;   // 玩法「全城無人機・路空總控」的總控中心
 const mist = new Mist(scene);   // 壓縮空氣噴出的白霧
 window.__tc = { G, P, renderer, scene, camera, econ, engine, input };
 if (location.hash.startsWith('#lowq')) { renderer.shadowMap.enabled = false; renderer.setPixelRatio(0.75); }
@@ -199,7 +201,14 @@ const fmtMoney = (n) => {
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const districtName = (i) => meta.districts[i] ? meta.districts[i].name : '';
 let toastT = 0;
-function toast(msg, sec = 3) { const t = $('toast'); t.textContent = msg; t.hidden = false; toastT = uiTime + sec; }
+function toast(msg, sec = 3) { const t = $('toast'); t.textContent = msg; t.hidden = false; toastT = uiTime + sec; placeToast(); }
+/** 總控卡片開著時，提示訊息如果跟卡片重疊，就移到卡片下面。 */
+function placeToast() {
+  const t = $('toast'), c = $('ctlCard'); t.style.top = '';
+  if (!c || c.hidden || t.hidden) return;
+  const a = c.getBoundingClientRect(), b = t.getBoundingClientRect();
+  if (a.right > b.left && b.right > a.left && a.bottom > b.top && b.bottom > a.top) t.style.top = Math.round(a.bottom + 8) + 'px';
+}
 function setPrompt(html, cls = '') { const p = $('prompt'); if (!html) { p.hidden = true; return; } if (p._h !== html) { p.innerHTML = html; p._h = html; } p.className = cls; p.hidden = false; }
 function fadeThen(fn, hold = 60) { const f = $('fade'); f.classList.add('on'); setTimeout(() => { fn(); setTimeout(() => f.classList.remove('on'), hold); }, 360); }
 const dest = () => G.leg === 'am' ? G.cfg.work : G.cfg.home;
@@ -302,6 +311,7 @@ function renderModes() {
   }
   const t = $('carText'); if (t) t.textContent = G.mode === 'allfly' ? '這個世界每台車都是飛天跑車：你一開始就有一台（壓縮空氣滿罐可以飛越 8 次，遊戲設定）。可以再買導航、無人機飛行系統。'
     : G.mode === 'alldrone' ? '這個世界每台車都進入無人機系統：你一開始就有飛天跑車和無人機飛行系統（按 U 升空）。天上的車只模擬你附近 1.3 公里內，數量跟尖峰時那一帶路上的車一樣多。'
+    : G.mode === 'hybrid' ? '每台車都有無人機系統，但路上也照樣有車在開：總控中心依「開車和飛哪個快」分配，飛的人越多，路上越空、目的地降落越要排隊。你一開始就有飛天跑車和無人機飛行系統，想飛時按 U 問總控。'
     : '一開始開油車。存錢在商店買導航（約 55 萬）、電動車（約 206 萬）、飛天跑車（約 800 萬）；有了飛天跑車，才能再加裝無人機飛行系統（約 410 萬）。';
 }
 // ===================================================================== 看示範
@@ -317,6 +327,13 @@ function renderDemos() {
     box.appendChild(b);
   }
 }
+/** 路空總控的示範：公司挑降落點夠多、不會太熱鬧的地方（不然一開始就要排很久，總控會建議繼續開，看不到升空）。 */
+function hybridDemoCfg() {
+  const base = demoCfg(false), C = new Control(nav), home = base.home;
+  const ws = meta.works.map(w => ({ w, d: Math.hypot(w.x - home.x, w.z - home.z) })).filter(o => o.d > 3000 && o.d < 4800).sort((a, b) => a.d - b.d);
+  for (const o of ws) { const q = C.area(o.w.x, o.w.z); if (q.spots >= 8 && q.A < 1.2) return { di: base.di, home, work: o.w }; }
+  return base;
+}
 function demoCfg(near) {
   const di = 6, home = meta.homes[di][0];
   const ws = meta.works.map(w => ({ w, d: Math.hypot(w.x - home.x, w.z - home.z) })).filter(o => near ? o.d > 1200 && o.d < 2000 : o.d > 3000 && o.d < 4800).sort((a, b) => a.d - b.d);
@@ -328,7 +345,7 @@ function startDemo(key) {
   G.demo = { key, prevMode: G.demo ? G.demo.prevMode : G.mode };
   G.mode = D.mode || 'normal';
   econ.reset(); econ.applyMode(G.mode); for (const k of ['nav', 'roadster', 'drone']) econ.owned.add(k); econ.carKey = 'roadster'; econ.stuntFuel = 1;
-  G.cfg = demoCfg(!!D.near); G.dayN = 1; G.homeCar = null; G.cam = 'cockpit';
+  G.cfg = D.key === 'hybrid' ? hybridDemoCfg() : demoCfg(!!D.near); G.dayN = 1; G.homeCar = null; G.cam = 'cockpit';
   audioStart(); $('menu').hidden = true; input.enabled = true;
   $('demoExit').hidden = false; demoUi.cap(`看示範：${D.name}　載入中…`);
   startDay();
@@ -369,16 +386,26 @@ window.__tc.startDemo = startDemo; window.__tc.endDemo = endDemo;
 function applyMode() {
   const m = G.mode;
   if (traffic) {
-    traffic.factor = m === 'alldrone' ? 0 : RUSH.factor;   // 全城無人機：路上的車全部飛上天了
-    traffic.flyerRate = m === 'allfly' ? 1 : FLYER.rate;
+    traffic.factor = m === 'alldrone' ? 0 : m === 'hybrid' ? RUSH.factor * (1 - (ctl ? ctl.p : 0.9)) : RUSH.factor;   // 全城無人機：路上的車全部飛上天了；路空總控：沒在飛的在路上
+    traffic.flyerRate = m === 'allfly' ? 1 : m === 'hybrid' ? 0 : FLYER.rate;
     traffic.hopWait = m === 'allfly' ? 1.5 : FLYER.wait; traffic.hopCool = m === 'allfly' ? 8 : FLYER.cooldown;
   }
   if (nav && droneCity) {
-    if (m === 'alldrone' && !droneSky) { droneSky = new DenseSky(scene, world, nav, RUSH.factor); droneSky.statics = statics; }
-    drones = m === 'alldrone' ? droneSky : droneCity;
-    droneCity.body.visible = droneCity.trim.visible = droneCity.rotors.visible = m !== 'alldrone';
-    if (droneSky) droneSky.setVisible(m === 'alldrone');
-    window.__tc.drones = drones; window.__tc.droneSky = droneSky;
+    const sky = m === 'alldrone' || m === 'hybrid';
+    if (sky && !droneSky) { droneSky = new DenseSky(scene, world, nav, RUSH.factor); droneSky.statics = statics; }
+    if (m === 'hybrid' && !ctl) { ctl = new Control(nav); ctl.startLeg(G.leg || 'am', G.clock || TIME.startMin); if (traffic) traffic.factor = RUSH.factor * (1 - ctl.p); }
+    drones = sky ? droneSky : droneCity;
+    droneCity.body.visible = droneCity.trim.visible = droneCity.rotors.visible = !sky;
+    if (droneSky) {
+      droneSky.setVisible(sky); droneSky.share = m === 'hybrid' ? ctl.p : 1;
+      // 路空總控：天上的車跟路上的車互相交換（停著的車原地升空、降落的車開進車流）
+      droneSky.hybrid = m === 'hybrid' ? {
+        take: () => traffic.takeForLift(P.x, P.z, (x, z, y) => !overheadAt(world, x, z, y)),
+        lane: (x, z) => traffic.laneAt(x, z),
+        give: (d) => traffic.addAt(d.L, d.color),
+      } : null;
+    }
+    window.__tc.drones = drones; window.__tc.droneSky = droneSky; window.__tc.ctl = ctl;
   }
 }
 window.__tc.applyMode = applyMode;
@@ -442,11 +469,15 @@ const FEATURE_HELP = {
   ev: { title: '電動車', rows: [['充電', '可以停停車場裡的「電動車專用格」，停著就會充電']] },
   roadster: { title: '飛天跑車', rows: [['Shift', '推進器：約 1 秒破百（手機：推進）'], ['F', '垂直升空，飛越前面的車陣，約 10 台車（手機：飛越）'], ['T', '飛越時空中翻轉，落地前要轉正（手機：翻轉）'], ['G', '面向大樓：吸住外牆往上開；在高架橋下：吸在橋底倒著開；再按一次脫離（手機：吸附）'], ['空氣', '特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。開車慢慢補、停電動車充電格快速補、回家補滿（遊戲設定）']] },
   drone: { title: '無人機飛行系統', rows: [['U', '開飛天跑車時按 U：旋翼伸出、升空，自動避撞飛到目的地附近降落；再按一次取消（手機：無人機）'], ['C', '飛行中切換車外／駕駛座視角']] },
+  ctl: { title: '路空總控', rows: [['U', '問路空總控：它比較「繼續開」和「飛起來」哪個先到。飛比較快就核准升空、排好降落時段（開著也能問，核准後慢下來停住就自動升空）（手機：問總控）'],
+    ['再按 U', '總控建議繼續開、或建議先開等時段時，10 秒內再按一次就照你的意思現在升空'], ['C', '飛行中切換車外／駕駛座視角']] },
 };
-const featureOn = (k) => econ.has(k) && (k === 'nav' || (k === 'ev' ? !!(car && car.spec.electric) : !!(car && car.spec.stunt)));
+const FEATURES_ORDER = () => ['nav', 'ev', 'roadster', G.mode === 'hybrid' ? 'ctl' : 'drone'];
+const featureOn = (k) => k === 'ctl' ? G.mode === 'hybrid' && econ.has('drone') && !!(car && car.spec.stunt)
+  : econ.has(k) && (k === 'nav' || (k === 'ev' ? !!(car && car.spec.electric) : !!(car && car.spec.stunt)));
 function renderHelp() {
   const rows = [...HELP_BASE];
-  for (const k of ['nav', 'ev', 'roadster', 'drone']) if (featureOn(k)) rows.push(...FEATURE_HELP[k].rows);
+  for (const k of FEATURES_ORDER()) if (featureOn(k)) rows.push(...FEATURE_HELP[k].rows);
   $('help').innerHTML = rows.map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('') +
     '<kbd>H</kbd><span>收起／打開這張說明</span><span class="more">其他：C 車外視角・Z／X 後照鏡・V 調座椅・N／B 配樂／引擎聲</span>';
 }
@@ -455,7 +486,7 @@ function tipsSeen() { try { return JSON.parse(localStorage.getItem(TIP_KEY) || '
 /** 買了新功能、第一次開上路時：跳出一張卡片說明怎麼用。 */
 function showTips() {
   if (G.demo || G.state !== 'drive' || G.seatAdj) return;
-  const seen = tipsSeen(), k = ['nav', 'ev', 'roadster', 'drone'].find(x => featureOn(x) && !seen.includes(x));
+  const seen = tipsSeen(), k = FEATURES_ORDER().find(x => featureOn(x) && !seen.includes(x));
   if (!k) { $('tipCard').hidden = true; return; }
   const F = FEATURE_HELP[k];
   $('tipTitle').textContent = `新功能：${F.title}`;
@@ -484,6 +515,7 @@ function makeCar(key) {
   }) : null;
   flight = new DroneFlight(car, world, {
     toast: (m, sec) => toast(m, sec), cost: (f) => econ.addDrone(f), traffic: () => traffic, dest: () => dest(), gameMinPerSec: () => TIME.scale / 60,
+    now: () => ctl ? ctl.t : 0, roads: () => G.mode === 'hybrid',
   });
   window.__tc.car = car; window.__tc.cockpit = cockpit; window.__tc.stunts = stunts; window.__tc.flight = flight;
   applyComfort();
@@ -511,7 +543,7 @@ function startDay() {
   if (!car || car.spec.key !== econ.carKey) makeCar(econ.carKey);
   renderHelp();
   G.state = 'loading'; G.leg = 'am'; G.phase = 'room'; G.parked = null; G.clock = TIME.startMin;
-  setSun('am'); applyMode();
+  setSun('am'); applyMode(); ctlReset('am');
   $('hud').hidden = true; $('loading').hidden = false;
   $('loadText').textContent = `第 ${G.dayN} 天｜載入${districtName(G.cfg.di)}街區…`;
   $('loadSub').textContent = '道路、建物、招牌與停車格';
@@ -546,7 +578,7 @@ function enterRoom() {
   $('loading').hidden = true; $('hud').hidden = false;
   if (input.touch) $('touch').hidden = false;
   camera.near = 0.05; camera.fov = 62; camera.updateProjectionMatrix();
-  const mt = G.mode === 'allfly' ? '（全城飛天跑車：每台車都會飛越車陣）' : G.mode === 'alldrone' ? '（全城無人機：路上幾乎沒車，天上擠滿飛行車）' : '';
+  const mt = G.mode === 'allfly' ? '（全城飛天跑車：每台車都會飛越車陣）' : G.mode === 'alldrone' ? '（全城無人機：路上幾乎沒車，天上擠滿飛行車）' : G.mode === 'hybrid' ? '（路空總控：想飛先按 U 問總控）' : '';
   toast(`第 ${G.dayN} 天早上 7:30${mt}。走到門口出門上班（書桌的電腦可以開商店）`, 4);
   save();
 }
@@ -625,7 +657,7 @@ function arrive() {
     f.classList.add('on'); $('workCard').hidden = false;
     setTimeout(() => {
       // 下班：18:00 從公司門口出來，走回車上
-      G.leg = 'pm'; G.phase = 'toCar'; G.clock = TIME.homeMin; setSun('pm'); traffic.clear();
+      G.leg = 'pm'; G.phase = 'toCar'; G.clock = TIME.homeMin; setSun('pm'); traffic.clear(); ctlReset('pm');
       const w = G.cfg.work; P.x = w.x; P.z = w.z; P.y = world.groundAt(w.x, w.z); P.yaw = Math.atan2(-(car.x - P.x), -(car.z - P.z)); tp.yaw = P.yaw;
       G.parked = null; G.legE0 = c.energy; G.state = 'walk';
       traffic.update(0.016, P.x, P.z, [], true);
@@ -703,17 +735,117 @@ function renderShop() {
 }
 
 // ===================================================================== 導航
-function planRoute() {
-  G.route = null; G.routePoly = null; routeLine.visible = false;
-  if (!nav || !car) return;
-  const o = {}, e = world.nearestEdge(car.x, car.z, 30, ed => ed.cls <= 6, o);
+// ===================================================================== 路空總控（玩法「全城無人機・路空總控」）
+// 按 U：總控用全部車子的動向估算「繼續開」和「飛起來」哪個先到。飛比較快就核准升空、排好降落時段；
+// 降落要排很久就建議先開、時段快到再升空（地面等待）；開車比較快就建議繼續開。10 秒內再按一次 U＝照你的意思現在升空。
+const gmin = (sec) => sec * TIME.scale / 60;
+const clockAfter = (sec) => fmtClock(G.clock + gmin(sec));
+function ctlReset(leg) {
+  G.ctl = null; G.ctlHold = null; G.ctlAuto = null; G.ctlDrive = null; G.ctlShare = null; hideCtlCard();
+  if (ctl && G.mode === 'hybrid') ctl.startLeg(leg, leg === 'am' ? TIME.startMin : TIME.homeMin);
+}
+function ctlTick(dt) {
+  ctl.tick(dt, G.clock);
+  G.ctlShareT = (G.ctlShareT || 0) - dt;
+  if (G.ctlShareT <= 0) {
+    G.ctlShareT = 1;   // 每秒依總控的分配調整路上和天上的車
+    if (traffic) traffic.factor = RUSH.factor * (1 - ctl.p);
+    if (droneSky) droneSky.share = ctl.p;
+  }
+  if (G.ctlCardT && uiTime > G.ctlCardT) hideCtlCard();   // 卡片看一下就收起來（地面等待的時段改在左上的任務列顯示）
+}
+function ctlEvaluate() {
+  const d = dest(), rt = routeFromCar(d);
+  return ctl.evaluate({ x: car.x, z: car.z, v: car.v, g: world.groundAt(car.x, car.z, car.y), dest: d, route: rt, traffic, sky: drones, min: G.clock, gmps: TIME.scale / 60 });
+}
+function ctlAsk() {
+  const now = ctl.t, last = G.ctl;
+  // 剛問過（10 秒內）再按一次：照你的意思現在升空
+  if (last && last.armed && now - last.at < 10) {
+    last.armed = false; const plan = last.plan || ctl.reserve(last.ev);
+    hideCtlCard(); ctlLift(plan); return;
+  }
+  const ev = ctlEvaluate();
+  G.ctl = { at: now, ev, armed: false, plan: null }; G.ctlHold = null; G.ctlAuto = null; G.ctlDrive = null;
+  if (ev.fly && !ev.holdGround) { G.ctl.plan = ctl.reserve(ev); ctlLift(G.ctl.plan); }
+  else if (ev.fly) { G.ctl.plan = ctl.reserve(ev); G.ctl.armed = true; G.ctlHold = { plan: G.ctl.plan, chk: 0 }; }
+  else { G.ctl.armed = true; G.ctlDrive = { t0: now, pred: ev.road.sec }; }
+  showCtlCard(ev);
+}
+function ctlLift(plan) {
+  G.ctlHold = null; G.ctlDrive = null;
+  const msg = flight.canStart(stunts && stunts.busy);
+  if (!msg) { hideCtlCard(); flight.start(drones, plan); return; }
+  if (Math.abs(car.v) > 3) { G.ctlAuto = { plan, until: ctl.t + 30 }; toast('總控已核准：慢下來停住就自動升空（30 秒內有效）', 3); }
+  else toast(msg, 2.5);
+}
+/** 開車中（每幀）：核准後自動升空、地面等待的時段、開車到了報告預估準不準。 */
+function ctlDrive(dt) {
+  if (flight.active) { G.ctlAuto = null; G.ctlHold = null; G.ctlDrive = null; return; }
+  const A = G.ctlAuto;
+  if (A) {
+    if (ctl.t > A.until) { G.ctlAuto = null; toast('升空的核准過期了：要飛再按 U 問一次總控', 2.5); }
+    else if (Math.abs(car.v) < 0.8) {
+      const msg = flight.canStart(stunts && stunts.busy);
+      if (!msg) { G.ctlAuto = null; hideCtlCard(); flight.start(drones, A.plan); return; }
+      if (!A.warned) { A.warned = true; toast(msg + '（總控的核准還有效，換個地方停）', 3); }   // 例如停在高架橋下
+    } else A.warned = false;
+  }
+  const H = G.ctlHold;
+  if (H && (H.chk -= dt) <= 0) {
+    H.chk = 1;
+    const d = dest(), leg = ctl.airLeg({ x: car.x, z: car.z, v: car.v, g: world.groundAt(car.x, car.z, car.y), dest: d, sky: drones });
+    H.departAt = H.plan.slotAt - leg.toSlot;
+    if (ctl.t >= H.departAt - 3) {
+      // 時段到了：先看看直接開過去會不會更快（這段時間你一直在往目的地開）
+      const rt = routeFromCar(d), rs = ctl.roadSec(rt);
+      G.ctlHold = null;
+      if (rs < H.plan.slotAt - ctl.t + H.plan.down) { G.ctlDrive = { t0: ctl.t, pred: rs }; G.ctl = null; toast(`總控：現在直接開過去比較快（約 ${Math.round(gmin(rs))} 分鐘），取消你的降落時段`, 4); }
+      else { G.ctlAuto = { plan: H.plan, until: ctl.t + 40 }; toast(`起飛時段到了：慢下來停住就自動升空（降落時段 ${fmtClock(G.clock + gmin(H.plan.slotAt - ctl.t))}）`, 4); }
+    }
+  }
+  const D = G.ctlDrive;
+  if (D && dist(car, dest()) < 200) {
+    toast(`開到目的地附近：總控預估 ${Math.round(gmin(D.pred))} 分鐘，實際 ${Math.round(gmin(ctl.t - D.t0))} 分鐘`, 4);
+    G.ctlDrive = null;
+  }
+}
+function hideCtlCard() { const c = $('ctlCard'); if (c) c.hidden = true; G.ctlCardT = 0; placeToast(); }
+function showCtlCard(ev) {
+  const c = $('ctlCard'); if (!c) return;
+  const r = ev.road, a = ev.air, m = (s) => Math.max(1, Math.round(gmin(s))), f1 = (s) => gmin(s) < 0.95 ? gmin(s).toFixed(1) : String(Math.round(gmin(s)));
+  const rows = [];
+  if (r) rows.push(`<div class="row${ev.fly ? '' : ' win'}"><b>繼續開</b><em>${m(r.sec)} 分</em><span>${clockAfter(r.sec)} 到・路線 ${r.km.toFixed(1)} km・附近 ${r.live.n} 台車平均 ${Math.round(r.live.kmh)} km/h</span></div>`);
+  rows.push(`<div class="row${ev.fly ? ' win' : ''}"><b>飛起來</b><em>${m(a.sec)} 分</em><span>${clockAfter(a.sec)} 落地・${a.stop > 1 ? '停車' : ''}升空 ${f1(a.stop + a.climb)}・穿層等 ${f1(a.cross)}・巡航 ${f1(a.cruise)}・排隊降落 ${f1(a.queue)}${a.ahead ? `（前面 ${a.ahead} 台）` : ''}・降落 ${f1(a.down)} 分・燃料約 ${fmtMoney(gmin(a.sec) * DRONE.costPerMin)}</span></div>`);
+  let v;
+  if (ev.fly && !ev.holdGround) v = `核准升空：飛比較快${r ? `，早 ${m(r.sec - a.sec)} 分到` : ''}。${Math.abs(car.v) > 3 ? '慢下來停住就自動升空' : ''}`;
+  else if (ev.fly) v = `核准，降落時段 ${clockAfter(a.toSlot + a.queue)}：現在飛上去要在空中等 ${m(a.queue)} 分。建議先繼續開，時段快到時提醒你升空（現在就要飛：再按 U）`;
+  else {
+    const why = a.queue > a.sec * 0.35 ? `目的地附近降落要排 ${m(a.queue)} 分` : a.km < 1.6 ? '距離太近，升空降落的時間划不來' : '路上的車不多，開車就夠快';
+    v = a.sec - r.sec > 30 ? `建議繼續開：開車早 ${m(a.sec - r.sec)} 分到（${why}）。還是要飛：10 秒內再按 U`
+      : `建議繼續開：兩個差不多快（飛只差 ${m(Math.abs(r.sec - a.sec))} 分），開車省燃料費。還是要飛：10 秒內再按 U`;
+  }
+  $('ctlRows').innerHTML = rows.join('');
+  $('ctlVerdict').textContent = v; $('ctlVerdict').className = ev.fly ? 'ok' : 'no';
+  $('ctlNote').textContent = `總控即時掌握：路上 ${r ? r.live.n : 0} 台、天上 ${a.skyN.toLocaleString()} 架（你附近要穿過的高度層）・全市 ${Math.round(ev.p * 100)}% 的車在飛・目的地附近 ${a.spots} 個降落點`;
+  c.hidden = false; G.ctlCardT = uiTime + (ev.fly && !ev.holdGround ? 9 : 14); placeToast();
+}
+window.__tc.ctlAsk = () => ctlAsk();
+/** 從車子現在的位置到 d 的最快路線（先試著沿車頭方向走；單行道只能順向）。 */
+function routeFromCar(d, o = {}) {
+  if (!nav || !car) return null;
+  const e = world.nearestEdge(car.x, car.z, 30, ed => ed.cls <= 6, o);
   let fwdOK = true;
   if (e) { const k = Math.max(0, e.cum.findIndex(c => c > o.s) - 1), dx = e.pts[k * 2 + 2] - e.pts[k * 2], dz = e.pts[k * 2 + 3] - e.pts[k * 2 + 1]; fwdOK = dx * car.fwdX + dz * car.fwdZ >= 0; }
-  const d = dest();
-  // 先試著沿車頭方向走；單行道只能順向
   let rt = e ? nav.route({ edge: e, s: o.s, fwdOK: fwdOK, backOK: !fwdOK }, { x: d.x, z: d.z }) : null;
   if (!rt && e) rt = nav.route({ edge: e, s: o.s }, { x: d.x, z: d.z });
   if (!rt) rt = nav.route({ x: car.x, z: car.z }, { x: d.x, z: d.z });
+  o.e = e; return rt;
+}
+function planRoute() {
+  G.route = null; G.routePoly = null; routeLine.visible = false;
+  if (!nav || !car) return;
+  const o = {}, rt = routeFromCar(dest(), o), e = o.e;
   if (!rt) return;
   G.route = rt; G.routeS = e ? o.s : undefined;
   G.routePoly = nav.polyline(rt, world, { x: car.x, z: car.z }, G.routeS); G.routeIdx = 0;
@@ -934,8 +1066,10 @@ function driveFrame(dt) {
     if (!econ.has('drone')) toast(econ.has('roadster') ? '要先在商店買「無人機飛行系統」' : '無人機飛行系統裝在飛天跑車上：要先買飛天跑車，再買無人機飛行系統', 2.5);
     else if (car.spec.key !== 'roadster') toast('無人機飛行系統裝在飛天跑車上，要開飛天跑車才能用（在商店的「明天開哪台車」換車）', 2.8);
     else if (flight.active) flight.abort();
+    else if (G.mode === 'hybrid' && ctl) ctlAsk();   // 路空總控：先問總控（開著也能問）
     else { const msg = flight.canStart(stunts && stunts.busy); if (msg) toast(msg, 2); else flight.start(drones); }
   }
+  if (G.mode === 'hybrid' && ctl && !G.seatAdj) ctlDrive(dt);
   const flying = flight && flight.active;
   // 特技（飛越、翻轉、垂直開、倒著開）時自動切到車外視角，落地後回到原本的視角
   const ext = !!(stunts && stunts.external) || (flying && G.droneView !== 'cockpit');
@@ -951,15 +1085,15 @@ function driveFrame(dt) {
   if (!G.seatAdj && input.pressed('KeyV') && Math.abs(c.v) < 0.3) openSeat();
   if (input.pressed('KeyR') && G.cam === 'cockpit') cockpit.recenter();
   const fw = G.seatAdj ? 0 : input.forward;
-  const ctl = G.seatAdj ? { throttle: 0, brake: 1, steer: 0, handbrake: true } : { throttle: Math.max(0, Math.min(1, fw > 0.15 ? fw : 0)) || input.tGas, brake: Math.max(0, Math.min(1, fw < -0.15 ? -fw : 0)) || input.tBrake,
+  const pedals = G.seatAdj ? { throttle: 0, brake: 1, steer: 0, handbrake: true } : { throttle: Math.max(0, Math.min(1, fw > 0.15 ? fw : 0)) || input.tGas, brake: Math.max(0, Math.min(1, fw < -0.15 ? -fw : 0)) || input.tBrake,
     steer: -Math.max(-1, Math.min(1, input.strafe)), handbrake: input.has('Space') };
   lotT -= dt; if (lotT <= 0) { lotT = 0.2; c.onLot = parking.inLot(c.x, c.z) || !!parking.bayAt(c.x, c.z, c.psi, _err); }
   const obs = gatherObstacles(c.x, c.z, 14);
   if (flying) flight.update(dt, TIME.scale / 60, drones, statics);
   else if (stunts) {
     const sk = G.seatAdj ? {} : { boost: input.has('ShiftLeft', 'ShiftRight'), jump: input.pressed('KeyF'), grip: input.pressed('KeyG'), flip: input.pressed('KeyT') };
-    stunts.update(dt, ctl, sk, obs, traffic);
-  } else c.update(dt, ctl, obs);
+    stunts.update(dt, pedals, sk, obs, traffic);
+  } else c.update(dt, pedals, obs);
   if (flight) flight.animate(dt);   // 旋翼展開／收回的動畫（不影響開車）
   if (drones) drones.update(dt, c.x, c.z, flying ? [{ x: flight.x, y: flight.y, z: flight.z, vx: flight.vx, vy: flight.vy, vz: flight.vz }] : null);
   // 壓縮空氣：停在電動車充電格（車停著）就快速補氣（遊戲設定：每秒 4%，滿罐 600 元）
@@ -1092,10 +1226,15 @@ function hud(dt) {
   else if (G.phase === 'drive') {
     const dd = dist(car, d);
     if (flight && flight.active) {
-      t = flight.phase === 'hover' && flight.blocked ? '下方有車，在空中等待降落' : { lift: '無人機升空中', cruise: `無人機飛往 ${G.leg === 'am' ? d.n : '家'}`, approach: '接近降落點', hover: '對準降落點', descend: '降落中' }[flight.phase] || '無人機飛行';
+      t = flight.phase === 'hover' && flight.slotHold ? '排隊等降落時段' : flight.phase === 'hover' && flight.blocked ? '下方有車，在空中等待降落' : { lift: '無人機升空中', cruise: `無人機飛往 ${G.leg === 'am' ? d.n : '家'}`, approach: '接近降落點', hover: '對準降落點', descend: '降落中' }[flight.phase] || '無人機飛行';
       sub = `高度 ${Math.round(car.y - world.groundAt(car.x, car.z, car.y - 50))} m・${Math.round(car.v * 3.6)} km/h・剩 ${fmtDist(dist(car, flight.spot))}・燃料費 ${Math.round(flight.costSum)} 元`;
+      if (flight.slotHold && flight.plan && ctl) { const left = flight.plan.slotAt - ctl.t; sub = `前面還有 ${Math.max(1, Math.ceil(left * flight.plan.area.mu))} 台・約 ${Math.max(1, Math.round(gmin(left)))} 分鐘（${clockAfter(left)} 輪到你）・燃料費 ${Math.round(flight.costSum)} 元`; }
     } else if (dd < 420) { t = G.leg === 'am' ? '在公司附近找車位' : '在家附近找車位'; sub = car.spec.electric ? '黃色：路邊空格　綠色：電動車格' : '黃色標示的是空的路邊車格'; }
     else { t = G.leg === 'am' ? `開車到 ${d.n}` : '開車回家'; sub = `直線 ${fmtDist(dd)}${econ.has('nav') ? '・跟著藍色導航線' : ''}`; }
+    if (!(flight && flight.active) && G.mode === 'hybrid' && ctl) {
+      if (G.ctlHold && G.ctlHold.departAt !== undefined) sub = `總控：約 ${clockAfter(G.ctlHold.departAt - ctl.t)} 起飛（降落時段 ${clockAfter(G.ctlHold.plan.slotAt - ctl.t)}）・現在就飛按 U`;
+      else if (G.ctlAuto) sub = '總控已核准：慢下來停住就自動升空';
+    }
   } else if (G.phase === 'toDest') {
     if (G.parked && G.parked.legal) { t = G.leg === 'am' ? `走進 ${d.n}` : '走回家'; sub = fmtDist(dist(P, d)); }
     else { t = '車沒停好'; sub = '回到車上（藍色光柱）重新停進車格'; }
@@ -1465,6 +1604,7 @@ function frame(dt) {
     else if (st === 'summary' || st === 'work') { world.update(P.x, P.z, dt); }
     else if (st === 'measure') measureFrame(dt);
     if (['walk', 'drive', 'room', 'measure'].includes(st)) G.clock += dt * TIME.scale / 60;
+    if (ctl && G.mode === 'hybrid' && ['walk', 'drive', 'room'].includes(st)) ctlTick(dt);
   }
   if (['walk', 'drive', 'room'].includes(st)) hud(dt);
   if (st === 'drive' || st === 'walk' || mist.n) mist.update(dt, camera, canvas.clientHeight || innerHeight, (x, z, y) => world.groundAt(x, z, y));
@@ -1479,8 +1619,13 @@ function frame(dt) {
     if (G.gripT <= 0) { G.gripT = 0.3; G.gripOk = !!(stn && sm === 'ground' && (stunts._deckAbove(car.x, car.z, car.y, 3.9) || stunts._wallAhead(car.x, car.z, car.psi, 5.5, car.y))); }
     const vis = { btnBoost: stn && sm === 'ground', btnJump: stn && ((sm === 'ground' && slowNow) || sm === 'roof'), btnFlip: stn && sm === 'air', btnGrip: stn && (G.gripOk || ['wall', 'under', 'roof'].includes(sm)) };
     for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (!el) continue; if (el.hidden === vis[id]) el.hidden = !vis[id]; el.classList.toggle('off', airOut || (id === 'btnJump' && econ.stuntFuel < 1 / AIR.jumpsPerTank - 1e-6)); }
-    const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone') && car.spec.key === 'roadster' && (flyingNow || Math.abs(car.v) < 3);
-    if (dbt) { if (dbt.hidden === showDr) dbt.hidden = !showDr; const lb = flight && flight.active ? '取消飛行' : '無人機'; if (dbt.textContent !== lb) dbt.textContent = lb; }
+    const hyb = G.mode === 'hybrid' && !!ctl;   // 路空總控：開著也能問總控
+    const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone') && car.spec.key === 'roadster' && (flyingNow || hyb || Math.abs(car.v) < 3);
+    if (dbt) {
+      if (dbt.hidden === showDr) dbt.hidden = !showDr;
+      const lb = flyingNow ? '取消飛行' : hyb ? (G.ctl && G.ctl.armed && ctl.t - G.ctl.at < 10 ? '現在飛' : '問總控') : '無人機';
+      if (dbt.textContent !== lb) dbt.textContent = lb;
+    }
     for (const id of ['btnMirL', 'btnMirR']) { const el = $(id), on = drv && mirrorBtns; if (el && el.hidden === on) el.hidden = !on; }
     const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : 'E') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : 'E') : st === 'room' ? '出門' : 'E';
     if (act && act.textContent !== lab) act.textContent = lab;

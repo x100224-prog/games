@@ -67,6 +67,8 @@ export const GAME_MODES = {
     desc: '路上每一台車都是飛天跑車（你也是）。塞住就飛越車陣，大家搶落地的空位，常常有車落地壓到別台、撞成一團。你要怎麼準時到公司？' },
   alldrone: { key: 'alldrone', name: '全城無人機', save: SAVE_KEY + '-alldrone', give: ['roadster', 'drone'], car: 'roadster',
     desc: '每一台車都進入無人機系統：路上幾乎沒有車，天上擠滿會飛的車（跟尖峰時路上的車一樣多）。你的飛天跑車也有無人機系統，要飛還是在空蕩蕩的路上開？' },
+  hybrid: { key: 'hybrid', name: '全城無人機・路空總控', save: SAVE_KEY + '-hybrid', give: ['roadster', 'drone'], car: 'roadster',
+    desc: '全城無人機的另一個版本：每台車都有無人機系統，但路上照樣有車在開。想飛的時候按 U 問「路空總控中心」：它看全部車子的動向和目的地排隊降落的情況，算出繼續開和飛起來哪個先到，再核准或建議你繼續開。' },
 };
 
 export class Economy {
@@ -83,7 +85,7 @@ export class Economy {
     this.stuntFuel = typeof o.stuntFuel === 'number' ? o.stuntFuel : 1; this.totals = Object.assign(this.totals, o.totals || {});
   }
   has(key) { return this.owned.has(key); }
-  /** 玩法：全城飛天跑車／全城無人機一開始就有飛天跑車（和無人機系統），而且只能開它（世界上沒有別種車）。 */
+  /** 玩法：全城飛天跑車／全城無人機／路空總控一開始就有飛天跑車（和無人機系統），而且只能開它（世界上沒有別種車）。 */
   applyMode(m) {
     this.mode = GAME_MODES[m] ? m : 'normal'; const M = GAME_MODES[this.mode];
     for (const k of M.give) this.owned.add(k);
