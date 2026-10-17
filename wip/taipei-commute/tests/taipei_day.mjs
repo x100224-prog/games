@@ -71,7 +71,7 @@ await page.waitForFunction(() => window.__tc.G.state === 'summary', null, { time
 console.log('summary', await ev(() => document.getElementById('sumStats').innerText.replace(/\n/g, ' ')));
 await shot('7_summary');
 // 給錢、買導航，第二天看導航線
-await ev(() => { window.__tc.econ.money = 50000; });
+await ev(() => { window.__tc.econ.money = 5000000; });
 await page.click('#btnSumShop'); await page.waitForTimeout(500);
 await shot('8_shop');
 const buyBtn = await page.$$('#shopList .buy'); await buyBtn[0].click(); await page.waitForTimeout(300);

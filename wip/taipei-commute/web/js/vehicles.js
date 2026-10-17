@@ -193,11 +193,26 @@ function roadsterParts() {
   // 推進噴嘴：車尾兩個、車底四個
   for (const sx of [-0.36, 0.36]) { const n = new THREE.CylinderGeometry(0.075, 0.095, 0.12, 14, 1, true); n.rotateX(Math.PI / 2); put(n, 'chrome', sx, 0.52, 2.2); }
   for (const sx of [-0.62, 0.62]) for (const sz of [-1.62, 1.6]) put(new THREE.CylinderGeometry(0.06, 0.08, 0.08, 10), 'chrome', sx, 0.24, sz);
+  for (const sd of [-1, 1]) { const n = new THREE.CylinderGeometry(0.06, 0.075, 0.1, 12, 1, true); n.rotateZ(Math.PI / 2); put(n, 'chrome', sd * 0.985, 0.62, 0.1); }   // 兩側
+  for (const sx of [-0.5, 0.5]) { const n = new THREE.CylinderGeometry(0.055, 0.07, 0.1, 12, 1, true); n.rotateX(Math.PI / 2); put(n, 'chrome', sx, 0.42, -2.24); }    // 車頭
   _rsParts = parts;
   return parts;
 }
 
-/** 玩家開的飛天跑車：回傳 Group，userData.flames 是推進火焰、userData.grip 是吸附風扇的光。 */
+/**
+ * 壓縮空氣噴嘴（車身座標，車頭朝 -z）：5 個方向、10 個噴嘴。噴嘴的數量與位置是遊戲設定（Tesla 沒有公布推進器配置）。
+ *   往後 2：推進加速、飛越往前衝　往下 4：垂直升空、落地前減速　往左 1、往右 1：空中翻轉、空中轉向　往前 2：空中減速
+ * 玩家不用分開操作，依照車子正在做的動作自動噴。
+ */
+export const ROADSTER_JETS = {
+  rear: [{ p: [-0.36, 0.52, 2.3], d: [0, 0, 1] }, { p: [0.36, 0.52, 2.3], d: [0, 0, 1] }],
+  down: [[-0.62, -1.62], [0.62, -1.62], [-0.62, 1.6], [0.62, 1.6]].map(([x, z]) => ({ p: [x, 0.17, z], d: [0, -1, 0] })),
+  left: [{ p: [-1.04, 0.62, 0.1], d: [-1, 0, 0] }],
+  right: [{ p: [1.04, 0.62, 0.1], d: [1, 0, 0] }],
+  front: [{ p: [-0.5, 0.42, -2.3], d: [0, 0, -1] }, { p: [0.5, 0.42, -2.3], d: [0, 0, -1] }],
+};
+
+/** 玩家開的飛天跑車：回傳 Group，userData.flames 是噴嘴口的亮光（各方向）、userData.grip 是吸附風扇的光。 */
 export function buildRoadster(color) {
   const g = new THREE.Group();
   const M = {
@@ -214,14 +229,13 @@ export function buildRoadster(color) {
   for (const p of roadsterParts()) { const m = new THREE.Mesh(p.geo, M[p.mat]); m.castShadow = true; g.add(m); }
   // 推進火焰（高壓氣體，藍白色）：平常隱藏，用 scale 控制長度
   const flameM = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
-  const flames = { rear: [], down: [] };
-  for (const sx of [-0.36, 0.36]) {
-    const c = new THREE.ConeGeometry(0.1, 1, 14, 1, true); c.translate(0, -0.5, 0); c.rotateX(-Math.PI / 2);   // 尖端朝 +z（車後）
-    const f = new THREE.Mesh(c, flameM); f.position.set(sx, 0.52, 2.26); f.visible = false; g.add(f); flames.rear.push(f);
-  }
-  for (const sx of [-0.62, 0.62]) for (const sz of [-1.62, 1.6]) {
-    const c = new THREE.ConeGeometry(0.08, 1, 12, 1, true); c.translate(0, -0.5, 0);                          // 尖端朝下
-    const f = new THREE.Mesh(c, flameM); f.position.set(sx, 0.2, sz); f.visible = false; g.add(f); flames.down.push(f);
+  // 噴嘴口的亮光：短錐形，尖端朝噴出方向（長度用 scale.y 控制）；真正看得到的是 mist.js 畫的白霧
+  const flames = { rear: [], down: [], left: [], right: [], front: [] }, up = new THREE.Vector3(0, -1, 0);
+  for (const k of Object.keys(ROADSTER_JETS)) for (const j of ROADSTER_JETS[k]) {
+    const c = new THREE.ConeGeometry(k === 'down' ? 0.08 : 0.1, 1, 12, 1, true); c.translate(0, -0.5, 0);   // 尖端朝 -y
+    const f = new THREE.Mesh(c, flameM); f.position.set(j.p[0], j.p[1], j.p[2]);
+    f.quaternion.setFromUnitVectors(up, new THREE.Vector3(j.d[0], j.d[1], j.d[2]));
+    f.visible = false; g.add(f); flames[k].push(f);
   }
   const grip = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 3.4).rotateX(Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: 0x5fd0ff, transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }));
@@ -600,7 +614,7 @@ export class Cockpit {
     g.fillStyle = frac < 0.15 ? '#ff5d4f' : (ev ? '#43d08a' : '#f0a23a'); g.fillRect(268, 34, 100 * frac, 14);
     g.fillStyle = '#aab4bd'; g.font = '500 17px "Noto Sans TC", sans-serif'; g.fillText(ev ? '電量 ' + Math.round(frac * 100) + '%' : '油量 ' + Math.round(frac * 100) + '%', 268, 26);
     g.fillStyle = '#8b96a1'; g.font = '500 16px "Noto Sans TC", sans-serif'; g.fillText('可行駛 ' + Math.round(car.energy / spec.perKm) + ' km', 268, 72);
-    g.fillText('里程 ' + (car.odo / 1000).toFixed(1) + ' km', 268, 96);
+    g.fillText(car.airText || ('里程 ' + (car.odo / 1000).toFixed(1) + ' km'), 268, 96);   // 飛天跑車：顯示壓縮空氣
     this.dashTex.needsUpdate = true;
   }
 

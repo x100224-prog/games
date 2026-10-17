@@ -4,20 +4,22 @@
 //  ・空中翻轉（T）：在空中滾一圈，落地前要轉正，不然會撞壞
 //  ・吸附（G）：面向大樓外牆按 G，車底風扇把車吸在牆上，可以一路往上開到屋頂（屋頂邊緣按 G 也能沿外牆開下來）；
 //    在高架橋正下方按 G，翻上去吸在橋底倒著開。再按一次 G（或 F）脫離：從牆上跳開、從橋底翻轉落地
-//  垂直開、倒著開、飛越、推進器、翻轉都要另外消耗特技燃料（高壓氣體），燃料錢算在當天的花費裡。
+//  垂直開、倒著開、飛越、推進器、翻轉都要用壓縮空氣（空氣罐）；空氣用完，這些特殊功能就停用，要補氣才能再用。
+//  空氣罐的容量、能跳幾次、怎麼補充都是遊戲設定（見 economy.js 的 AIR），Tesla 沒有公布。
 //  特技時自動切到車外視角（地平線保持水平），落地後回到駕駛座。
 import * as THREE from '../lib/three.module.min.js';
 import { edgePoint, hash2 } from './world.js';
+import { AIR } from './economy.js';
 
 export const STUNT = {
   g: 9.8,
   boostAcc: 19, boostTop: 250 / 3.6, boostFuel: 0.05,      // 推進器：每秒用掉燃料箱的 5%
-  hopDist: 60, hopApex: 10, hopFuel: 0.1,                  // 飛越 10 台車（約 60 m），最高 10 m，一次 10%
+  hopDist: 60, hopApex: 10, hopFuel: 1 / AIR.jumpsPerTank,  // 飛越 10 台車（約 60 m），最高 10 m；滿罐可飛 8 次（遊戲設定）
   flipTime: 0.9, flipFuel: 0.03,
   wallSpeed: 13, wallFuel: 0.02, climbFuel: 0.0015,        // 垂直開：每秒 2%，每往上 1 m 再 0.15%
   underSpeed: 22, underFuel: 0.02, underMin: 3.9, underDrop: 3.4,   // 橋底倒著開：每秒 2%；橋底離地至少 3.9 m 才吸得上去
   retroFuel: 0.04, airFuel: 0.01,                          // 落地前反推減速、空中加速
-  crash: 300, hardCrash: 800,                              // 修車費（元）
+  crash: 30000, hardCrash: 100000,                         // 修車費（元）：跑車撞壞 3 萬、翻車 10 萬
 };
 const HALF_L = 2.15, HALF_W = 0.95;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -62,6 +64,7 @@ export class Stunts {
   get external() { return (this.mode !== 'ground' && this.mode !== 'roof') || this.camHold > 0; }
   get busy() { return this.mode !== 'ground'; }
   label() {
+    if (this.mode === 'ground' && this.h.fuel() <= 1e-4) return '空氣用完・特殊功能暫停';
     return { ground: '', air: '飛行中', tween: '吸附中', wall: '垂直開', roof: '屋頂', under: '橋底倒著開' }[this.mode] || '';
   }
 
@@ -70,15 +73,19 @@ export class Stunts {
   update(dt, ctl, keys, obstacles, traffic) {
     this.traffic = traffic; this.obst = obstacles; this._dt = dt;
     this.camHold = Math.max(0, this.camHold - dt);
-    this.thrust = 0; this.down = 0; this.suction = 0;
+    this.thrust = 0; this.down = 0; this.suction = 0; this.side = 0; this.front = 0;   // 各方向噴氣的強度（0..1；side：正＝右側噴、負＝左側噴）
     const c = this.car, ox = c.x, oz = c.z;
     if (this.mode !== 'ground') { c.thrF = ctl.throttle || 0; c.brkF = ctl.brake || 0; }
+    this._emptyT = Math.max(0, (this._emptyT || 0) - dt);
     switch (this.mode) {
       case 'ground': {
         if (keys.jump && this._startHop()) break;
         if (keys.grip && this._tryGrip()) break;
         c.update(dt, ctl, obstacles);
         this._boost(dt, ctl, keys);
+        // 開車時車上的小壓縮機慢慢補氣（遊戲設定）
+        const moved = Math.hypot(c.x - ox, c.z - oz);
+        if (moved > 0 && moved < 5 && this.h.regen) this.h.regen(moved);
         break;
       }
       case 'air': this._air(dt, ctl, keys); break;
@@ -94,6 +101,7 @@ export class Stunts {
   // ================================================================ 地面：推進器
   _boost(dt, ctl, keys) {
     const c = this.car;
+    if (keys.boost && ctl.throttle > 0.05 && this.h.fuel() <= 1e-4) this._empty();
     if (keys.boost && ctl.throttle > 0.05 && c.v >= -0.5 && this.h.fuel() > 0) {
       if (this.h.burn(STUNT.boostFuel * dt)) { c.v = Math.min(STUNT.boostTop, c.v + STUNT.boostAcc * dt); this.thrust = 1; this.stats.boostS += dt; }
     } else if (c.v > c.spec.maxSpeed) c.v -= Math.min(c.v - c.spec.maxSpeed, 4 * dt);
@@ -107,7 +115,7 @@ export class Stunts {
       const d = this._deckAbove(c.x, c.z, c.y, 0.5);
       if (d && d.soffit - c.y < 12) { this.h.toast('上方有高架橋，不能往上飛（可以按 G 吸到橋底）', 2.2); return false; }
     }
-    if (!this.h.burn(STUNT.hopFuel)) { this.h.toast('特技燃料不夠，不能飛越', 1.8); return false; }
+    if (!this.h.burn(STUNT.hopFuel)) { this._empty(`壓縮空氣不夠飛一次（每次要 1/${AIR.jumpsPerTank} 罐）`); return false; }
     const g = STUNT.g, H = STUNT.hopApex, T = 2 * Math.sqrt(2 * H / g);
     const vNow = fromRoof ? this.rv || 0 : c.v;
     this.pos.set(c.x, c.y, c.z); this.psi = c.psi;
@@ -137,17 +145,18 @@ export class Stunts {
     let along = v.x * fx + v.z * fz;
     const latX = v.x - fx * along, latZ = v.z - fz * along;
     if (ctl.throttle > 0.05 && this.hopT > 0.8 && this.h.burn(STUNT.airFuel * dt)) { along += 6 * dt; this.thrust = Math.max(this.thrust, 0.6); }
-    if (ctl.brake > 0.05) along = Math.max(0, along - 8 * dt);
+    if (ctl.brake > 0.05 && along > 0.5) { along = Math.max(0, along - 8 * dt); this.front = 1; }   // 空中減速：車頭往前噴
+    if (Math.abs(ctl.steer || 0) > 0.1) this.side = -Math.sign(ctl.steer) * 0.6;                   // 空中轉向：往左轉時右側噴
     const kl = Math.max(0, 1 - dt * 1.5);
     v.x = fx * along + latX * kl; v.z = fz * along + latZ * kl;
     v.y -= g * dt;
     // 空中翻轉
     if (keys.flip && !this.flip && !this.att) {
       if (this.h.burn(STUNT.flipFuel)) this.flip = { t: 0, dir: (ctl.steer || 0) > 0.1 ? -1 : 1 };
-      else this.h.toast('特技燃料不夠，不能翻轉', 1.5);
+      else this._empty('壓縮空氣不夠，不能翻轉');
     }
     if (this.flip) {
-      this.flip.t += dt;
+      this.flip.t += dt; this.side = this.flip.dir;   // 翻轉時一側噴氣
       const u = this.flip.t / STUNT.flipTime;
       this.roll = this.flip.dir * Math.PI * 2 * ease(u);
       if (u >= 1) { this.roll = 0; this.flip = null; this.stats.flips++; }
@@ -155,7 +164,8 @@ export class Stunts {
     // 落地前反推（有燃料才有）：讓落地輕一點
     const below = this._below(p.x, p.z, p.y);
     const hgt = p.y - below.y;
-    if (v.y < -3 && hgt < v.y * v.y / (2 * 10) + 1.2 && this.h.fuel() > 0 && this.h.burn(STUNT.retroFuel * dt)) {
+    // 飛越的反推已經含在那 1/8 罐裡；從牆上、屋頂、橋底掉下來的反推另外用空氣（沒空氣就不會減速）
+    if (v.y < -3 && hgt < v.y * v.y / (2 * 10) + 1.2 && (this.hopV ? true : this.h.fuel() > 0 && this.h.burn(STUNT.retroFuel * dt))) {
       v.y = Math.min(-2.5, v.y + (g + 10) * dt); this.down = 1;
     }
     // 移動＋碰撞
@@ -268,7 +278,7 @@ export class Stunts {
   }
 
   _gripWall(w, y) {
-    if (!this.h.burn(0.01)) { this.h.toast('特技燃料不夠，吸不住', 1.6); return false; }
+    if (!this.h.burn(0.01)) { this._empty('壓縮空氣不夠，吸不住'); return false; }
     const ground = this.world.groundAt(w.ax + w.tx * w.u, w.az + w.tz * w.u, y);
     this.wl = { w, u: Math.max(1.0, Math.min(w.L - 1.0, w.u)), y: Math.max(y + 1.0, ground + HALF_L + 0.1), th: 0, v: Math.max(3, Math.min(10, Math.abs(this.car.v) * 0.6)) };
     // 左右方向：車頭朝上時，車子的右邊是 (上 × 牆法線)
@@ -288,7 +298,7 @@ export class Stunts {
   _wall(dt, ctl, keys) {
     const wl = this.wl, w = wl.w;
     if (keys.grip || keys.jump) { this._leaveWall(); return; }
-    if (!this.h.burn(STUNT.wallFuel * dt)) { this.h.toast('特技燃料用完，吸不住了！', 2.2); this._leaveWall(); return; }
+    if (!this.h.burn(STUNT.wallFuel * dt)) { this._empty('壓縮空氣用完，吸不住了！'); this._leaveWall(); return; }
     this.suction = 1;
     const c = Math.cos(wl.th), s = Math.sin(wl.th);
     let a = (ctl.throttle || 0) * 7 - (ctl.brake || 0) * (wl.v > 0 ? 10 : 4) - 2.2 * c;
@@ -398,7 +408,7 @@ export class Stunts {
     return { y: _pt2.y, rel: e.rel ? e.rel[i] + (e.rel[i + 1] - e.rel[i]) * t : 0, slope: (e.hs[i + 1] - e.hs[i]) / seg };
   }
   _gripUnder(d, dir) {
-    if (!this.h.burn(0.015)) { this.h.toast('特技燃料不夠，吸不住', 1.6); return false; }
+    if (!this.h.burn(0.015)) { this._empty('壓縮空氣不夠，吸不住'); return false; }
     // lat：在高架橋的哪一側（以行進方向為準，右邊為正）
     this.un = { e: d.e, s: d.s, dir, lat: d.lat * dir, v: Math.max(3, Math.min(14, this.car.v)), phi: 0 };
     // 橋墩在橋的正中間：吸上去時如果剛好在中線上，往比較近的一側偏開（橋夠寬的話）
@@ -448,7 +458,7 @@ export class Stunts {
   _under(dt, ctl, keys) {
     const un = this.un;
     if (keys.grip || keys.jump) { this._dropUnder(); return; }
-    if (!this.h.burn(STUNT.underFuel * dt)) { this.h.toast('特技燃料用完，吸不住了！', 2.2); this._dropUnder(); return; }
+    if (!this.h.burn(STUNT.underFuel * dt)) { this._empty('壓縮空氣用完，吸不住了！'); this._dropUnder(); return; }
     this.suction = 1;
     let a = (ctl.throttle || 0) * 7 - (ctl.brake || 0) * (un.v > 0.3 ? 10 : 3);
     if (!(ctl.throttle > 0.05) && !(ctl.brake > 0.05)) a = -Math.sign(un.v) * Math.min(Math.abs(un.v) / dt, 0.8);
@@ -532,6 +542,12 @@ export class Stunts {
     if (bd) { const top = bd.y0 + bd.h; if (top <= y + 0.4 && top > best) { best = top; kind = 'roof'; b = bd; } }
     return { y: best, kind, b };
   }
+  /** 空氣不夠時的提示（說明怎麼補）。 */
+  _empty(lead) {
+    if (this._emptyT > 0) return; this._emptyT = 4;
+    const none = this.h.fuel() <= 1e-4;
+    this.h.toast(`${lead || '壓縮空氣用完了'}${none ? '，飛天跑車的特殊功能暫停' : ''}。開車會慢慢補、停電動車充電格可以快速補、晚上回家會補滿`, 3.5);
+  }
   _crash(fee, msg) { this.stats.crashes++; this.h.crash(fee, msg); this.h.bump(2); }
 
   /** 空中：姿態＝偏航＋翻轉；剛離開牆面／橋底時從原本的姿態慢慢轉正。 */
@@ -557,11 +573,12 @@ export class Stunts {
     c.group.position.set(c.x, c.y, c.z); c.group.quaternion.copy(this.q);
   }
 
+  /** 各方向噴氣的強度（給白霧用）。 */
+  jets() { return { rear: this.thrust, down: this.down, left: this.side < 0 ? -this.side : 0, right: this.side > 0 ? this.side : 0, front: this.front }; }
   _visual(dt) {
     const c = this.car, f = c.flames; if (!f) return;
-    const r = this.thrust, d = this.down;
-    for (const m of f.rear) { m.visible = r > 0.02; if (m.visible) m.scale.set(1, 1, 0.5 + r * 1.4 + Math.random() * 0.3); }
-    for (const m of f.down) { m.visible = d > 0.02; if (m.visible) m.scale.set(1, 0.4 + d * 1.1 + Math.random() * 0.25, 1); }
+    const J = this.jets();
+    for (const k of Object.keys(f)) for (const m of f[k]) { const v = J[k] || 0; m.visible = v > 0.02; if (m.visible) m.scale.set(1, 0.25 + v * 0.55 + Math.random() * 0.15, 1); }
     if (c.grip) c.grip.visible = this.suction > 0.01;
   }
 

@@ -233,6 +233,47 @@ if (only === 'all' || only === 'under') {
   }
 }
 
+if (only === 'mist') {
+  const r = await findRoad(); console.log('road', r);
+  await teleport(r.x, r.z, r.psi); await clearTraffic();
+  // 1. 升空：車底往下噴，霧打到地面散開
+  await page.keyboard.press('KeyF');
+  await until(() => window.__tc.stunts.mode === 'air' && window.__tc.stunts.hopT > 0.25, null, 30000);
+  await shot('mist_lift', 1600);
+  // 2. 空中翻轉：側面噴
+  await page.keyboard.press('KeyT'); await until(() => window.__tc.stunts.flip && window.__tc.stunts.flip.t > 0.3, null, 20000);
+  await shot('mist_flip', 1600);
+  // 3. 落地前反推
+  await until(() => window.__tc.stunts.down > 0 && window.__tc.stunts.hopT > 2, null, 30000);
+  await shot('mist_land', 1600);
+  await until(() => window.__tc.stunts.mode === 'ground', null, 30000); await wait(1500);
+  console.log('air after hop', await ev(() => window.__tc.econ.stuntFuel.toFixed(3)), 'mist particles', await ev(() => window.__tc.mist ? 0 : 0));
+  // 4. 推進器：車尾往後噴（車外視角看）
+  await teleport(r.x, r.z, r.psi); await clearTraffic();
+  await ev(() => { window.__tc.G.cam = 'chase'; });
+  await page.keyboard.down('ShiftLeft'); await page.keyboard.down('KeyW');
+  await until(() => window.__tc.car.kmh > 40, null, 30000);
+  await shot('mist_boost', 1200);
+  await page.keyboard.up('ShiftLeft'); await page.keyboard.up('KeyW');
+  // 5. 空氣用完：特殊功能停用
+  await ev(() => { window.__tc.econ.stuntFuel = 0; });
+  await page.keyboard.press('KeyF'); await wait(800);
+  console.log('empty tank, F pressed → mode', await ev(() => window.__tc.stunts.mode), 'toast:', await ev(() => document.getElementById('toast').textContent));
+  await shot('air_empty', 1500);
+  // 6. 開車慢慢補：開 200 m
+  const f0 = await ev(() => window.__tc.econ.stuntFuel), o0 = await ev(() => window.__tc.car.odo);
+  await page.keyboard.down('KeyW'); await until((o0) => window.__tc.car.odo - o0 > 200, o0, 60000); await page.keyboard.up('KeyW');
+  console.log('drive regen: +', await ev((f0) => ((window.__tc.econ.stuntFuel - f0) * 100).toFixed(2), f0), '% over', await ev((o0) => Math.round(window.__tc.car.odo - o0), o0), 'm');
+  // 7. 充電格補氣：放進一個電動車格
+  const bay = await ev(() => { const { parking, car } = window.__tc; let best = null; parking.forBaysNear(car.x, car.z, 900, (b, d2) => { if (b.type === 'ev' && !b.occupied && (!best || d2 < best.d2)) best = { b, d2 }; }); if (!best) return null; car.place(best.b.x, best.b.z, best.b.psi, best.b.y); return Math.round(Math.sqrt(best.d2)); });
+  if (bay !== null) {
+    const a0 = await ev(() => ({ f: window.__tc.econ.stuntFuel, c: window.__tc.econ.day.stunt }));
+    await wait(4000);
+    console.log('station refill (bay', bay, 'm away):', await ev((a0) => ({ addedPct: +((window.__tc.econ.stuntFuel - a0.f) * 100).toFixed(1), cost: +(window.__tc.econ.day.stunt - a0.c).toFixed(1), station: window.__tc.G.airStation, gauge: document.getElementById('stuntPct').textContent + ' ' + document.getElementById('stuntFill').textContent }), a0));
+    await shot('air_station', 1500);
+  } else console.log('no ev bay nearby');
+}
+
 if (only === 'look') {
   const r = await findRoad(); if (r) await teleport(r.x, r.z, r.psi);
   await ev(() => { window.__tc.traffic.factor = 1.8; });
