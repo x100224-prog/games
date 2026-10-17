@@ -69,6 +69,8 @@ function cySection(bar) {
   return { name: 'break', i: b - 20 };
 }
 
+const CYBER_LOOP = [16.27118, 97.62712];   // 「夜行高架」循環：從第 8 小節到第 48 小節（118 BPM）
+
 const PREF_KEY = 'yingge-music';
 
 export class Music {
@@ -80,6 +82,8 @@ export class Music {
     this.mode = 'walk'; this.speed = 0;
     this.step = 0; this.next = 0; this.onChange = null; this.style = 'drive';
     this.rapOn = p.rap !== false; this.rapBuf = null; this.rapSrc = null; this.rapUrl = opts.rapUrl === undefined ? 'audio/rap.mp3' : opts.rapUrl;
+    // 看示範的配樂：事先算好的原創曲「夜行高架」（tools/synthwave_render.js）。載入前先用即時合成的版本代替
+    this.cyberUrl = opts.cyberUrl || null; this.cyberBuf = null; this.cyberSrc = null; this.cyberLoading = false;
   }
 
   /** 載入饒舌人聲（失敗就只放純音樂）。 */
@@ -144,6 +148,7 @@ export class Music {
     this.bassBus = ctx.createGain(); this.bassBus.gain.value = 1.0; this.bassBus.connect(sat);
     const satOut = ctx.createGain(); satOut.gain.value = 0.85; sat.connect(satOut); satOut.connect(this.tone);
     this.subBus = ctx.createGain(); this.subBus.gain.value = 1.0; this.subBus.connect(this.master);
+    this.fileBus = ctx.createGain(); this.fileBus.gain.value = this.on ? this.volume : 0; this.fileBus.connect(comp);   // 音檔：不經過即時合成用的濾波
     this.vox = ctx.createGain(); this.vox.gain.value = 3.4; this.vox.connect(this.master);   // 人聲不經過濾波   // 超低音不經過濾波，走路時也沉
     this.drums = ctx.createGain(); this.drums.gain.value = 0.25; this.drums.connect(this.tone);
     this.kickBus = ctx.createGain(); this.kickBus.gain.value = 0; this.kickBus.connect(this.drums);
@@ -183,6 +188,7 @@ export class Music {
     if (!this.ctx) { if (this.onChange) this.onChange(this.on); return; }
     const t = this.ctx.currentTime;
     this.master.gain.cancelScheduledValues(t); this.master.gain.setTargetAtTime(on ? this.volume : 0, t, 0.08);
+    if (this.fileBus) { this.fileBus.gain.cancelScheduledValues(t); this.fileBus.gain.setTargetAtTime(on ? this.volume : 0, t, 0.08); }
     if (on) this.ctx.resume();
     if (this.onChange) this.onChange(this.on);
   }
@@ -209,9 +215,38 @@ export class Music {
   }
 
   /** 曲風：'drive'（原本的開車音樂）或 'cyber'（賽博龐克，看示範時用）。換曲風從前奏重新開始。 */
-  setStyle(st) { if (this.style === st) return; this.style = st; this.step = 0; }
+  setStyle(st) {
+    if (this.style !== st) { this.style = st; this.step = 0; if (st !== 'cyber') this._stopCyber(); }
+    if (st === 'cyber' && this.ctx && !this.cyberFailed) { if (this.cyberBuf) { if (!this.cyberSrc) this._startCyber(); } else this._loadCyber(); }
+  }
+  async _loadCyber() {
+    if (!this.cyberUrl || this.cyberLoading || !this.ctx) return; this.cyberLoading = true;
+    try {
+      const r = await fetch(this.cyberUrl); if (!r.ok) throw new Error(r.status);
+      const ab = await r.arrayBuffer(); const buf = await new Promise((res, rej) => this.ctx.decodeAudioData(ab, res, rej));
+      // 曲子一開始是一聲重擊：找到它就是第 0 秒（避開壓縮格式前面的空白）
+      const d = buf.getChannelData(0); let i0 = 0; while (i0 < d.length && Math.abs(d[i0]) < 0.003) i0++;
+      let off = Math.max(0, i0 / buf.sampleRate - 0.002);
+      if (off + CYBER_LOOP[1] > buf.duration) off = Math.max(0, buf.duration - CYBER_LOOP[1]);   // 瀏覽器已經去掉壓縮格式的空白
+      this.cyberBuf = buf; this.cyberOff = off;
+      if (this.style === 'cyber') this._startCyber();
+    } catch (err) { console.warn('cyber music load failed', err); this.cyberFailed = true; }
+    this.cyberLoading = false;
+  }
+  _startCyber() {
+    if (!this.ctx || !this.cyberBuf || this.cyberSrc) return;
+    const src = this.ctx.createBufferSource(), g = this.ctx.createGain(), t = this.ctx.currentTime + 0.05;
+    src.buffer = this.cyberBuf; src.loop = true; src.loopStart = this.cyberOff + CYBER_LOOP[0]; src.loopEnd = this.cyberOff + CYBER_LOOP[1];
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.4);
+    src.connect(g); g.connect(this.fileBus); src.start(t, this.cyberOff);
+    this.cyberSrc = { src, g };
+  }
+  _stopCyber() {
+    if (!this.cyberSrc || !this.ctx) return;
+    const { src, g } = this.cyberSrc, t = this.ctx.currentTime; g.gain.setTargetAtTime(0, t, 0.15); src.stop(t + 0.8); this.cyberSrc = null;
+  }
   _play(step, t) {
-    if (this.style === 'cyber') return this._playCyber(step, t);
+    if (this.style === 'cyber') { if (this.cyberSrc) return; return this._playCyber(step, t); }   // 音檔在播就不另外合成
     const bar = Math.floor(step / 16), s = step % 16, sec = section(bar), ch = CHORDS[bar % 4];
     const isIntro = sec.name === 'intro', isBreak = sec.name === 'break';
     // 鼓

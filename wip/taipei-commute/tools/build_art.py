@@ -24,6 +24,7 @@ open(os.path.join(G, 'js', 'config.js'), 'w', encoding='utf-8').write(cfg.replac
 shutil.copytree(os.path.join(WEB, 'lib'), os.path.join(G, 'lib'))
 shutil.copytree(os.path.join(WEB, 'data'), os.path.join(G, 'data'))
 shutil.copy(os.path.join(WEB, 'models', 'hero.json'), os.path.join(G, 'models', 'hero.json'))
+os.makedirs(os.path.join(G, 'audio')); shutil.copy(os.path.join(WEB, 'audio', 'cyber.mp3'), os.path.join(G, 'audio', 'cyber.mp3'))   # 看示範的配樂
 
 # 示範清單（跟 web/js/demo.js 的 DEMOS 一樣）
 demo_src = open(os.path.join(WEB, 'js', 'demo.js'), encoding='utf-8').read()
