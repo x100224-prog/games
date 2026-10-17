@@ -17,6 +17,7 @@ import { Nav, polyProgress, nextTurn } from './nav.js';
 import { Stunts } from './stunts.js';
 import { DroneTraffic, DroneFlight, DRONE } from './drone.js';
 import { DenseSky, SKY } from './sky.js';
+import { DemoRunner, DEMOS } from './demo.js';
 import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES } from './economy.js';
 import { VIEW, TIME, PARK, WORK_DIST, RUSH } from './config.js';
 
@@ -225,6 +226,7 @@ async function boot() {
   $('btnMusic').onclick = () => { audioStart(); music.toggle(); }; musicBtn();
   $('btnSfx').onclick = () => { audioStart(); engine.toggle(); }; sfxBtn();
   G.state = 'menu'; $('loading').hidden = true;
+  { const dm = location.hash.match(/demo-(\w+)/); if (dm && DEMOS.some(d => d.key === dm[1])) setTimeout(() => startDemo(dm[1]), 300); }   // 網址 #demo-boost 等：直接看示範
   requestAnimationFrame(loop);
 }
 
@@ -247,7 +249,8 @@ function buildMenu() {
     t.setAttribute('x', d.c[0]); t.setAttribute('y', d.c[1] + 260); t.textContent = d.name.replace('區', '');
     svg.appendChild(t);
   });
-  renderModes();
+  renderModes(); renderDemos();
+  $('demoExit').onclick = () => endDemo();
   $('homeMore').onclick = () => { G.homePage = (G.homePage || 0) + 1; renderHomes(); };
   $('workMore').onclick = () => { G.workSeed = (G.workSeed || 0) + 1; renderWorks(); };
   $('btnGo').onclick = () => newGame();
@@ -272,6 +275,65 @@ function renderModes() {
     : G.mode === 'alldrone' ? '這個世界每台車都進入無人機系統：你一開始就有飛天跑車和無人機飛行系統（按 U 升空）。天上的車只模擬你附近 1.3 公里內，數量跟尖峰時那一帶路上的車一樣多。'
     : '一開始開油車。存錢在商店買導航（約 55 萬）、電動車（約 206 萬）、飛天跑車（約 800 萬）；有了飛天跑車，才能再加裝無人機飛行系統（約 410 萬）。';
 }
+// ===================================================================== 看示範
+let demo = null;
+function renderDemos() {
+  const box = $('demoOpts'); if (!box) return; box.innerHTML = '';
+  for (const D of DEMOS) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'opt demo';
+    b.innerHTML = `<b>${D.name}</b><span class="sub">${D.sub}</span>`;
+    b.onclick = () => startDemo(D.key);
+    box.appendChild(b);
+  }
+}
+function demoCfg(near) {
+  const di = 6, home = meta.homes[di][0];
+  const ws = meta.works.map(w => ({ w, d: Math.hypot(w.x - home.x, w.z - home.z) })).filter(o => near ? o.d > 1200 && o.d < 2000 : o.d > 3000 && o.d < 4800).sort((a, b) => a.d - b.d);
+  return { di, home, work: (ws[0] || { w: meta.works[0] }).w };
+}
+function startDemo(key) {
+  const D = DEMOS.find(d => d.key === key); if (!D) return;
+  if (!nav || !droneCity) { $('demoCap').hidden = false; $('demoCap').textContent = '載入路網中…'; setTimeout(() => startDemo(key), 500); return; }
+  G.demo = { key, prevMode: G.demo ? G.demo.prevMode : G.mode };
+  G.mode = D.mode || 'normal';
+  econ.reset(); econ.applyMode(G.mode); for (const k of ['nav', 'roadster', 'drone']) econ.owned.add(k); econ.carKey = 'roadster'; econ.stuntFuel = 1;
+  G.cfg = demoCfg(!!D.near); G.dayN = 1; G.homeCar = null; G.cam = 'cockpit';
+  audioStart(); $('menu').hidden = true; input.enabled = true;
+  $('demoExit').hidden = false; demoUi.cap(`看示範：${D.name}　載入中…`);
+  startDay();
+}
+const demoUi = {
+  cap(t) { const c = $('demoCap'); c.textContent = t || ''; c.hidden = !t; },
+  speed(n) { const b = $('demoSpeed'); b.textContent = `快轉 ×${n}`; b.hidden = n <= 1; },
+  done(ok) { demoUi.cap(ok ? '示範結束：可以直接接手開（W A S D），或按「結束示範」回選單' : '示範中斷了：可以自己開，或按「結束示範」回選單'); demo = null; },
+};
+function demoEnter() {
+  G.state = 'drive'; G.phase = 'drive'; G.parked = null; P.inRoom = false;
+  $('loading').hidden = true; $('hud').hidden = false; $('help').hidden = true;
+  if (input.touch) $('touch').hidden = false;
+  if (avatar) avatar.group.visible = false;
+  audioStart(); engine.ignite();
+  cockpit.lookYaw = 0; cockpit.lookPitch = 0; camera.near = 0.8; camera.updateProjectionMatrix();
+  seatShown = true; loadSeat(); applySeat(); planRoute();
+  G.stats.leave = G.clock;
+  demo = new DemoRunner(window.__tc, demoUi);
+  demo.run(G.demo.key);
+}
+function endDemo() {
+  if (demo) demo.cancel(); demo = null;
+  window.__tc.camHook = null; window.__tc.steps = 1;
+  for (const id of ['demoCap', 'demoSpeed', 'demoExit']) $(id).hidden = true;
+  if (G.demo) { G.mode = G.demo.prevMode; store.setMode(G.mode); G.demo = null; }
+  if (flight && flight.active) { flight.active = false; flight.phase = 'off'; }
+  if (stunts) stunts.reset();
+  G.cam = 'cockpit'; G.cfg = { di: -1, home: null, work: null };
+  econ.reset(); econ.applyMode(G.mode);
+  toMenu(); applyMode(); renderModes();
+  for (const id of ['step2', 'step3']) $(id).hidden = true;
+  for (const p of $('distMap').querySelectorAll('path')) p.classList.remove('on');
+  updateGo();
+}
+window.__tc.startDemo = startDemo; window.__tc.endDemo = endDemo;
 /** 依玩法設定世界：路上車流、別人的飛天跑車、天上的無人機。 */
 function applyMode() {
   const m = G.mode;
@@ -379,7 +441,7 @@ function workParking() {
   if (G.leg === 'am') { parking.rushNear(w.x, w.z, PARK.rushR); parking.ensureFreeNear(w.x, w.z, 3, PARK.rushR); }
   else parking.ensureFreeNear(w.x, w.z, 3);
 }
-function save() { store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft }); }
+function save() { if (G.demo) return; store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft }); }
 
 // ===================================================================== 每日流程
 function startDay() {
@@ -409,7 +471,7 @@ function startDay() {
       if (!sp.electric && typeof G.gasLeft === 'number' && G.gasLeft / sp.capacity >= 0.2) car.energy = G.gasLeft;
       G.stats = { leave: null, odo0: car.odo, bumps0: car.bumps };
       G.legE0 = car.energy;
-      enterRoom();
+      if (G.demo) demoEnter(); else enterRoom();
     },
   };
 }
@@ -1277,6 +1339,8 @@ function frame(dt) {
   const st = G.state;
   // 測試用快轉：window.__tc.steps > 1 時，每一幀跑好幾次遊戲邏輯（只畫一次）。正常遊戲是 1。
   const steps = Math.max(1, Math.min(12, window.__tc.steps | 0 || 1));
+  if (G.demo && input.pressed('Escape')) endDemo();
+  if (demo && G.state === 'drive') demo.tick(dt * steps);
   for (let k = 0; k < steps && G.state === st; k++) {
     if (k > 0) { input.hit.clear(); input.lookX = 0; input.lookY = 0; }
     if (st === 'menu') menuFrame(dt);
