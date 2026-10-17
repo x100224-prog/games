@@ -15,7 +15,7 @@ console.log('city drones', await ev(() => window.__tc.drones.count));
 await ev(() => {
   const m = window.__tc.meta, di = 6, home = m.homes[di][0];
   const work = m.works.find(w => { const d = Math.hypot(w.x - home.x, w.z - home.z); return d > 3000 && d < 4800; });
-  localStorage.setItem('taipei-commute-v2', JSON.stringify({ v: 2, cfg: { di, home, work }, day: 5, econ: { money: 20000, owned: ['nav', 'drone'], carKey: 'gas', stuntFuel: 1 } }));
+  localStorage.setItem('taipei-commute-v2', JSON.stringify({ v: 2, cfg: { di, home, work }, day: 5, econ: { money: 20000, owned: ['nav', 'roadster', 'drone'], carKey: 'roadster', stuntFuel: 1 } }));
 });
 await page.reload();
 await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'menu' && window.__tc.drones, null, { timeout: 120000 });

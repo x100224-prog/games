@@ -54,7 +54,7 @@ for (let pi = START; pi < START + NP; pi++) {
       }
     } else {
       // 無人機：用遊戲本身的流程（續玩 → 上車 → 起點 → U）
-      await ev((pr) => { localStorage.clear(); localStorage.setItem('taipei-commute-v2', JSON.stringify({ v: 2, cfg: pr, day: 2, econ: { money: 50000, owned: ['nav', 'drone'], carKey: 'gas', stuntFuel: 1 } })); }, pr);
+      await ev((pr) => { localStorage.clear(); localStorage.setItem('taipei-commute-v2', JSON.stringify({ v: 2, cfg: pr, day: 2, econ: { money: 50000, owned: ['nav', 'roadster', 'drone'], carKey: 'roadster', stuntFuel: 1 } })); }, pr);
       await boot();
       await page.click('#btnContinue');
       await page.waitForFunction(() => window.__tc.G.state === 'room', null, { timeout: 200000 });

@@ -49,8 +49,8 @@ export const SAVED_NOTE = {
 export const SHOP = [
   { key: 'nav', name: '導航系統', kind: 'upgrade', desc: '中控螢幕與小地圖顯示建議路線，轉彎前提示。' },
   { key: 'ev', name: '電動車', kind: 'car', car: 'ev', desc: '可以停停車場裡的電動車專用格（停的時候順便充電，很少被占滿），電費比油錢便宜很多。' },
-  { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；每晚在家補滿（3,000 元／罐）、停電動車充電格補（8,000 元／罐）、開車時每公里慢慢補 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
-  { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', desc: '加裝在你的車上：塞車時按 U，車身伸出四組折疊旋翼（像多旋翼無人機），整台車升空，自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。降落後旋翼收回，還是你的車。燃料費每分鐘 2,500 元，飛越久越貴。' },
+  { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車（也是電動車：可以停電動車專用格、停的時候順便充電、在家充電，電費比油錢便宜）＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；每晚在家補滿（3,000 元／罐）、停電動車充電格補（8,000 元／罐）、開車時每公里慢慢補 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
+  { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', requires: 'roadster', desc: '加裝在飛天跑車上（要先有飛天跑車，開飛天跑車時才能用）：塞車時按 U，車身伸出四組折疊旋翼（像多旋翼無人機），整台車升空，自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。降落後旋翼收回，還是你的車。燃料費每分鐘 2,500 元，飛越久越貴。' },
 ];
 export function priceOf(key) {
   const m = SAVED_MIN[key] || 0, r = PRICE_RULE, it = SHOP.find(s => s.key === key);
@@ -59,11 +59,20 @@ export function priceOf(key) {
 }
 
 const SAVE_KEY = 'taipei-commute-v2';
+// 三種玩法（世界設定不同），各自有自己的存檔
+export const GAME_MODES = {
+  normal: { key: 'normal', name: '一般', save: SAVE_KEY, give: [], car: null,
+    desc: '大家開一般的車。你從油車開始，存錢買導航、電動車、飛天跑車、無人機飛行系統。' },
+  allfly: { key: 'allfly', name: '全城飛天跑車', save: SAVE_KEY + '-allfly', give: ['roadster'], car: 'roadster',
+    desc: '路上每一台車都是飛天跑車（你也是）。塞住就飛越車陣，大家搶落地的空位，常常有車落地壓到別台、撞成一團。你要怎麼準時到公司？' },
+  alldrone: { key: 'alldrone', name: '全城無人機', save: SAVE_KEY + '-alldrone', give: ['roadster', 'drone'], car: 'roadster',
+    desc: '每一台車都進入無人機系統：路上幾乎沒有車，天上擠滿會飛的車（跟尖峰時路上的車一樣多）。你的飛天跑車也有無人機系統，要飛還是在空蕩蕩的路上開？' },
+};
 
 export class Economy {
   constructor() { this.reset(); }
   reset() {
-    this.money = 0; this.owned = new Set(); this.carKey = 'gas'; this.stuntFuel = 1;
+    this.money = 0; this.owned = new Set(); this.carKey = 'gas'; this.stuntFuel = 1; this.mode = this.mode || 'normal';
     this.totals = { days: 0, late: 0, km: 0, earned: 0, spent: 0 };
     this.day = null;   // 今天的帳
   }
@@ -74,11 +83,19 @@ export class Economy {
     this.stuntFuel = typeof o.stuntFuel === 'number' ? o.stuntFuel : 1; this.totals = Object.assign(this.totals, o.totals || {});
   }
   has(key) { return this.owned.has(key); }
+  /** 玩法：全城飛天跑車／全城無人機一開始就有飛天跑車（和無人機系統），而且只能開它（世界上沒有別種車）。 */
+  applyMode(m) {
+    this.mode = GAME_MODES[m] ? m : 'normal'; const M = GAME_MODES[this.mode];
+    for (const k of M.give) this.owned.add(k);
+    if (M.car) this.carKey = M.car;
+  }
   /** 擁有的車（油車一開始就有）。 */
-  cars() { return ['gas', ...SHOP.filter(s => s.kind === 'car' && this.owned.has(s.key)).map(s => s.car)]; }
+  cars() { const M = GAME_MODES[this.mode]; if (M && M.car) return [M.car]; return ['gas', ...SHOP.filter(s => s.kind === 'car' && this.owned.has(s.key)).map(s => s.car)]; }
   buy(key) {
     const p = priceOf(key);
     if (this.owned.has(key)) return { ok: false, msg: '已經有了' };
+    const it0 = SHOP.find(s => s.key === key);
+    if (it0 && it0.requires && !this.owned.has(it0.requires)) return { ok: false, msg: '要先有飛天跑車才能買無人機飛行系統' };
     if (this.money < p) return { ok: false, msg: `還差 ${(p - this.money).toLocaleString()} 元` };
     this.money -= p; this.owned.add(key); this.totals.spent += p;
     const item = SHOP.find(s => s.key === key);
@@ -103,7 +120,7 @@ export class Economy {
   /** 開車用掉的能源（油車：公升；電動車：度）。 */
   addEnergy(spec, used, atHome = true) {
     if (used <= 0) return;
-    const cost = spec.key === 'gas' ? used * PAY.gasPrice : used * (atHome ? PAY.homeKwh : PAY.bayKwh);
+    const cost = spec.electric ? used * (atHome ? PAY.homeKwh : PAY.bayKwh) : used * PAY.gasPrice;
     this.day.energy += cost;
   }
   addParking(type) {
@@ -122,7 +139,9 @@ export class Economy {
 }
 
 export const store = {
-  get() { try { return JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (e) { return null; } },
-  set(v) { try { localStorage.setItem(SAVE_KEY, JSON.stringify(v)); } catch (e) { /* 存不了照樣能玩 */ } },
-  clear() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } },
+  key: SAVE_KEY,
+  setMode(m) { this.key = (GAME_MODES[m] || GAME_MODES.normal).save; },
+  get() { try { return JSON.parse(localStorage.getItem(this.key) || 'null'); } catch (e) { return null; } },
+  set(v) { try { localStorage.setItem(this.key, JSON.stringify(v)); } catch (e) { /* 存不了照樣能玩 */ } },
+  clear() { try { localStorage.removeItem(this.key); } catch (e) { /* ignore */ } },
 };

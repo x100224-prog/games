@@ -31,13 +31,13 @@ export class Traffic {
     this.trim = new THREE.InstancedMesh(g.trim, new THREE.MeshLambertMaterial({ vertexColors: true }), N);
     for (const m of [this.paint, this.trim]) { m.count = 0; m.frustumCulled = false; scene.add(m); }
     this.paint.setColorAt(0, TRAFFIC_COLORS[0]);
-    const rg = roadsterGeometry(), NF = 24;
+    const rg = roadsterGeometry(), NF = TRAFFIC.maxCars;   // 玩法「全城飛天跑車」時每台都是飛天跑車
     this.fPaint = new THREE.InstancedMesh(rg.paint, new THREE.MeshLambertMaterial(), NF);
     this.fTrim = new THREE.InstancedMesh(rg.trim, new THREE.MeshLambertMaterial({ vertexColors: true }), NF);
     for (const m of [this.fPaint, this.fTrim]) { m.count = 0; m.frustumCulled = false; scene.add(m); }
     this.fPaint.setColorAt(0, FLYER_COLORS[0]); this.NF = NF;
     this.events = [];      // 給主程式的事件（例如飛天跑車落地壓到人）
-    this.flyerRate = FLYER.rate;
+    this.flyerRate = FLYER.rate; this.hopWait = FLYER.wait; this.hopCool = FLYER.cooldown; this.crashes = 0;
     // 號誌：燈桿＋三顆燈
     this.SMAX = 90;
     const pole = { p: [], n: [], c: [] };
@@ -299,7 +299,7 @@ export class Traffic {
     }
     // 飛天跑車：塞住不動、前面就有車，就升空飛越。落地點要有空位（同車道前後 4.8 m 內沒車）：
     // 先找「飛過路口、落在下一段路上」最遠的空位，沒有再找同一段路上的空位；直線距離最多約 60 m（10 台車）。
-    if (c.flyer && c.hopCd <= 0 && c.wait > FLYER.wait && lead < 9 && (c.hopsLeft === undefined || c.hopsLeft > 0)) {
+    if (c.flyer && c.hopCd <= 0 && c.wait > this.hopWait && lead < 9 && (c.hopsLeft === undefined || c.hopsLeft > 0)) {
       const free = (ed, dir, lane, s1) => { for (const o of ed.cars) if (o !== c && o.dir === dir && o.lane === lane && Math.abs(o.s - s1) < 4.8) return false; return true; };
       let tgt = null;
       if (c.next && toEnd < FLYER.dist - 8) {
@@ -319,7 +319,7 @@ export class Traffic {
       if (tgt) {
         const D = Math.hypot(tgt.x - c.x, tgt.z - c.z);
         c.hop = { t: 0, T: FLYER.time * Math.sqrt(Math.max(20, D) / FLYER.dist), x0: c.x, y0: c.y, z0: c.z, psi0: c.psi, D, tgt };
-        c.hopCd = c.agent ? 5 : FLYER.cooldown; c.wait = 0; this.hops = (this.hops || 0) + 1; if (c.hopsLeft !== undefined) c.hopsLeft--; return false;
+        c.hopCd = c.agent ? 5 : this.hopCool; c.wait = 0; this.hops = (this.hops || 0) + 1; if (c.hopsLeft !== undefined) c.hopsLeft--; return false;
       }
     }
     if (c.next) {
@@ -362,7 +362,7 @@ export class Traffic {
     this._pose(c);
     // 落地時那裡剛好有車（飛的這幾秒有車開進來）：撞成一團
     for (const o of c.e.cars) if (o !== c && !o.hop && o.dir === c.dir && o.lane === c.lane && Math.abs(o.s - c.s) < 4.6) {
-      c.wreck = o.wreck = 7; c.v = o.v = 0;
+      c.wreck = o.wreck = 7; c.v = o.v = 0; this.crashes++;
       this.events.push({ type: 'crash', x: c.x, y: c.y, z: c.z });
       break;
     }
