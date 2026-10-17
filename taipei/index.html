@@ -54,6 +54,18 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .opt.on { border-color: var(--signal); background: rgba(245, 197, 24, .12); }
 .opt b { font-weight: 700; overflow-wrap: anywhere; }
 .opt span { color: var(--mute); font-size: 13px; }
+.opts.modes { grid-template-columns: 1fr; }
+.opts.demos { grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); }
+.opt.demo { grid-template-columns: 1fr; }
+.opt.demo .sub { font-size: 12.5px; line-height: 1.45; }
+#demoCap { position: absolute; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 30; background: rgba(10, 13, 16, .86); color: #fff; border: 1px solid rgba(255, 255, 255, .22); border-radius: 10px; padding: 9px 16px; font-weight: 900; font-size: 19px; line-height: 1.4; text-align: center; max-width: min(760px, calc(100% - 32px)); box-sizing: border-box; pointer-events: none; }
+#demoSpeed { position: absolute; left: 50%; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 30; background: var(--signal, #f5c518); color: #1d1700; border-radius: 6px; padding: 3px 10px; font-weight: 900; font-size: 14px; pointer-events: none; }
+#demoExit { position: absolute; left: calc(16px + env(safe-area-inset-left, 0px)); top: calc(132px + env(safe-area-inset-top, 0px)); z-index: 31; background: rgba(10, 13, 16, .86); color: #fff; border: 1px solid rgba(255, 255, 255, .3); border-radius: 8px; padding: 9px 14px; font-weight: 700; font-size: 14px; cursor: pointer; }
+#demoExit:hover { background: rgba(40, 46, 52, .92); }
+@media (max-width: 700px) { #demoCap { font-size: 15px; bottom: calc(190px + env(safe-area-inset-bottom, 0px)); } #demoSpeed { bottom: calc(240px + env(safe-area-inset-bottom, 0px)); } #demoExit { top: calc(150px + env(safe-area-inset-top, 0px)); } }
+.opt.mode { grid-template-columns: 1fr; }
+.opt.mode .sub { line-height: 1.5; }
+.opt.mode.locked { opacity: .55; cursor: not-allowed; }
 .opt .meta { font-family: var(--f-num); font-weight: 700; color: var(--signal); font-size: 15px; white-space: nowrap; }
 .opt .sub { grid-column: 1 / -1; }
 .cars { grid-template-columns: 1fr 1fr; }
@@ -289,6 +301,9 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     <div id="stunt" hidden><span class="lab">壓縮空氣</span><span class="bar"><i id="stuntBar"></i></span><b id="stuntPct">100%</b><em id="stuntFill"></em><small id="stuntMode"></small><span class="gs" title="空氣罐容量、可飛幾次、補充方式與價錢都是遊戲設定，Tesla 沒有公布這些數字">遊戲設定</span></div>
     <div id="prompt" hidden></div>
     <div id="toast" hidden></div>
+    <div id="demoCap" hidden></div>
+    <div id="demoSpeed" hidden></div>
+    <button id="demoExit" type="button" hidden>結束示範（Esc）</button>
   </div>
 
   <div id="touch" hidden>
@@ -319,6 +334,14 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
       <p class="lede">住在台北，每天開車上下班。從房間出門、走到路邊找到你的車、坐進駕駛座，開過真實的台北街道，停好車走進公司打卡；下班再開回家。每趟收入 20 萬（上班、回家各一趟），上班遲到每分鐘扣 2,500 元。</p>
       <button class="ghost" id="btnContinue" type="button" hidden></button>
 
+      <section class="step" id="demoStep">
+        <h2>看示範 <small>遊戲自己開給你看，看完可以直接接手</small></h2>
+        <div class="opts demos" id="demoOpts"></div>
+      </section>
+      <section class="step" id="step0">
+        <h2>玩法 <small>三種世界，各有自己的存檔</small></h2>
+        <div class="opts modes" id="modeOpts"></div>
+      </section>
       <section class="step" id="step1">
         <h2>1　你住哪一區 <small>點地圖選擇</small></h2>
         <svg id="distMap" role="group" aria-label="台北市行政區地圖"></svg>
@@ -333,7 +356,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
         <div class="opts" id="workOpts"></div>
         <button class="link" id="workMore" type="button">換一批工作</button>
       </section>
-      <section class="step"><h2>開什麼車</h2><p class="lede" style="font-size:13px">一開始開油車。存錢在商店買導航（約 55 萬）、電動車（約 206 萬）、飛天跑車（約 800 萬）；有了飛天跑車，才能再加裝無人機飛行系統（約 410 萬）。</p></section>
+      <section class="step"><h2>開什麼車</h2><p class="lede" id="carText" style="font-size:13px">一開始開油車。存錢在商店買導航（約 55 萬）、電動車（約 206 萬）、飛天跑車（約 800 萬）；有了飛天跑車，才能再加裝無人機飛行系統（約 410 萬）。</p></section>
       <button class="go" id="btnGo" type="button" disabled>出發上班</button>
       <button class="ghost" id="btnAuto" type="button">自動示範（隨機選住址，看遊戲自己玩）</button>
       <p class="fine">提醒：看別人開（包括自動示範）比自己開更容易頭暈；覺得不舒服就停下來休息。</p>

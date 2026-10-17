@@ -40,13 +40,13 @@ export const CARS = {
     energyName: '汽油', unit: 'L', capacity: 50, perKm: 0.066,
   },
   ev: {
-    key: 'ev', name: '電動車', model: '都會電動車 EV',
+    key: 'ev', name: '電動車', model: '都會電動車 EV', electric: true,
     color: 0xe9eef0, maxSpeed: 150 / 3.6, accel: 4.6,
     energyName: '電量', unit: 'kWh', capacity: 60, perKm: 0.16,  // 約 6.2 km/kWh
   },
   // 飛天跑車：電動雙座跑車＋高壓氣體推進器（特技燃料另外計算，見 stunts.js）
   roadster: {
-    key: 'roadster', name: '飛天跑車', model: 'roadster',
+    key: 'roadster', name: '飛天跑車', model: 'roadster', electric: true,   // 飛天跑車也是電動車：可停電動車專用格、充電、算電費
     color: 0xc4161c, maxSpeed: 200 / 3.6, accel: 8.5, cockpitLift: -0.14,
     cabin: { z: 0.4, pillarTop: 1.37, roofY: 1.39, linerZ: 0.45, linerD: 1.3, mirrorY: 1.3 }, seat: { tilt: 0 },
     energyName: '電量', unit: 'kWh', capacity: 200, perKm: 0.15,
@@ -65,5 +65,9 @@ export const PARK = {
 
 // 上下班尖峰：車流密度乘上這個倍數（之後做塞車時會再調）
 export const RUSH = { factor: 1.8 };
+
+// 新玩法（全城飛天跑車、全城無人機）要在一般模式買了飛天跑車和無人機飛行系統後才解鎖。
+// unlockModes: true 時一開始就全部解鎖（給試看版用）。
+export const FEATURES = { unlockModes: false };
 
 export const WORK_DIST = { min: 1800, max: 4800 };  // 住家到工作地點的直線距離範圍 (m)

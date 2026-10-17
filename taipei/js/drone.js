@@ -14,6 +14,7 @@
 import * as THREE from '../lib/three.module.min.js';
 import { carGeometry } from './vehicles.js';
 import { TRAFFIC_DENSITY } from './config.js';
+import { SKY, layerFor } from './sky.js';
 
 export const DAA = {
   DTHR: 70,        // 水平安全距離 (m)
@@ -289,11 +290,15 @@ export class DroneFlight {
     const c = this.car, dest = this.h.dest();
     // 目的地那邊的街區可能還沒載入：先朝目的地飛，靠近後（街區載入了）再選降落的路段
     const spot = this._landingSpot(dest) || { x: dest.x, z: dest.z, provisional: true, psi: c.psi };
-    const lp = this._pickLayer(c, spot, drones ? drones.list : []);
-    Object.assign(this, { avoid: [], spotWait: 0, active: true, phase: 'lift', spot, layer: lp.layer, layerCounts: lp.counts, vx: 0, vy: 0, vz: 0, track: Math.atan2(spot.x - c.x, spot.z - c.z), costSum: 0, waitSec: 0, flySec: 0, cp: null });
+    const dense = !!(drones && drones.dense), trk = Math.atan2(spot.x - c.x, spot.z - c.z);
+    // 全城無人機：依航向分高度層（遊戲設定）；平常：選路線附近最空的那一層
+    const lp = dense ? { layer: layerFor(trk), counts: null } : this._pickLayer(c, spot, drones ? drones.list : []);
+    Object.assign(this, { avoid: [], spotWait: 0, active: true, phase: 'lift', spot, layer: lp.layer, layerCounts: lp.counts, vx: 0, vy: 0, vz: 0, track: trk, costSum: 0, waitSec: 0, flySec: 0, cp: null,
+      dense, liftWait: 0, crossWait: 0, commit: null, held: false, jamSec: 0 });
     this.x = c.x; this.y = c.y; this.z = c.z; this.psi = c.psi;
     c.v = 0;
-    this.h.toast(`無人機飛行：升空到 ${lp.layer} m（這一層最空：${lp.counts.join(' / ')} 架）`, 3);
+    if (dense) this.h.toast(`無人機飛行：往這個方向的車都在 ${lp.layer} m 那一層（依航向分層）。往上要穿過下面幾層的車流，等空檔再爬升`, 3.5);
+    else this.h.toast(`無人機飛行：升空到 ${lp.layer} m（這一層最空：${lp.counts.join(' / ')} 架）`, 3);
     return true;
   }
   /** 中途取消：就地找路面降落。 */
@@ -312,7 +317,9 @@ export class DroneFlight {
     const gr = W.groundAt(this.x, this.z, this.y - 50);
     this.flySec += dt;
     const fee = DRONE.costPerMin * gameMinPerSec * dt; this.costSum += fee; this.h.cost(fee);
-    const list = drones ? drones.list.filter(d => d.phase !== 'ground' && Math.abs(d.x - this.x) < 2500 && Math.abs(d.z - this.z) < 2500) : [];
+    const dense = this.dense && drones && drones.dense;
+    const list = !drones ? [] : dense ? drones.near(this.x, this.y, this.z, 600, SKY.zsep + 4) : drones.list.filter(d => d.phase !== 'ground' && Math.abs(d.x - this.x) < 2500 && Math.abs(d.z - this.z) < 2500);
+    this.gr = gr; this.held = false; if (dense) this.sky = drones;
     if (this.spot.provisional && Math.hypot(this.spot.x - this.x, this.spot.z - this.z) < 900) {
       const s2 = this._landingSpot(this.h.dest(), this.avoid);
       if (s2) this.spot = s2;
@@ -326,28 +333,42 @@ export class DroneFlight {
     if (this.phase === 'lift') {
       // 旋翼還沒完全展開前先停在原地（約 1 秒）
       this.vx *= 0.9; this.vz *= 0.9; this.vy = this.deploy >= 0.98 ? DRONE.climb : 0;
-      if (this.y >= gr + this.layer) { this.phase = 'cruise'; this.vy = 0; }
+      // 全城無人機：要穿過下面幾層的車流，進入每一層之前先確認這幾秒內不會有車經過（不然就停在層與層之間等）
+      if (dense && this.vy > 0 && !this._crossOk(drones, 1)) { this.vy = 0; this.liftWait += dt; this.held = true; }
+      if (this.y >= gr + this.layer) { this.phase = 'cruise'; this.vy = 0; if (dense) drones.reserve = []; }
     } else if (this.phase === 'cruise' || this.phase === 'approach') {
       if (this.daaT <= 0) {
         this.daaT = 0.4;
         const o = { x: this.x, y: this.y, z: this.z, vx: this.vx, vy: this.vy, vz: this.vz, track: this.track };
         this.r = computeBands(o, DRONE.cruise, want, list, statics);
-        this.track = this.r.pick; this.vsCmd = this.r.vs;
+        this.track = this.r.pick; this.vsCmd = dense ? 0 : this.r.vs;
       }
       const slow = this.phase === 'approach' || dist < 600;
-      const spd = slow ? Math.max(4, Math.min(DRONE.cruise, dist / 6)) : DRONE.cruise;
+      let spd = slow ? Math.max(4, Math.min(DRONE.cruise, dist / 6)) : DRONE.cruise;
+      if (dense) {
+        // 同一層跟前車保持距離（空中也會塞車）
+        const fx = Math.sin(this.track), fz = Math.cos(this.track);
+        for (const o of list) {
+          if (Math.abs(o.y - this.y) > SKY.zsep) continue;
+          const rx = o.x - this.x, rz = o.z - this.z, along = rx * fx + rz * fz, lat = rx * fz - rz * fx;
+          const ov = (o.vx || 0) * fx + (o.vz || 0) * fz;
+          if (along > 0 && along < 160 && Math.abs(lat) < 45 && ov > 2) spd = Math.min(spd, Math.max(4, ov + (along - SKY.follow) * 0.6));
+          else if (along > 0 && along < 60 && Math.abs(lat) < 45) spd = Math.min(spd, 10);
+        }
+        if (spd < DRONE.cruise * 0.6 && !slow) this.jamSec += dt;
+      }
       let d = this.track - Math.atan2(this.vx, this.vz); d = Math.atan2(Math.sin(d), Math.cos(d));
       const tr = Math.atan2(this.vx, this.vz) + Math.max(-0.6 * dt, Math.min(0.6 * dt, d));   // 轉向速度有限（約每秒 34 度）
       const cur = Math.hypot(this.vx, this.vz), ns = cur + Math.max(-6 * dt, Math.min(4 * dt, spd - cur));
       this.vx = Math.sin(slow && dist < 120 ? want : tr) * ns; this.vz = Math.cos(slow && dist < 120 ? want : tr) * ns;
-      const ty = (slow ? Math.max(gr + 40, W.groundAt(sp.x, sp.z, gr) + 40) : gr + this.layer);
+      const ty = dense ? gr + this.layer : (slow ? Math.max(gr + 40, W.groundAt(sp.x, sp.z, gr) + 40) : gr + this.layer);
       this.vy = this.vsCmd ? this.vsCmd : Math.max(-DRONE.descend, Math.min(DRONE.climb, (ty - this.y) * 0.5));
       if (dist < 8 && cur < 6 && !sp.provisional) { this.phase = 'hover'; this.vx = this.vz = 0; }
     } else if (this.phase === 'hover') {
       // 降落點正上方：下面有車就等
       this.vx = (sp.x - this.x) * 0.8; this.vz = (sp.z - this.z) * 0.8;
-      const lg = W.groundAt(sp.x, sp.z, gr), ty = lg + 25; this.vy = Math.max(-DRONE.descend, Math.min(2, (ty - this.y) * 0.6));
-      if (this._clear(sp)) { if (Math.abs(this.y - ty) < 3) this.phase = 'descend'; }
+      const lg = W.groundAt(sp.x, sp.z, gr), ty = dense ? this.y : lg + 25; this.vy = dense ? 0 : Math.max(-DRONE.descend, Math.min(2, (ty - this.y) * 0.6));
+      if (this._clear(sp, drones)) { if (Math.abs(this.y - ty) < 3) this.phase = 'descend'; }
       else {
         this.waitSec += dt; this.blocked = true; this.spotWait = (this.spotWait || 0) + dt;
         // 同一個降落點等了 40 秒（遊戲 4 分鐘）還是有車：換附近另一個降落點
@@ -361,27 +382,59 @@ export class DroneFlight {
     } else if (this.phase === 'descend') {
       this.vx = (sp.x - this.x) * 0.8; this.vz = (sp.z - this.z) * 0.8; this.vy = -DRONE.descend;
       const lg = W.groundAt(sp.x, sp.z, gr);
-      if (!this._clear(sp) && this.y > lg + 4) { this.phase = 'hover'; }   // 降到一半又有車開進來：回到上面等
+      if (dense && !this._crossOk(drones, -1)) { this.vy = 0; this.crossWait += dt; this.held = true; }
+      else if (!this._clear(sp, drones) && this.y > lg + 4 && !dense) { this.phase = 'hover'; }   // 降到一半又有車開進來：回到上面等
       const s = W.surfaceAt(this.x, this.z, lg, {}), floor = s ? s.y : lg;
       if (this.y <= floor + 0.05) { this._finish(floor); return; }
     }
-    this.blocked = this.phase === 'hover' && !this._clear(sp);
+    this.blocked = this.phase === 'hover' && !this._clear(sp, drones);
     this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
     if (Math.hypot(this.vx, this.vz) > 1) this.psi = Math.atan2(-this.vx, -this.vz);
     c.x = this.x; c.y = this.y; c.z = this.z; c.psi = this.psi; c.v = Math.hypot(this.vx, this.vz); c.edge = null; c.pitch = 0;
     c.group.position.set(c.x, c.y, c.z); c.group.rotation.set(0, c.psi, 0, 'YXZ');
   }
-  _clear(sp) {
-    const t = this.h.traffic(); if (!t) return true;
-    for (const o of t.cars) if (Math.abs(o.x - sp.x) < DRONE.landClear && Math.abs(o.z - sp.z) < DRONE.landClear && Math.hypot(o.x - sp.x, o.z - sp.z) < DRONE.landClear) return false;
+  _clear(sp, drones) {
+    const t = this.h.traffic();
+    if (t) for (const o of t.cars) if (Math.abs(o.x - sp.x) < DRONE.landClear && Math.abs(o.z - sp.z) < DRONE.landClear && Math.hypot(o.x - sp.x, o.z - sp.z) < DRONE.landClear) return false;
+    // 全城無人機：降落點上有別台剛降落／正在降落的車
+    if (drones && drones.dense) for (const o of drones.list) if ((o.phase === 'ground' || o.phase === 'land') && Math.abs(o.x - sp.x) < DRONE.landClear && Math.abs(o.z - sp.z) < DRONE.landClear) return false;
     return true;
+  }
+  /**
+   * 全城無人機：往上（dir=1）或往下（dir=-1）穿過一個高度層之前，預測那一層的車接下來幾秒會不會經過頭上／腳下 70 m 內。
+   * 進入那一層之後就不再停（已經在層裡停下來反而更危險），那一層的車會讓你。
+   */
+  _crossOk(drones, dir) {
+    const g = this.gr, z = SKY.zsep, rate = dir > 0 ? DRONE.climb : DRONE.descend;
+    const Ls = SKY.layers.filter(L => dir > 0 ? L <= this.layer : L < this.layer).sort((a, b) => dir > 0 ? a - b : b - a);
+    for (const L of Ls) {
+      const lo = g + L - z, hi = g + L + z;
+      if (dir > 0 ? this.y > lo - 0.5 : this.y < hi + 0.5) continue;          // 已經過了（或已經在裡面）
+      if (this.commit === dir * 1000 + L) return true;
+      if (dir > 0 ? lo - this.y > rate * 2.5 : this.y - hi > rate * 2.5) return true;   // 還沒到那一層
+      // 快到了：向系統登記這一段「空中柱子」，那一層的車會繞開；等柱子裡沒車了才進去
+      drones.reserve = [{ x: this.x, z: this.z, r: 95, lo: lo - 4, hi: hi + 4 }];
+      if (this._layerBusy(drones, g + L, 2.5)) return false;
+      this.commit = dir * 1000 + L; return true;
+    }
+    return true;
+  }
+  _layerBusy(drones, y, T) {
+    const r = SKY.sep + 10, R = r + SKY.cruise * T;
+    for (const o of drones.near(this.x, y, this.z, R, SKY.zsep + 3)) {
+      if (o.phase !== 'cruise') continue;
+      for (let t = 0; t <= T; t += 0.5) { const x = o.x + (o.vx || 0) * t - this.x, zz = o.z + (o.vz || 0) * t - this.z; if (x * x + zz * zz < r * r) return true; }
+    }
+    return false;
   }
   _finish(y) {
     const c = this.car;
+    if (this.sky) this.sky.reserve = [];
     c.x = this.spot.x; c.z = this.spot.z; c.y = y; c.psi = this.spot.psi; c.v = 0; c.steer = 0; c.edge = null;
     c.sync();
     this.active = false; this.phase = 'off';
-    this.h.toast(`降落完成：飛了 ${(this.flySec * this.h.gameMinPerSec()).toFixed(0)} 分鐘${this.waitSec > 0.5 ? `（在空中等下方沒車 ${(this.waitSec * this.h.gameMinPerSec()).toFixed(0)} 分鐘）` : ''}，燃料費 ${Math.round(this.costSum)} 元`, 4);
+    const gm = this.h.gameMinPerSec(), wt = (this.waitSec + (this.liftWait || 0) + (this.crossWait || 0)) * gm;
+    this.h.toast(`降落完成：飛了 ${(this.flySec * gm).toFixed(0)} 分鐘${wt > 0.05 ? `（其中在空中等 ${wt.toFixed(1)} 分鐘${this.dense ? '：等各層車流的空檔' : '：等下方沒車'}）` : ''}，燃料費 ${Math.round(this.costSum)} 元`, 4);
   }
 
   /** 每幀（飛不飛都要呼叫）：旋翼展開／收回、轉動。 */
@@ -415,10 +468,10 @@ export class DroneFlight {
       g.beginPath(); g.arc(cx, cy, R, a - w, a + w); g.stroke();
     }
     // 附近的無人機（1.5 km 內）
-    const sc = R / 1500;
-    if (drones) for (const d of drones.list) {
+    const RNG = drones && drones.dense ? 600 : 1500, sc = R / RNG;
+    if (drones) for (const d of (drones.dense ? drones.near(this.x, this.y, this.z, RNG, 400) : drones.list)) {
       if (d.phase === 'ground') continue;
-      const dx = d.x - this.x, dz = d.z - this.z; if (Math.abs(dx) > 1500 || Math.abs(dz) > 1500) continue;
+      const dx = d.x - this.x, dz = d.z - this.z; if (Math.abs(dx) > RNG || Math.abs(dz) > RNG) continue;
       const ang = Math.atan2(dx, dz) - hd, r = Math.hypot(dx, dz) * sc; if (r > R - 6) continue;
       const near = Math.abs(d.y - this.y) < DAA.ZTHR * 2;
       g.fillStyle = near ? '#ffd27a' : '#7d8b97';

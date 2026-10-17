@@ -4,7 +4,7 @@
 import * as THREE from '../lib/three.module.min.js';
 import { World, hash2 } from './world.js';
 import { Parking } from './parking.js';
-import { Traffic } from './traffic.js';
+import { Traffic, FLYER } from './traffic.js';
 import { PlayerCar, Cockpit, carSpec, ROADSTER_JETS } from './vehicles.js';
 import { Mist } from './mist.js';
 import { Input } from './input.js';
@@ -16,8 +16,10 @@ import { EngineSound } from './engine.js';
 import { Nav, polyProgress, nextTurn } from './nav.js';
 import { Stunts } from './stunts.js';
 import { DroneTraffic, DroneFlight, DRONE } from './drone.js';
-import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR } from './economy.js';
-import { VIEW, TIME, PARK, WORK_DIST, RUSH } from './config.js';
+import { DenseSky, SKY } from './sky.js';
+import { DemoRunner, DEMOS } from './demo.js';
+import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES } from './economy.js';
+import { VIEW, TIME, PARK, WORK_DIST, RUSH, FEATURES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 // 目前已經做好、可以買的項目（其他的會顯示「製作中」）
@@ -25,7 +27,7 @@ const READY = { nav: true, ev: true, roadster: true, drone: true };
 
 // ===================================================================== 場景與光線
 const canvas = $('view');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !location.hash.includes('noaa'), powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.autoClear = false;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.08;
@@ -144,12 +146,28 @@ const G = {
   state: 'boot', cam: 'cockpit', phase: 'room', leg: 'am', parked: null, clock: TIME.startMin, dayN: 1,
   cfg: { di: -1, home: null, work: null }, menuAngle: 0, menuCenter: { x: 0, z: 0 }, menuTarget: { x: 0, z: 0, r: 520, h: 300 },
   homeCar: null, route: null, routePoly: null, routeIdx: 0,
+  mode: (() => { const h = location.hash.match(/mode=(\w+)/); if (h && GAME_MODES[h[1]]) return h[1]; try { const m = localStorage.getItem('taipei-commute-mode'); if (m && GAME_MODES[m]) return m; } catch (err) { /* ignore */ } return 'normal'; })(),
 };
+/** 新玩法解鎖了沒：一般模式擁有飛天跑車＋無人機飛行系統（買到時記下來，之後開新遊戲也不會再鎖）。 */
+const UNLOCK_KEY = 'taipei-commute-unlock';
+function modesUnlocked() {
+  if (FEATURES.unlockModes) return true;
+  try {
+    if (localStorage.getItem(UNLOCK_KEY) === '1') return true;
+    const sv = JSON.parse(localStorage.getItem(GAME_MODES.normal.save) || 'null'), o = (sv && sv.econ && sv.econ.owned) || [];
+    if (o.includes('roadster') && o.includes('drone')) { localStorage.setItem(UNLOCK_KEY, '1'); return true; }
+  } catch (err) { /* ignore */ }
+  return false;
+}
+if (G.mode !== 'normal' && !modesUnlocked()) G.mode = 'normal';
+store.setMode(G.mode);
 const P = { x: 0, y: 0, z: 0, yaw: 0, speed: 0, inRoom: false };
 let world, parking, traffic, signs, car, cockpit, avatar, tp, meta, nav = null, stunts = null, drones = null, flight = null, statics = [];
+let droneCity = null, droneSky = null;   // 一般：全市千分之一的無人機；全城無人機：你附近的整片天空
 const mist = new Mist(scene);   // 壓縮空氣噴出的白霧
-window.__tc = { G, P, renderer, scene, camera, econ, engine };
+window.__tc = { G, P, renderer, scene, camera, econ, engine, input };
 if (location.hash.startsWith('#lowq')) { renderer.shadowMap.enabled = false; renderer.setPixelRatio(0.75); }
+if (location.hash.startsWith('#clip')) { renderer.setPixelRatio(1); if (location.hash.includes('ns')) renderer.shadowMap.enabled = false; if (location.hash.includes('pcf')) renderer.shadowMap.type = THREE.PCFShadowMap; }   // 錄影：解析度 1 倍
 
 function resize() {
   const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
@@ -167,7 +185,7 @@ const fmtMoney = (n) => {
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const districtName = (i) => meta.districts[i] ? meta.districts[i].name : '';
 let toastT = 0;
-function toast(msg, sec = 3) { const t = $('toast'); t.textContent = msg; t.hidden = false; toastT = performance.now() + sec * 1000; }
+function toast(msg, sec = 3) { const t = $('toast'); t.textContent = msg; t.hidden = false; toastT = uiTime + sec; }
 function setPrompt(html, cls = '') { const p = $('prompt'); if (!html) { p.hidden = true; return; } if (p._h !== html) { p.innerHTML = html; p._h = html; } p.className = cls; p.hidden = false; }
 function fadeThen(fn, hold = 60) { const f = $('fade'); f.classList.add('on'); setTimeout(() => { fn(); setTimeout(() => f.classList.remove('on'), hold); }, 360); }
 const dest = () => G.leg === 'am' ? G.cfg.work : G.cfg.home;
@@ -201,7 +219,8 @@ async function boot() {
   Nav.load('data/nav.json').then(n => {
     nav = n; window.__tc.nav = n;
     // 全市會用無人機飛行系統的車（千分之一）：一直在全市飛，靠近你的才畫出來
-    drones = new DroneTraffic(scene, world, nav, RUSH.factor); drones.statics = statics; window.__tc.drones = drones;
+    droneCity = drones = new DroneTraffic(scene, world, nav, RUSH.factor); drones.statics = statics; window.__tc.drones = drones;
+    applyMode();
   }).catch(err => console.warn('nav load failed', err));
   // 超高大樓（台北 101 等）：無人機要繞開
   for (const lm of meta.landmarks || []) {
@@ -219,6 +238,7 @@ async function boot() {
   $('btnMusic').onclick = () => { audioStart(); music.toggle(); }; musicBtn();
   $('btnSfx').onclick = () => { audioStart(); engine.toggle(); }; sfxBtn();
   G.state = 'menu'; $('loading').hidden = true;
+  { const dm = location.hash.match(/demo-(\w+)/); if (dm && DEMOS.some(d => d.key === dm[1])) setTimeout(() => startDemo(dm[1]), 300); }   // 網址 #demo-boost 等：直接看示範
   requestAnimationFrame(loop);
 }
 
@@ -241,6 +261,8 @@ function buildMenu() {
     t.setAttribute('x', d.c[0]); t.setAttribute('y', d.c[1] + 260); t.textContent = d.name.replace('區', '');
     svg.appendChild(t);
   });
+  renderModes(); renderDemos();
+  $('demoExit').onclick = () => endDemo();
   $('homeMore').onclick = () => { G.homePage = (G.homePage || 0) + 1; renderHomes(); };
   $('workMore').onclick = () => { G.workSeed = (G.workSeed || 0) + 1; renderWorks(); };
   $('btnGo').onclick = () => newGame();
@@ -252,12 +274,106 @@ function buildMenu() {
   $('shopClose').onclick = () => closeShop();
   $('bigClose').onclick = () => toggleBigMap(false);
 }
+// 玩法：一般／全城飛天跑車／全城無人機（各自的存檔）
+function renderModes() {
+  const box = $('modeOpts'); if (!box) return; box.innerHTML = '';
+  const open = modesUnlocked();
+  for (const M of Object.values(GAME_MODES)) {
+    const locked = M.key !== 'normal' && !open;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'opt mode' + (G.mode === M.key ? ' on' : '') + (locked ? ' locked' : '');
+    b.innerHTML = `<b>${M.name}${locked ? '　（未解鎖）' : ''}</b><span class="sub">${locked ? '在一般模式買了飛天跑車和無人機飛行系統後解鎖。' : M.desc}</span>`;
+    if (locked) { b.disabled = true; box.appendChild(b); continue; }
+    b.onclick = () => { G.mode = M.key; try { localStorage.setItem('taipei-commute-mode', M.key); } catch (err) { /* ignore */ } store.setMode(M.key); renderModes(); refreshContinue(); };
+    box.appendChild(b);
+  }
+  const t = $('carText'); if (t) t.textContent = G.mode === 'allfly' ? '這個世界每台車都是飛天跑車：你一開始就有一台（壓縮空氣滿罐可以飛越 8 次，遊戲設定）。可以再買導航、無人機飛行系統。'
+    : G.mode === 'alldrone' ? '這個世界每台車都進入無人機系統：你一開始就有飛天跑車和無人機飛行系統（按 U 升空）。天上的車只模擬你附近 1.3 公里內，數量跟尖峰時那一帶路上的車一樣多。'
+    : '一開始開油車。存錢在商店買導航（約 55 萬）、電動車（約 206 萬）、飛天跑車（約 800 萬）；有了飛天跑車，才能再加裝無人機飛行系統（約 410 萬）。';
+}
+// ===================================================================== 看示範
+let demo = null;
+function renderDemos() {
+  const box = $('demoOpts'); if (!box) return; box.innerHTML = '';
+  const open = modesUnlocked();
+  for (const D of DEMOS) {
+    if (D.mode && !open) continue;   // 新玩法的示範：解鎖後才出現
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'opt demo';
+    b.innerHTML = `<b>${D.name}</b><span class="sub">${D.sub}</span>`;
+    b.onclick = () => startDemo(D.key);
+    box.appendChild(b);
+  }
+}
+function demoCfg(near) {
+  const di = 6, home = meta.homes[di][0];
+  const ws = meta.works.map(w => ({ w, d: Math.hypot(w.x - home.x, w.z - home.z) })).filter(o => near ? o.d > 1200 && o.d < 2000 : o.d > 3000 && o.d < 4800).sort((a, b) => a.d - b.d);
+  return { di, home, work: (ws[0] || { w: meta.works[0] }).w };
+}
+function startDemo(key) {
+  const D = DEMOS.find(d => d.key === key); if (!D || (D.mode && !modesUnlocked())) return;
+  if (!nav || !droneCity) { $('demoCap').hidden = false; $('demoCap').textContent = '載入路網中…'; setTimeout(() => startDemo(key), 500); return; }
+  G.demo = { key, prevMode: G.demo ? G.demo.prevMode : G.mode };
+  G.mode = D.mode || 'normal';
+  econ.reset(); econ.applyMode(G.mode); for (const k of ['nav', 'roadster', 'drone']) econ.owned.add(k); econ.carKey = 'roadster'; econ.stuntFuel = 1;
+  G.cfg = demoCfg(!!D.near); G.dayN = 1; G.homeCar = null; G.cam = 'cockpit';
+  audioStart(); $('menu').hidden = true; input.enabled = true;
+  $('demoExit').hidden = false; demoUi.cap(`看示範：${D.name}　載入中…`);
+  startDay();
+}
+const demoUi = {
+  cap(t) { const c = $('demoCap'); c.textContent = t || ''; c.hidden = !t; },
+  speed(n) { const b = $('demoSpeed'); b.textContent = `快轉 ×${n}`; b.hidden = n <= 1; },
+  done(ok) { demoUi.cap(ok ? '示範結束：可以直接接手開（W A S D），或按「結束示範」回選單' : '示範中斷了：可以自己開，或按「結束示範」回選單'); demo = null; },
+};
+function demoEnter() {
+  G.state = 'drive'; G.phase = 'drive'; G.parked = null; P.inRoom = false;
+  $('loading').hidden = true; $('hud').hidden = false; $('help').hidden = true;
+  if (input.touch) $('touch').hidden = false;
+  if (avatar) avatar.group.visible = false;
+  audioStart(); engine.ignite();
+  cockpit.lookYaw = 0; cockpit.lookPitch = 0; camera.near = 0.8; camera.updateProjectionMatrix();
+  seatShown = true; loadSeat(); applySeat(); planRoute();
+  G.stats.leave = G.clock;
+  demo = new DemoRunner(window.__tc, demoUi);
+  demo.run(G.demo.key);
+}
+function endDemo() {
+  if (demo) demo.cancel(); demo = null;
+  window.__tc.camHook = null; window.__tc.steps = 1;
+  for (const id of ['demoCap', 'demoSpeed', 'demoExit']) $(id).hidden = true;
+  if (G.demo) { G.mode = G.demo.prevMode; store.setMode(G.mode); G.demo = null; }
+  if (flight && flight.active) { flight.active = false; flight.phase = 'off'; }
+  if (stunts) stunts.reset();
+  G.cam = 'cockpit'; G.cfg = { di: -1, home: null, work: null };
+  econ.reset(); econ.applyMode(G.mode);
+  toMenu(); applyMode(); renderModes();
+  for (const id of ['step2', 'step3']) $(id).hidden = true;
+  for (const p of $('distMap').querySelectorAll('path')) p.classList.remove('on');
+  updateGo();
+}
+window.__tc.startDemo = startDemo; window.__tc.endDemo = endDemo;
+/** 依玩法設定世界：路上車流、別人的飛天跑車、天上的無人機。 */
+function applyMode() {
+  const m = G.mode;
+  if (traffic) {
+    traffic.factor = m === 'alldrone' ? 0 : RUSH.factor;   // 全城無人機：路上的車全部飛上天了
+    traffic.flyerRate = m === 'allfly' ? 1 : FLYER.rate;
+    traffic.hopWait = m === 'allfly' ? 1.5 : FLYER.wait; traffic.hopCool = m === 'allfly' ? 8 : FLYER.cooldown;
+  }
+  if (nav && droneCity) {
+    if (m === 'alldrone' && !droneSky) { droneSky = new DenseSky(scene, world, nav, RUSH.factor); droneSky.statics = statics; }
+    drones = m === 'alldrone' ? droneSky : droneCity;
+    droneCity.body.visible = droneCity.trim.visible = droneCity.rotors.visible = m !== 'alldrone';
+    if (droneSky) droneSky.setVisible(m === 'alldrone');
+    window.__tc.drones = drones; window.__tc.droneSky = droneSky;
+  }
+}
+window.__tc.applyMode = applyMode;
 function refreshContinue() {
   const sv = store.get(), b = $('btnContinue');
   if (sv && sv.cfg && sv.cfg.home && sv.cfg.work) {
     b.hidden = false;
-    b.textContent = `繼續：第 ${sv.day} 天　${sv.cfg.home.a} → ${sv.cfg.work.n}　存款 ${fmtMoney((sv.econ && sv.econ.money) || 0)}`;
-    b.onclick = () => { G.cfg = sv.cfg; G.dayN = sv.day; econ.fromJSON(sv.econ); G.homeCar = sv.homeCar || null; startGame(); };
+    b.textContent = `繼續${G.mode !== 'normal' ? '（' + GAME_MODES[G.mode].name + '）' : ''}：第 ${sv.day} 天　${sv.cfg.home.a} → ${sv.cfg.work.n}　存款 ${fmtMoney((sv.econ && sv.econ.money) || 0)}`;
+    b.onclick = () => { G.cfg = sv.cfg; G.dayN = sv.day; econ.fromJSON(sv.econ); econ.applyMode(G.mode); G.homeCar = sv.homeCar || null; startGame(); };
   } else b.hidden = true;
 }
 function pickDistrict(i) {
@@ -297,7 +413,7 @@ function renderWorks() {
   }
 }
 function updateGo() { $('btnGo').disabled = !(G.cfg.home && G.cfg.work); }
-function newGame() { G.dayN = 1; econ.reset(); G.homeCar = null; startGame(); }
+function newGame() { G.dayN = 1; econ.reset(); econ.applyMode(G.mode); G.homeCar = null; startGame(); }
 
 function startGame() {
   audioStart();
@@ -313,7 +429,7 @@ function makeCar(key) {
   car.group.traverse(o => { if (o.isMesh) o.castShadow = true; });
   cockpit = new Cockpit(spec);
   cockpit.hemi.intensity = 5.0; cockpit.sun.intensity = 3.2;
-  engine.setKind(spec.key === 'gas' ? 'gas' : 'ev');
+  engine.setKind(spec.electric ? 'ev' : 'gas');
   // 飛天跑車：特技系統。特技用空氣罐的壓縮空氣（存檔裡的 stuntFuel，0..1）；用完特殊功能就停用。
   // 補氣的錢在補的時候算（回家補、充電格補）；開車時慢慢補用的是車子的電。
   stunts = spec.stunt ? new Stunts(car, world, {
@@ -334,7 +450,7 @@ function toMenu() {
   input.enabled = false; input.releaseLock(); engine.shutdown();
   G.state = 'menu'; $('hud').hidden = true; $('menu').hidden = false; $('touch').hidden = true;
   destBeacon.visible = carBeacon.visible = false; bayMarks.count = 0; routeLine.visible = false;
-  traffic.clear(); refreshContinue();
+  traffic.clear(); refreshContinue(); renderModes(); renderDemos();
 }
 /** 公司附近的路邊停車：早上 110 m 內都停滿了，110～260 m 至少留 3 個空格（電動車可以停停車場的電動車格，比較近）。 */
 function workParking() {
@@ -342,14 +458,17 @@ function workParking() {
   if (G.leg === 'am') { parking.rushNear(w.x, w.z, PARK.rushR); parking.ensureFreeNear(w.x, w.z, 3, PARK.rushR); }
   else parking.ensureFreeNear(w.x, w.z, 3);
 }
-function save() { store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft }); }
+function save() {
+  if (G.demo) return;
+  if (G.mode === 'normal' && econ.has('roadster') && econ.has('drone')) { try { localStorage.setItem(UNLOCK_KEY, '1'); } catch (err) { /* ignore */ } }
+  store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft }); }
 
 // ===================================================================== 每日流程
 function startDay() {
   const h = G.cfg.home;
   if (!car || car.spec.key !== econ.carKey) makeCar(econ.carKey);
   G.state = 'loading'; G.leg = 'am'; G.phase = 'room'; G.parked = null; G.clock = TIME.startMin;
-  setSun('am'); traffic.factor = RUSH.factor;
+  setSun('am'); applyMode();
   $('hud').hidden = true; $('loading').hidden = false;
   $('loadText').textContent = `第 ${G.dayN} 天｜載入${districtName(G.cfg.di)}街區…`;
   $('loadSub').textContent = '道路、建物、招牌與停車格';
@@ -369,10 +488,10 @@ function startDay() {
       // 電動車晚上在家充飽；油車沿用昨天剩的油，低於兩成就順路加滿（錢算在油錢裡）
       const sp = car.spec;
       car.energy = sp.capacity;
-      if (sp.key === 'gas' && typeof G.gasLeft === 'number' && G.gasLeft / sp.capacity >= 0.2) car.energy = G.gasLeft;
+      if (!sp.electric && typeof G.gasLeft === 'number' && G.gasLeft / sp.capacity >= 0.2) car.energy = G.gasLeft;
       G.stats = { leave: null, odo0: car.odo, bumps0: car.bumps };
       G.legE0 = car.energy;
-      enterRoom();
+      if (G.demo) demoEnter(); else enterRoom();
     },
   };
 }
@@ -384,7 +503,8 @@ function enterRoom() {
   $('loading').hidden = true; $('hud').hidden = false;
   if (input.touch) $('touch').hidden = false;
   camera.near = 0.05; camera.fov = 62; camera.updateProjectionMatrix();
-  toast(`第 ${G.dayN} 天早上 7:30。走到門口出門上班（書桌的電腦可以開商店）`, 4);
+  const mt = G.mode === 'allfly' ? '（全城飛天跑車：每台車都會飛越車陣）' : G.mode === 'alldrone' ? '（全城無人機：路上幾乎沒車，天上擠滿飛行車）' : '';
+  toast(`第 ${G.dayN} 天早上 7:30${mt}。走到門口出門上班（書桌的電腦可以開商店）`, 4);
   save();
 }
 function leaveRoom() {
@@ -416,7 +536,7 @@ function enterCar() {
 }
 
 const _err = { along: 0, lat: 0, ang: 0 };
-function bayAllowed(b) { return b.type === 'road' || (b.type === 'ev' && car.spec.key !== 'gas'); }
+function bayAllowed(b) { return b.type === 'road' || (b.type === 'ev' && !!car.spec.electric); }   // 電動車（含飛天跑車）可以停電動車格
 function parkingCheck() {
   const b = parking.bayAt(car.x, car.z, car.psi, _err);
   if (!b) return { bay: null, ok: false, msg: '' };
@@ -474,7 +594,7 @@ function arrive() {
 
 function finishDay() {
   const c = car, s = G.stats, km = (c.odo - s.odo0) / 1000, bumps = c.bumps - s.bumps0;
-  G.gasLeft = c.spec.key === 'gas' ? c.energy : undefined;
+  G.gasLeft = c.spec.electric ? undefined : c.energy;
   G.homeCar = G.parked && G.parked.bay ? { x: G.parked.bay.x, z: G.parked.bay.z, psi: G.parked.bay.psi } : { x: car.x, z: car.z, psi: car.psi };
   // 有飛天跑車：晚上在家用壓縮機把空氣罐補滿（錢算在今天）
   const airHome = econ.has('roadster') ? econ.refillAirHome() : 0;
@@ -490,7 +610,7 @@ function finishDay() {
     ['擦撞', bumps + ' 次', bumps ? 'bad' : 'good'],
     ['上班這趟', fmtMoney(r.payAm) + (r.late ? `（遲到扣 ${fmtMoney(PAY.trip - r.payAm)}）` : ''), 'good'],
     ['回家這趟', fmtMoney(r.payPm), 'good'],
-    [c.spec.key === 'gas' ? '油錢' : '電費', '−' + fmtMoney(r.energy), ''],
+    [c.spec.electric ? '電費' : '油錢', '−' + fmtMoney(r.energy), ''],
     ['停車／充電', '−' + fmtMoney(r.parking + charge), ''],
   ];
   if (r.stunt) rows.push([airHome > 0.005 ? `壓縮空氣（回家補 ${Math.round(airHome * 100)}%）` : '壓縮空氣補充', '−' + fmtMoney(r.stunt), '']);
@@ -517,7 +637,8 @@ function renderShop() {
   for (const it of SHOP) {
     const p = priceOf(it.key), owned = econ.has(it.key), ready = READY[it.key];
     const d = document.createElement('div'); d.className = 'item' + (owned ? ' owned' : '');
-    d.innerHTML = `<div class="ihead"><b>${it.name}</b><span class="price">${owned ? '已擁有' : fmtMoney(p)}</span></div><p>${it.desc}</p>${SAVED_NOTE[it.key] ? `<p class="saved">${SAVED_NOTE[it.key]}</p>` : ''}`;
+    const evNote = it.key === 'ev' && !owned && econ.has('roadster') ? '<p class="saved">你的飛天跑車也是電動車，已經可以停電動車專用格了</p>' : '';
+    d.innerHTML = `<div class="ihead"><b>${it.name}</b><span class="price">${owned ? '已擁有' : fmtMoney(p)}</span></div><p>${it.desc}</p>${SAVED_NOTE[it.key] ? `<p class="saved">${SAVED_NOTE[it.key]}</p>` : ''}${evNote}`;
     const b = document.createElement('button'); b.type = 'button'; b.className = 'buy';
     if (owned) { b.textContent = '已擁有'; b.disabled = true; }
     else if (!ready) { b.textContent = '製作中'; b.disabled = true; }
@@ -595,6 +716,8 @@ function gatherObstacles(x, z, R) {
   obsList.length = 0;
   for (const c of traffic.cars) if (Math.abs(c.x - x) < R && Math.abs(c.z - z) < R) obsList.push(c);
   for (const b of parking.parked) if (Math.abs(b.x - x) < R && Math.abs(b.z - z) < R) obsList.push({ x: b.x, z: b.z, y: b.y, psi: b.psiCar });
+  // 全城無人機：剛降落／正要起飛停在路上的車
+  if (drones && drones.dense) for (const d of drones.list) if (Math.abs(d.x - x) < R && Math.abs(d.z - z) < R && d.y - d.g < 2.5) obsList.push({ x: d.x, z: d.z, y: d.g, psi: d.track + Math.PI });
   for (const b of world.barriers) {
     if (Math.abs(b.x - x) > R + b.w || Math.abs(b.z - z) > R + b.w) continue;
     const k = Math.max(1, Math.ceil(b.w / 4)), psi = Math.atan2(-b.nx, -b.nz);
@@ -787,11 +910,11 @@ function driveFrame(dt) {
   lotT -= dt; if (lotT <= 0) { lotT = 0.2; c.onLot = parking.inLot(c.x, c.z) || !!parking.bayAt(c.x, c.z, c.psi, _err); }
   const obs = gatherObstacles(c.x, c.z, 14);
   if (flying) flight.update(dt, TIME.scale / 60, drones, statics);
-  if (flight) flight.animate(dt);
   else if (stunts) {
     const sk = G.seatAdj ? {} : { boost: input.has('ShiftLeft', 'ShiftRight'), jump: input.pressed('KeyF'), grip: input.pressed('KeyG'), flip: input.pressed('KeyT') };
     stunts.update(dt, ctl, sk, obs, traffic);
   } else c.update(dt, ctl, obs);
+  if (flight) flight.animate(dt);   // 旋翼展開／收回的動畫（不影響開車）
   if (drones) drones.update(dt, c.x, c.z, flying ? [{ x: flight.x, y: flight.y, z: flight.z, vx: flight.vx, vy: flight.vy, vz: flight.vz }] : null);
   // 壓縮空氣：停在電動車充電格（車停著）就快速補氣（遊戲設定：每秒 4%，滿罐 600 元）
   G.airRegenT = Math.max(0, (G.airRegenT || 0) - dt);
@@ -925,7 +1048,7 @@ function hud(dt) {
     if (flight && flight.active) {
       t = flight.phase === 'hover' && flight.blocked ? '下方有車，在空中等待降落' : { lift: '無人機升空中', cruise: `無人機飛往 ${G.leg === 'am' ? d.n : '家'}`, approach: '接近降落點', hover: '對準降落點', descend: '降落中' }[flight.phase] || '無人機飛行';
       sub = `高度 ${Math.round(car.y - world.groundAt(car.x, car.z, car.y - 50))} m・${Math.round(car.v * 3.6)} km/h・剩 ${fmtDist(dist(car, flight.spot))}・燃料費 ${Math.round(flight.costSum)} 元`;
-    } else if (dd < 420) { t = G.leg === 'am' ? '在公司附近找車位' : '在家附近找車位'; sub = car.spec.key !== 'gas' ? '黃色：路邊空格　綠色：電動車格' : '黃色標示的是空的路邊車格'; }
+    } else if (dd < 420) { t = G.leg === 'am' ? '在公司附近找車位' : '在家附近找車位'; sub = car.spec.electric ? '黃色：路邊空格　綠色：電動車格' : '黃色標示的是空的路邊車格'; }
     else { t = G.leg === 'am' ? `開車到 ${d.n}` : '開車回家'; sub = `直線 ${fmtDist(dd)}${econ.has('nav') ? '・跟著藍色導航線' : ''}`; }
   } else if (G.phase === 'toDest') {
     if (G.parked && G.parked.legal) { t = G.leg === 'am' ? `走進 ${d.n}` : '走回家'; sub = fmtDist(dist(P, d)); }
@@ -951,7 +1074,7 @@ function hud(dt) {
   const sp = $('speedo');
   if (G.state === 'drive' && (G.camMode !== 'cockpit' || input.touch)) {
     sp.hidden = false; $('spd').textContent = Math.round(car.kmh);
-    $('energy').textContent = (car.spec.key === 'gas' ? '油量 ' : '電量 ') + Math.round(car.energy / car.spec.capacity * 100) + '%' + (stunts && input.touch ? `・空氣 ${Math.round(econ.stuntFuel * 100)}%（${Math.floor(econ.stuntFuel * AIR.jumpsPerTank + 1e-6)} 次）${G.airStation ? ' 補氣中' : ''}` : '');
+    $('energy').textContent = (car.spec.electric ? '電量 ' : '油量 ') + Math.round(car.energy / car.spec.capacity * 100) + '%' + (stunts && input.touch ? `・空氣 ${Math.round(econ.stuntFuel * 100)}%（${Math.floor(econ.stuntFuel * AIR.jumpsPerTank + 1e-6)} 次）${G.airStation ? ' 補氣中' : ''}` : '');
   } else sp.hidden = true;
   placeT -= dt;
   if (placeT <= 0 && G.state !== 'room') { placeT = 0.6; const o = {}, e = world.nearestEdge(P.x, P.z, 40, null, o); $('placeRoad').textContent = (e && e.name) || '　'; $('placeDist').textContent = world.districtAt(P.x, P.z) || '臺北市外'; }
@@ -1217,8 +1340,16 @@ function autoTest(dt) {
 let last = performance.now();
 function loop(now) {
   requestAnimationFrame(loop);
-  const dt = Math.min(0.05, (now - last) / 1000); last = now; frameN++; fpsTick(dt);
-  if (toastT > 0 && performance.now() > toastT) { toastT = 0; $('toast').hidden = true; }
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (window.__tc.manual) return;   // 錄影用：改由 __tc.advance() 一格一格推進
+  frame(dt);
+}
+// 錄影用：每一格固定時間、跑 n 次遊戲邏輯，最後一次才畫（畫面跟正常遊戲一樣，只是不受電腦快慢影響）
+window.__tc.advance = (dt, n = 1) => { for (let i = 0; i < n; i++) { window.__tc.noRender = i < n - 1; frame(dt); } window.__tc.noRender = false; };
+let uiTime = 0;
+function frame(dt) {
+  frameN++; fpsTick(dt); uiTime += dt;
+  if (toastT > 0 && uiTime > toastT) { toastT = 0; $('toast').hidden = true; }
   if (input.pressed('KeyH')) $('help').hidden = !$('help').hidden;
   if (input.pressed('KeyN')) { audioStart(); music.toggle(); toast(music.on ? '音樂：開' : '音樂：關', 1.2); }
   if (input.pressed('KeyB')) { audioStart(); engine.toggle(); toast(engine.on ? '引擎聲：開' : '引擎聲：關', 1.2); }
@@ -1228,6 +1359,8 @@ function loop(now) {
   const st = G.state;
   // 測試用快轉：window.__tc.steps > 1 時，每一幀跑好幾次遊戲邏輯（只畫一次）。正常遊戲是 1。
   const steps = Math.max(1, Math.min(12, window.__tc.steps | 0 || 1));
+  if (G.demo && input.pressed('Escape')) endDemo();
+  if (demo && G.state === 'drive') demo.tick(dt * steps);
   for (let k = 0; k < steps && G.state === st; k++) {
     if (k > 0) { input.hit.clear(); input.lookX = 0; input.lookY = 0; }
     if (st === 'menu') menuFrame(dt);
@@ -1283,6 +1416,7 @@ function loadingFrame(dt) {
 }
 function render() {
   if (G.state === 'room') { renderer.clear(); renderer.render(room.scene, camera); return; }
+  if (window.__tc.camHook) window.__tc.camHook(camera);   // 錄影用：自訂鏡頭
   sky.position.copy(camera.position);
   ground.position.set(Math.round(camera.position.x / 50) * 50, -15, Math.round(camera.position.z / 50) * 50);
   const inCar = G.state === 'drive', fx = inCar ? car.x : P.x, fz = inCar ? car.z : P.z, fy = inCar ? car.y : P.y;
