@@ -521,6 +521,7 @@ function renderShop() {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'buy';
     if (owned) { b.textContent = '已擁有'; b.disabled = true; }
     else if (!ready) { b.textContent = '製作中'; b.disabled = true; }
+    else if (it.requires && !econ.has(it.requires)) { b.textContent = '要先有飛天跑車'; b.disabled = true; }
     else if (econ.money < p) { b.textContent = `還差 ${fmtMoney(p - econ.money)}`; b.disabled = true; }
     else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(r.msg, 2.5); save(); renderShop(); }; }
     d.appendChild(b); box.appendChild(d);
@@ -762,7 +763,8 @@ function driveFrame(dt) {
   }
   // 無人機飛行：U 升空／取消；飛行中按 C 切換車外／駕駛座
   if (input.pressed('KeyU') && !G.seatAdj) {
-    if (!econ.has('drone')) toast('要先在商店買「無人機飛行系統」', 2);
+    if (!econ.has('drone')) toast(econ.has('roadster') ? '要先在商店買「無人機飛行系統」' : '無人機飛行系統裝在飛天跑車上：要先買飛天跑車，再買無人機飛行系統', 2.5);
+    else if (car.spec.key !== 'roadster') toast('無人機飛行系統裝在飛天跑車上，要開飛天跑車才能用（在商店的「明天開哪台車」換車）', 2.8);
     else if (flight.active) flight.abort();
     else { const msg = flight.canStart(stunts && stunts.busy); if (msg) toast(msg, 2); else flight.start(drones); }
   }
@@ -1245,7 +1247,7 @@ function loop(now) {
     const stn = st === 'drive' && !!stunts && !G.seatAdj && !flyingNow;
     const airOut = econ.stuntFuel <= 1e-4;
     for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (el && el.hidden === stn) el.hidden = !stn; if (el) el.classList.toggle('off', airOut || (id === 'btnJump' && econ.stuntFuel < 1 / AIR.jumpsPerTank - 1e-6)); }
-    const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone');
+    const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone') && car.spec.key === 'roadster';
     if (dbt) { if (dbt.hidden === showDr) dbt.hidden = !showDr; const lb = flight && flight.active ? '取消飛行' : '無人機'; if (dbt.textContent !== lb) dbt.textContent = lb; }
     for (const id of ['btnMirL', 'btnMirR']) { const el = $(id); if (el && el.hidden === drv) el.hidden = !drv; }
     const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : 'E') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : 'E') : st === 'room' ? '出門' : 'E';

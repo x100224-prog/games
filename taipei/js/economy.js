@@ -50,7 +50,7 @@ export const SHOP = [
   { key: 'nav', name: '導航系統', kind: 'upgrade', desc: '中控螢幕與小地圖顯示建議路線，轉彎前提示。' },
   { key: 'ev', name: '電動車', kind: 'car', car: 'ev', desc: '可以停停車場裡的電動車專用格（停的時候順便充電，很少被占滿），電費比油錢便宜很多。' },
   { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；每晚在家補滿（3,000 元／罐）、停電動車充電格補（8,000 元／罐）、開車時每公里慢慢補 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
-  { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', desc: '加裝在你的車上：塞車時按 U，車身伸出四組折疊旋翼（像多旋翼無人機），整台車升空，自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。降落後旋翼收回，還是你的車。燃料費每分鐘 2,500 元，飛越久越貴。' },
+  { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', requires: 'roadster', desc: '加裝在飛天跑車上（要先有飛天跑車，開飛天跑車時才能用）：塞車時按 U，車身伸出四組折疊旋翼（像多旋翼無人機），整台車升空，自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。降落後旋翼收回，還是你的車。燃料費每分鐘 2,500 元，飛越久越貴。' },
 ];
 export function priceOf(key) {
   const m = SAVED_MIN[key] || 0, r = PRICE_RULE, it = SHOP.find(s => s.key === key);
@@ -79,6 +79,8 @@ export class Economy {
   buy(key) {
     const p = priceOf(key);
     if (this.owned.has(key)) return { ok: false, msg: '已經有了' };
+    const it0 = SHOP.find(s => s.key === key);
+    if (it0 && it0.requires && !this.owned.has(it0.requires)) return { ok: false, msg: '要先有飛天跑車才能買無人機飛行系統' };
     if (this.money < p) return { ok: false, msg: `還差 ${(p - this.money).toLocaleString()} 元` };
     this.money -= p; this.owned.add(key); this.totals.spent += p;
     const item = SHOP.find(s => s.key === key);
