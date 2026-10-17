@@ -60,7 +60,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .opt.demo .sub { font-size: 12.5px; line-height: 1.45; }
 #demoCap { position: absolute; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 30; background: rgba(10, 13, 16, .86); color: #fff; border: 1px solid rgba(255, 255, 255, .22); border-radius: 10px; padding: 9px 16px; font-weight: 900; font-size: 19px; line-height: 1.4; text-align: center; max-width: min(760px, calc(100% - 32px)); box-sizing: border-box; pointer-events: none; }
 #demoSpeed { position: absolute; left: 50%; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 30; background: var(--signal, #f5c518); color: #1d1700; border-radius: 6px; padding: 3px 10px; font-weight: 900; font-size: 14px; pointer-events: none; }
-#demoExit { position: absolute; left: calc(16px + env(safe-area-inset-left, 0px)); top: calc(132px + env(safe-area-inset-top, 0px)); z-index: 31; background: rgba(10, 13, 16, .86); color: #fff; border: 1px solid rgba(255, 255, 255, .3); border-radius: 8px; padding: 9px 14px; font-weight: 700; font-size: 14px; cursor: pointer; }
+#demoExit { pointer-events: auto; position: absolute; left: calc(16px + env(safe-area-inset-left, 0px)); top: calc(132px + env(safe-area-inset-top, 0px)); z-index: 31; background: rgba(10, 13, 16, .86); color: #fff; border: 1px solid rgba(255, 255, 255, .3); border-radius: 8px; padding: 9px 14px; font-weight: 700; font-size: 14px; cursor: pointer; }
 #demoExit:hover { background: rgba(40, 46, 52, .92); }
 @media (max-width: 700px) { #demoCap { font-size: 15px; bottom: calc(190px + env(safe-area-inset-bottom, 0px)); } #demoSpeed { bottom: calc(240px + env(safe-area-inset-bottom, 0px)); } #demoExit { top: calc(150px + env(safe-area-inset-top, 0px)); } }
 .opt.mode { grid-template-columns: 1fr; }
@@ -102,8 +102,14 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #toast { position: absolute; left: 50%; top: calc(88px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); background: rgba(10, 13, 16, .9); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; max-width: min(520px, calc(100% - 32px)); box-sizing: border-box; text-align: center; transition: opacity .3s; }
 #help { position: absolute; left: 16px; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font-size: 13px; color: var(--mute); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
 #help kbd { font-family: var(--f-num); color: var(--ink); font-weight: 700; }
-#help { max-width: min(460px, calc(100% - 220px)); box-sizing: border-box; }
+#help { max-width: min(460px, calc(100% - 220px)); max-height: calc(100% - 230px); overflow: hidden; box-sizing: border-box; }
 .touch #help { display: none; }
+#help .more { grid-column: 1 / -1; font-size: 12px; opacity: .85; }
+#tipCard { pointer-events: auto; position: absolute; left: 50%; top: calc(150px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 35; width: min(480px, calc(100% - 32px)); box-sizing: border-box; background: rgba(10, 13, 16, .94); border: 1px solid var(--signal, #f5c518); border-radius: 10px; padding: 14px 16px; display: grid; gap: 8px; color: #e8eef0; }
+#tipCard h3 { margin: 0; font-size: 17px; color: var(--signal, #f5c518); }
+#tipRows { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 14px; line-height: 1.5; }
+#tipRows kbd { font-family: var(--f-num); font-weight: 700; color: #fff; white-space: nowrap; }
+#tipOk { justify-self: end; background: var(--signal, #f5c518); color: #1d1700; border: 0; border-radius: 6px; padding: 7px 16px; font-weight: 900; cursor: pointer; }
 #osm { position: absolute; right: 8px; bottom: 2px; font-size: 10px; color: rgba(255, 255, 255, .55); pointer-events: auto; }
 #osm a { color: inherit; }
 
@@ -141,8 +147,13 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #btnGas { right: 22px; bottom: calc(130px + env(safe-area-inset-bottom, 0px)); background: rgba(79, 208, 140, .3); }
 #btnBrake { right: 96px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); background: rgba(255, 107, 94, .3); }
 #btnAct { right: 22px; bottom: calc(56px + env(safe-area-inset-bottom, 0px)); background: var(--signal); color: #1a1500; }
-#btnCam { right: 22px; top: calc(176px + env(safe-area-inset-top, 0px)); width: 48px; height: 48px; font-size: 12px; }
-#btnMap { right: 78px; top: calc(176px + env(safe-area-inset-top, 0px)); width: 48px; height: 48px; font-size: 12px; }
+#btnMore { right: 22px; top: calc(176px + env(safe-area-inset-top, 0px)); width: 48px; height: 48px; font-size: 22px; line-height: 1; }
+#moreMenu { position: absolute; right: 22px; top: calc(230px + env(safe-area-inset-top, 0px)); pointer-events: auto; display: grid; gap: 6px; background: rgba(10, 13, 16, .92); border: 1px solid var(--line); border-radius: 12px; padding: 8px; z-index: 40; }
+#moreMenu button { min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, .06); font-weight: 700; font-size: 14px; text-align: left; }
+.touch #btnMusic, .touch #btnSfx { display: none; }
+#bigmap.pip { inset: auto; right: calc(16px + env(safe-area-inset-right, 0px)); top: calc(96px + env(safe-area-inset-top, 0px)); width: min(46%, 560px); height: 50%; border-radius: 10px; border: 1px solid var(--line); background: rgba(8, 10, 13, .9); padding: 8px 10px; }
+#bigmap.pip header { font-size: 13px; }
+#bigmap.pip header small { display: none; }
 .touch #place { bottom: auto; top: calc(176px + env(safe-area-inset-top, 0px)); max-width: 46%; }
 .touch #speedo { right: auto; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
 .touch #prompt { bottom: calc(200px + env(safe-area-inset-bottom, 0px)); white-space: normal; text-align: center; border-radius: 14px; }
@@ -230,8 +241,8 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .touch #daa { top: auto; right: auto; left: 16px; bottom: calc(190px + env(safe-area-inset-bottom, 0px)); width: 132px; height: 138px; }
 .touch #seat { top: 12px; bottom: auto; transform: none; max-height: calc(100% - 24px); }
 @media (max-height: 500px) {
-  .touch #btnCam { top: calc(12px + env(safe-area-inset-top, 0px)); right: 180px; }
-  .touch #btnMap { top: calc(12px + env(safe-area-inset-top, 0px)); right: 236px; }
+  .touch #btnMore { top: calc(12px + env(safe-area-inset-top, 0px)); right: 180px; }
+  .touch #moreMenu { top: calc(64px + env(safe-area-inset-top, 0px)); right: 180px; max-height: calc(100% - 80px); overflow-y: auto; }
   .touch #btnMusic { top: calc(16px + env(safe-area-inset-top, 0px)); right: 292px; }
   .touch #btnSfx { top: calc(56px + env(safe-area-inset-top, 0px)); right: 292px; }
   .touch #place { top: auto; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); left: 150px; }
@@ -276,25 +287,8 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     <canvas id="mini" width="304" height="304" aria-label="小地圖"></canvas>
     <button id="btnMusic" type="button" aria-pressed="true">♪ 音樂 開</button>
     <button id="btnSfx" type="button" aria-pressed="true">引擎聲 開</button>
-    <div id="help">
-      <kbd>W A S D</kbd><span>走路（Shift 跑步）／油門、煞車、方向盤</span>
-      <kbd>滑鼠</kbd><span>轉動視角（點一下畫面鎖定游標）</span>
-      <kbd>E</kbd><span>出門、上車、下車、開商店</span>
-      <kbd>空白鍵</kbd><span>手煞車</span>
-      <kbd>C</kbd><span>駕駛座／車外視角</span>
-      <kbd>Z X</kbd><span>按住看左／右後照鏡</span>
-      <kbd>R</kbd><span>視線轉回正前方</span>
-      <kbd>Shift</kbd><span>飛天跑車：推進器（約 1 秒破百）</span>
-      <kbd>F</kbd><span>飛天跑車：垂直升空飛越車陣（約 10 台車）</span>
-      <kbd>T</kbd><span>飛天跑車：空中翻轉（落地前要轉正）</span>
-      <kbd>G</kbd><span>飛天跑車：吸附大樓外牆／高架橋底（再按一次脫離）</span>
-      <kbd>U</kbd><span>無人機飛行系統（裝在飛天跑車上）：升空自動飛到目的地（再按一次取消）</span>
-      <kbd>空氣</kbd><span>特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。開車慢慢補、停電動車充電格快速補、晚上回家補滿（遊戲設定）</span>
-      <kbd>V</kbd><span>停車時調整駕駛座（含舒適設定）</span>
-      <kbd>M</kbd><span>全市地圖</span>
-      <kbd>N B</kbd><span>配樂／引擎聲開關</span>
-      <kbd>H</kbd><span>收起這張說明</span>
-    </div>
+    <div id="help"></div>
+    <div id="tipCard" hidden><h3 id="tipTitle"></h3><div id="tipRows"></div><button id="tipOk" type="button">知道了（Enter）</button></div>
     <div id="place"><span id="placeRoad"></span><small id="placeDist"></small></div>
     <div id="speedo" hidden><b id="spd">0</b><span>km/h</span><i id="energy"></i></div>
     <canvas id="daa" width="220" height="230" hidden aria-label="無人機避撞面板"></canvas>
@@ -311,11 +305,17 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     <button class="tbtn" id="btnGas" type="button">油門</button>
     <button class="tbtn" id="btnBrake" type="button">煞車</button>
     <button class="tbtn" id="btnAct" type="button">E</button>
-    <button class="tbtn" id="btnCam" type="button">視角</button>
-    <button class="tbtn" id="btnMap" type="button">地圖</button>
+    <button class="tbtn" id="btnMore" type="button" aria-label="更多功能">⋯</button>
+    <div id="moreMenu" hidden>
+      <button type="button" data-act="KeyM">地圖</button>
+      <button type="button" data-act="KeyC">視角</button>
+      <button type="button" data-act="KeyV">座椅（停車時）</button>
+      <button type="button" data-act="mirror" id="moreMirror">後照鏡按鈕：關</button>
+      <button type="button" data-act="music" id="moreMusic">配樂</button>
+      <button type="button" data-act="sfx" id="moreSfx">引擎聲</button>
+    </div>
     <button class="mbtn" id="btnMirL" type="button" hidden>◀ 左鏡</button>
     <button class="mbtn" id="btnMirR" type="button" hidden>右鏡 ▶</button>
-    <button class="mbtn" id="btnSeat" type="button" hidden>座椅</button>
     <button class="mbtn" id="btnCenter" type="button" hidden>回正</button>
     <button class="mbtn sbtn" id="btnBoost" type="button" hidden>推進</button>
     <button class="mbtn sbtn" id="btnJump" type="button" hidden>飛越</button>
@@ -365,7 +365,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   </div>
 
   <div id="bigmap" hidden>
-    <header><span>臺北市　<small style="color:var(--mute);font-weight:400">黃色：公司　綠色：住家　白色箭頭：你</small></span><button class="ghost" id="bigClose" type="button">關閉 (M)</button></header>
+    <header><span>臺北市　<small style="color:var(--mute);font-weight:400">黃色：公司　綠色：住家　白色箭頭：你　看地圖時遊戲不會暫停</small></span><button class="ghost" id="bigClose" type="button">回到駕駛畫面 (M)</button></header>
     <canvas id="bigCv"></canvas>
   </div>
 
