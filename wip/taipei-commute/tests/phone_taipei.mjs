@@ -9,7 +9,7 @@ for (const [name, vp] of [['portrait', { width: 390, height: 844 }], ['landscape
   await page.goto('http://localhost:8768/index.html#lowq');
   await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'menu' && window.__tc.drones, null, { timeout: 180000 });
   await ev(() => { const m = window.__tc.meta, di = 6, home = m.homes[di][0]; const work = m.works.find(w => { const d = Math.hypot(w.x - home.x, w.z - home.z); return d > 2000 && d < 4000; });
-    localStorage.setItem('taipei-commute-v2', JSON.stringify({ v: 2, cfg: { di, home, work }, day: 3, econ: { money: 20000, owned: ['nav', 'roadster', 'drone'], carKey: 'roadster', stuntFuel: 0.8 } })); });
+    localStorage.setItem('taipei-commute-v2', JSON.stringify({ v: 2, cfg: { di, home, work }, day: 3, econ: { money: 20000, owned: ['nav', 'roadster', 'drone'], carKey: 'roadster', stuntFuel: 0.8 } })); localStorage.setItem('taipei-commute-tips', '["nav","roadster","drone","ev"]'); });
   await page.reload(); await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'menu', null, { timeout: 180000 });
   await ev(() => { window.__tc.noRender = true; });
   await page.click('#btnContinue');
@@ -25,13 +25,16 @@ for (const [name, vp] of [['portrait', { width: 390, height: 844 }], ['landscape
   await page.screenshot({ path: `shots/ph_${name}_drive.png` });
   // 檢查按鈕互相重疊
   const overlap = await ev(() => {
-    const ids = ['btnGas', 'btnBrake', 'btnAct', 'btnCam', 'btnMap', 'btnMirL', 'btnMirR', 'btnSeat', 'btnCenter', 'btnBoost', 'btnJump', 'btnGrip', 'btnFlip', 'btnDrone', 'joy', 'stunt', 'speedo', 'mini', 'task', 'place', 'btnMusic', 'btnSfx', 'daa'];
+    const ids = ['btnGas', 'btnBrake', 'btnAct', 'btnMore', 'btnMirL', 'btnMirR', 'btnCenter', 'btnBoost', 'btnJump', 'btnGrip', 'btnFlip', 'btnDrone', 'joy', 'stunt', 'speedo', 'mini', 'task', 'place', 'btnMusic', 'btnSfx', 'daa'];
     const R = ids.map(id => { const el = document.getElementById(id); if (!el || el.hidden || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return r.width && r.height ? { id, l: r.left, t: r.top, r: r.right, b: r.bottom } : null; }).filter(Boolean);
     const out = []; for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) { const a = R[i], b = R[j]; const ox = Math.min(a.r, b.r) - Math.max(a.l, b.l), oy = Math.min(a.b, b.b) - Math.max(a.t, b.t); if (ox > 2 && oy > 2) out.push(`${a.id}×${b.id}`); }
     const off = R.filter(r => r.l < -1 || r.t < -1 || r.r > innerWidth + 1 || r.b > innerHeight + 1).map(r => r.id);
     return { overlap: out, offscreen: off };
   });
-  console.log(name, 'drive', JSON.stringify(overlap));
+  console.log(name, 'drive', JSON.stringify(overlap), 'visible', await ev(() => [...document.querySelectorAll('#touch button')].filter(b => !b.hidden && b.offsetParent).map(b => b.textContent).join(' ')));
+  await page.tap('#btnMore'); await wait(600); await page.screenshot({ path: `shots/ph_${name}_more.png` });
+  console.log(name, 'more menu', await ev(() => !document.getElementById('moreMenu').hidden && document.getElementById('moreMenu').innerText.replace(/\n/g, ' | ')));
+  await page.tap('#btnMore'); await wait(300);
   // 無人機飛行中
   await ev(() => { window.__tc.noRender = true; }); await page.tap('#btnDrone'); await wait(1500);
   await page.waitForFunction(() => window.__tc.flight.active && window.__tc.flight.phase === 'cruise', null, { timeout: 120000 }).catch(() => {});

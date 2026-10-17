@@ -45,6 +45,30 @@ function section(bar) {
   return { name: 'break', i: b - 40 };
 }
 
+// 賽博龐克電子樂（原創，給「看示範」用）：D 小調 Dm – B♭ – Gm – A，十六分音符滾動貝斯、半拍感的大鼓、
+// 快速琶音、鋸齒波主旋律，每 24 小節一輪：前奏 4 → 主段 8 → 加主旋律 8 → 間奏 4（最後兩小節噪音上升）。
+const CY_CHORDS = [
+  { bass: 38, arp: [62, 65, 69, 74] },   // Dm
+  { bass: 34, arp: [58, 62, 65, 70] },   // B♭
+  { bass: 31, arp: [55, 58, 62, 67] },   // Gm
+  { bass: 33, arp: [57, 61, 64, 69] },   // A
+];
+const CY_ARP = [0, 1, 2, 3, 1, 2, 3, 2, 0, 1, 2, 3, 3, 2, 1, 0];
+const CY_LEAD = [
+  [[0, 69, 6], [6, 74, 2], [8, 77, 4], [12, 76, 4]],
+  [[0, 74, 6], [6, 77, 2], [8, 70, 4], [12, 69, 4]],
+  [[0, 67, 4], [4, 70, 4], [8, 74, 6], [14, 72, 2]],
+  [[0, 73, 8], [8, 76, 4], [12, 69, 4]],
+];
+const CY_LOOP = 24;
+function cySection(bar) {
+  const b = bar < CY_LOOP ? bar : 4 + (bar - 4) % (CY_LOOP - 4);
+  if (b < 4) return { name: 'intro', i: b };
+  if (b < 12) return { name: 'a', i: b - 4 };
+  if (b < 20) return { name: 'b', i: b - 12 };
+  return { name: 'break', i: b - 20 };
+}
+
 const PREF_KEY = 'yingge-music';
 
 export class Music {
@@ -54,7 +78,7 @@ export class Music {
     let p = {}; try { p = JSON.parse(localStorage.getItem(this.prefKey) || '{}'); } catch (err) { p = {}; }
     this.on = p.on !== false; this.volume = typeof p.vol === 'number' ? p.vol : 0.6;
     this.mode = 'walk'; this.speed = 0;
-    this.step = 0; this.next = 0; this.onChange = null;
+    this.step = 0; this.next = 0; this.onChange = null; this.style = 'drive';
     this.rapOn = p.rap !== false; this.rapBuf = null; this.rapSrc = null; this.rapUrl = opts.rapUrl === undefined ? 'audio/rap.mp3' : opts.rapUrl;
   }
 
@@ -93,8 +117,8 @@ export class Music {
   }
 
   /** 離線算出一段音樂（測試、試聽用），回傳 AudioBuffer。 */
-  static async render(sec, mode = 'drive', speed = 20, fromBar = 0) {
-    const sr = 44100, ctx = new OfflineAudioContext(2, Math.ceil(sr * sec), sr), m = new Music();
+  static async render(sec, mode = 'drive', speed = 20, fromBar = 0, style = 'drive') {
+    const sr = 44100, ctx = new OfflineAudioContext(2, Math.ceil(sr * sec), sr), m = new Music({ rapUrl: null }); m.style = style;
     m.on = true; m._build(ctx); m.update(mode, speed); m.mode = mode;
     await m._loadRap(ctx);
     for (let step = fromBar * 16, t = 0.05; t < sec - 0.05; step++, t += STEP) m._play(step, t);
@@ -184,7 +208,10 @@ export class Music {
     while (this.next < ctx.currentTime + 0.14) { this._play(this.step, this.next); this.next += STEP; this.step++; }
   }
 
+  /** 曲風：'drive'（原本的開車音樂）或 'cyber'（賽博龐克，看示範時用）。換曲風從前奏重新開始。 */
+  setStyle(st) { if (this.style === st) return; this.style = st; this.step = 0; }
   _play(step, t) {
+    if (this.style === 'cyber') return this._playCyber(step, t);
     const bar = Math.floor(step / 16), s = step % 16, sec = section(bar), ch = CHORDS[bar % 4];
     const isIntro = sec.name === 'intro', isBreak = sec.name === 'break';
     // 鼓
@@ -214,6 +241,32 @@ export class Music {
     } else if (isBreak && sec.i < 4) {
       for (const [ps, note, len] of PHRASE1[sec.i]) if (ps === s) this._lead(t, note - 12, len * STEP, 0.6);
     }
+  }
+
+  _playCyber(step, t) {
+    const bar = Math.floor(step / 16), s = step % 16, sec = cySection(bar), ch = CY_CHORDS[bar % 4];
+    const full = sec.name === 'a' || sec.name === 'b';
+    if (full) {
+      if (s === 0 || s === 8 || (s === 11 && bar % 2 === 1)) this._kick(t);
+      if (s === 4 || s === 12) this._snare(t, 0.95);
+      if (s % 2 === 1) this._hat(t, false, s % 4 === 3 ? 0.75 : 0.5);
+      if (s === 14) this._hat(t, true, 0.55);
+      if (sec.i === 0 && s === 0) this._crash(t);
+    } else if (sec.name === 'intro' && sec.i >= 2 && s % 4 === 2) this._hat(t, false, 0.45);
+    if (sec.name === 'break' && sec.i === 3 && s >= 8) this._snare(t, 0.2 + (s - 8) * 0.08);
+    // 十六分音符滾動貝斯（大鼓時被側鏈壓下去）
+    if (full || (sec.name === 'break' && sec.i < 2)) this._bass(t, ch.bass + (s % 8 === 6 ? 12 : 0), STEP * 0.85, ch.bass);
+    this._arp(t, ch.arp[CY_ARP[s]] + (sec.name === 'b' && s % 8 >= 4 ? 12 : 0), sec.name === 'intro' ? 0.75 : 0.9);
+    if (s === 0) this._pad(t, ch.arp.map(n => n - 12), STEP * 16);
+    if (sec.name === 'b') for (const [ps, note, len] of CY_LEAD[sec.i % 4]) if (ps === s) this._lead(t, note, len * STEP, 0.95);
+    if (sec.name === 'break' && sec.i === 2 && s === 0) this._riser(t, STEP * 32);
+  }
+  _riser(t, dur) {
+    const ctx = this.ctx, n = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    n.buffer = this.noise; n.loop = true; f.type = 'bandpass'; f.Q.value = 4;
+    f.frequency.setValueAtTime(400, t); f.frequency.exponentialRampToValueAtTime(9000, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + dur); g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.05);
+    n.connect(f); f.connect(g); g.connect(this.bus); n.start(t); n.stop(t + dur + 0.1);
   }
 
   // ---------------------------------------------------------------- 音色

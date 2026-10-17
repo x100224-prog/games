@@ -483,7 +483,7 @@ export class Cockpit {
     const rbx = (w, h, d, r) => new RoundedBoxGeometry(w, h, d, 2, r);
     add(rbx(1.76, 0.3, 0.62, 0.06), dashLow, 0, 0.84, -0.8);
     add(rbx(1.76, 0.1, 0.56, 0.05), dashTop, 0, 1.02, -0.86, 0.1);
-    add(rbx(0.5, 0.15, 0.22, 0.05), dashTop, -0.38, 1.09, -0.66);                     // 儀表罩
+    // 儀表拿掉了（會擋擋風玻璃）：車速、電量／油量改顯示在右邊的中控螢幕
     add(rbx(1.0, 0.03, 0.04, 0.01), dashTop, 0.28, 0.96, -0.5);                       // 副駕前橫飾條
     add(rbx(0.62, 0.16, 0.03, 0.03), dashLow, 0.5, 0.82, -0.49);                      // 置物箱
     add(new THREE.BoxGeometry(0.2, 0.012, 0.01), gloss, 0.5, 0.8, -0.475);            // 置物箱把手
@@ -538,12 +538,11 @@ export class Cockpit {
     const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.035, 0.02), mid); this.wheel.add(spoke);
     const spoke2 = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.18, 0.02), mid); spoke2.position.y = -0.09; this.wheel.add(spoke2);
     const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 16), mid); hub.rotation.x = Math.PI / 2; this.wheel.add(hub);
-    this.wheelPivot = new THREE.Group(); this.wheelPivot.position.set(-0.38, 0.93, -0.44); this.wheelPivot.rotation.x = -0.36; this.wheelPivot.add(this.wheel);
+    this.wheelPivot = new THREE.Group(); this.wheelPivot.position.set(-0.38, 0.87, -0.46); this.wheelPivot.scale.setScalar(0.9); this.wheelPivot.rotation.x = -0.36; this.wheelPivot.add(this.wheel);   // 方向盤小一點、低一點：畫面以擋風玻璃為主
     this.root.add(this.wheelPivot);
     // 儀表（畫在 canvas 上）
     this.dashCv = document.createElement('canvas'); this.dashCv.width = 384; this.dashCv.height = 128;
     this.dashTex = new THREE.CanvasTexture(this.dashCv); this.dashTex.colorSpace = THREE.SRGBColorSpace;
-    add(new THREE.PlaneGeometry(0.38, 0.127), new THREE.MeshBasicMaterial({ map: this.dashTex }), -0.38, 1.1, -0.53, -0.22);
     // 中控螢幕
     this.navCv = document.createElement('canvas'); this.navCv.width = 320; this.navCv.height = 200;
     this.navTex = new THREE.CanvasTexture(this.navCv); this.navTex.colorSpace = THREE.SRGBColorSpace;
@@ -624,21 +623,34 @@ export class Cockpit {
     g.fillStyle = '#0b1014'; g.fillRect(0, 0, W, H);
     g.fillStyle = '#0b6b4f'; g.fillRect(0, 0, W, 34);
     g.fillStyle = '#fff'; g.font = '700 19px "Noto Sans TC", sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle';
-    g.fillText(info.title || '', 10, 18);
+    // 標題列：目的地（左）＋車速（右）。儀表放低了，車速改看這裡
+    let title = info.title || ''; g.font = '700 19px "Noto Sans TC", sans-serif';
+    while (title.length > 1 && g.measureText(title).width > W - 118) title = title.slice(0, -1);
+    g.fillText(title === (info.title || '') ? title : title + '…', 10, 18);
+    if (info.kmh !== undefined) {
+      g.textAlign = 'right'; g.font = '700 26px "Barlow Semi Condensed", sans-serif'; g.fillText(String(info.kmh), W - 44, 18);
+      g.font = '500 13px "Noto Sans TC", sans-serif'; g.fillText('km/h', W - 8, 19); g.textAlign = 'left';
+    }
     if (info.nav) {
-      // 有導航：下一個轉彎（箭頭、距離、路名）＋剩餘路程
+      // 有導航：螢幕上是會跟著轉的地圖（藍線是路線），左上角是下一個轉彎（箭頭、距離、路名），右下角是剩餘路程
+      if (info.map) info.map(g, 0, 34, W, H - 34);
+      g.fillStyle = 'rgba(8, 12, 15, .86)'; g.fillRect(0, 34, 168, 82);
+      g.save(); g.translate(6, 18); g.scale(0.55, 0.55);
       const t = info.turn, cx = 64, cy = 112;
       g.strokeStyle = '#4fb4ff'; g.fillStyle = '#4fb4ff'; g.lineWidth = 12; g.lineCap = 'round'; g.lineJoin = 'round';
       g.beginPath();
       if (!t || t.dist > 600) { g.moveTo(cx, cy + 40); g.lineTo(cx, cy - 26); g.stroke(); g.beginPath(); g.moveTo(cx - 22, cy - 18); g.lineTo(cx, cy - 46); g.lineTo(cx + 22, cy - 18); g.fill(); }
       else if (t.turn === 'uturn') { g.moveTo(cx + 18, cy + 40); g.lineTo(cx + 18, cy - 14); g.arc(cx, cy - 14, 18, 0, Math.PI, true); g.lineTo(cx - 18, cy + 8); g.stroke(); g.beginPath(); g.moveTo(cx - 38, cy + 4); g.lineTo(cx - 18, cy + 30); g.lineTo(cx + 2, cy + 4); g.fill(); }
       else { const s = t.turn === 'right' ? 1 : -1; g.moveTo(cx - s * 10, cy + 40); g.lineTo(cx - s * 10, cy - 8); g.lineTo(cx + s * 22, cy - 8); g.stroke(); g.beginPath(); g.moveTo(cx + s * 18, cy - 30); g.lineTo(cx + s * 46, cy - 8); g.lineTo(cx + s * 18, cy + 14); g.fill(); }
-      g.textAlign = 'left'; g.fillStyle = '#eef3f5'; g.font = '700 38px "Barlow Semi Condensed", sans-serif';
-      g.fillText(t && t.dist <= 600 ? Math.max(10, Math.round(t.dist / 10) * 10) + ' m' : '直走', 126, 86);
-      g.fillStyle = '#cfe6ff'; g.font = '700 18px "Noto Sans TC", sans-serif';
+      g.restore();
+      g.textAlign = 'left'; g.fillStyle = '#eef3f5'; g.font = '700 28px "Barlow Semi Condensed", sans-serif';
+      g.fillText(t && t.dist <= 600 ? Math.max(10, Math.round(t.dist / 10) * 10) + ' m' : '直走', 74, 62);
+      g.fillStyle = '#cfe6ff'; g.font = '700 15px "Noto Sans TC", sans-serif';
       const label = t && t.dist <= 600 ? (t.turn === 'right' ? '右轉' : t.turn === 'left' ? '左轉' : '迴轉') + (info.road ? ' ' + info.road : '') : '';
-      g.fillText(label.length > 9 ? label.slice(0, 9) + '…' : label, 126, 124);
-      g.fillStyle = '#8b96a1'; g.font = '500 15px "Noto Sans TC", sans-serif'; g.fillText(`剩 ${info.rest || ''}`, 126, 164);
+      g.fillText(label.length > 6 ? label.slice(0, 6) + '…' : label, 74, 94);
+      const rest = `剩 ${info.rest || ''}`; g.font = '700 15px "Noto Sans TC", sans-serif'; const rw = g.measureText(rest).width + 14;
+      g.fillStyle = 'rgba(8, 12, 15, .86)'; g.fillRect(W - rw, H - 26, rw, 26); g.fillStyle = '#eef3f5'; g.fillText(rest, W - rw + 7, H - 13);
+      if (info.energy) { const ew = g.measureText(info.energy).width + 14; g.fillStyle = 'rgba(8, 12, 15, .86)'; g.fillRect(0, H - 26, ew, 26); g.fillStyle = '#aab4bd'; g.fillText(info.energy, 7, H - 13); }
       this.navTex.needsUpdate = true;
       return;
     }
@@ -648,6 +660,7 @@ export class Cockpit {
     g.fillStyle = '#eef3f5'; g.font = '700 40px "Barlow Semi Condensed", sans-serif'; g.fillText(info.dist || '', 126, 100);
     g.fillStyle = '#8b96a1'; g.font = '500 16px "Noto Sans TC", sans-serif'; g.fillText('直線距離', 126, 136);
     g.fillStyle = '#5f6b76'; g.font = '500 14px "Noto Sans TC", sans-serif'; g.fillText('自動導航：尚未安裝', 126, 170);
+    if (info.energy) { g.fillStyle = '#aab4bd'; g.font = '700 14px "Noto Sans TC", sans-serif'; g.fillText(info.energy, 10, 186); }
     this.navTex.needsUpdate = true;
   }
 }

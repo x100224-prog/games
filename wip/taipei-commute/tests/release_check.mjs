@@ -25,9 +25,32 @@ const x0 = await ev(() => [window.__tc.car.x, window.__tc.car.z, window.__tc.car
 await page.keyboard.down('KeyW'); await wait(4000); await page.keyboard.up('KeyW');
 const x1 = await ev(() => [window.__tc.car.x, window.__tc.car.z, window.__tc.car.kmh]);
 console.log('gas car drives:', x0[2], 'moved m', Math.hypot(x1[0] - x0[0], x1[1] - x0[1]).toFixed(1), 'kmh', x1[2].toFixed(0));
+{ // 開車中按 M：全螢幕地圖，遊戲不暫停，車子繼續開
+  await page.keyboard.down('KeyW'); await wait(1500); const a = await ev(() => [window.__tc.car.x, window.__tc.car.z]);
+  await page.keyboard.press('KeyM'); await wait(3000); const b = await ev(() => [window.__tc.car.x, window.__tc.car.z, !document.getElementById('bigmap').hidden, document.getElementById('mini').hidden]);
+  await page.keyboard.up('KeyW'); await page.keyboard.press('KeyM'); await wait(500);
+  console.log('map while driving: map open', b[2], 'car moved m', Math.hypot(b[0] - a[0], b[1] - a[1]).toFixed(1), 'minimap hidden (no nav)', b[3], 'closed', await ev(() => document.getElementById('bigmap').hidden));
+}
+console.log('help (gas):', await ev(() => document.getElementById('help').innerText.replace(/\n/g, ' | ')));
+console.log('tip card (gas):', await ev(() => document.getElementById('tipCard').hidden));
 // 買了飛天跑車＋無人機系統的存檔 → 解鎖
 await ev(() => { const sv = JSON.parse(localStorage.getItem('taipei-commute-v2')); sv.econ.owned = ['roadster', 'drone']; sv.econ.carKey = 'roadster'; localStorage.setItem('taipei-commute-v2', JSON.stringify(sv)); });
 await boot();
 console.log('after owning roadster+drone:', JSON.stringify(await menu()), 'flag', await ev(() => localStorage.getItem('taipei-commute-unlock')));
+// 有飛天跑車＋導航、還沒看過說明：上路時跳出新功能卡片
+await ev(() => { localStorage.removeItem('taipei-commute-tips'); });
+await ev(() => { window.__tc.noRender = true; }); await page.click('#btnContinue');
+await page.waitForFunction(() => window.__tc.G.state === 'room', null, { timeout: 200000 });
+await ev(() => { const { P } = window.__tc; P.x = 1.2; P.z = -2.0; }); await wait(400); await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout: 60000 }); await wait(800);
+await ev(() => { const { P, car } = window.__tc; P.x = car.x - Math.cos(car.psi) * 2; P.z = car.z + Math.sin(car.psi) * 2; });
+await wait(600); await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'drive', null, { timeout: 60000 }); await wait(1000);
+await page.keyboard.press('Enter'); await page.waitForFunction(() => !window.__tc.G.seatAdj, null, { timeout: 30000 }); await wait(800);
+console.log('help (roadster):', await ev(() => document.getElementById('help').innerText.replace(/\n/g, ' | ')));
+console.log('tip card:', await ev(() => !document.getElementById('tipCard').hidden && document.getElementById('tipCard').innerText.replace(/\n/g, ' | ')));
+await ev(() => { window.__tc.noRender = false; }); await wait(2500); await page.screenshot({ path: 'shots/tipcard.png' });
+await page.click('#tipOk'); await wait(300);
+console.log('after 知道了:', await ev(() => !document.getElementById('tipCard').hidden && document.getElementById('tipTitle').textContent), await ev(() => localStorage.getItem('taipei-commute-tips')));
 console.log(errs.slice(0, 6).join('\n') || 'no page errors');
 await browser.close();

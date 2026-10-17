@@ -128,7 +128,21 @@ for (const [id, code] of [['btnMirL', 'KeyZ'], ['btnMirR', 'KeyX']]) {
   el.addEventListener('touchstart', (e) => { input.keys.add(code); e.preventDefault(); }, { passive: false });
   for (const ev of ['touchend', 'touchcancel']) el.addEventListener(ev, (e) => { input.keys.delete(code); e.preventDefault(); }, { passive: false });
 }
-for (const [id, code] of [['btnSeat', 'KeyV'], ['btnCenter', 'KeyR'], ['btnJump', 'KeyF'], ['btnGrip', 'KeyG'], ['btnFlip', 'KeyT'], ['btnDrone', 'KeyU']]) if ($(id)) $(id).addEventListener('touchstart', (e) => { input.hit.add(code); e.preventDefault(); }, { passive: false });
+// 手機：不常用的功能收在「⋯」選單裡
+let mirrorBtns = false;   // 手機：後照鏡按鈕要不要顯示（在「⋯」裡切換）
+if ($('btnMore')) {
+  const tog = (e) => { e.preventDefault(); $('moreMenu').hidden = !$('moreMenu').hidden; };
+  $('btnMore').addEventListener('touchstart', tog, { passive: false }); $('btnMore').addEventListener('click', tog);
+  for (const b of $('moreMenu').querySelectorAll('button')) b.addEventListener('click', () => {
+    const a = b.dataset.act;
+    if (a === 'mirror') { mirrorBtns = !mirrorBtns; b.textContent = `後照鏡按鈕：${mirrorBtns ? '開' : '關'}`; }
+    else if (a === 'music') $('btnMusic').click();
+    else if (a === 'sfx') $('btnSfx').click();
+    else { input.hit.add(a); if (a === 'KeyV' && car && Math.abs(car.v) > 0.3) toast('停下來才能調座椅', 1.5); }
+    $('moreMenu').hidden = true;
+  });
+}
+for (const [id, code] of [['btnCenter', 'KeyR'], ['btnJump', 'KeyF'], ['btnGrip', 'KeyG'], ['btnFlip', 'KeyT'], ['btnDrone', 'KeyU']]) if ($(id)) $(id).addEventListener('touchstart', (e) => { input.hit.add(code); e.preventDefault(); }, { passive: false });
 if ($('btnBoost')) {   // 推進器：按住
   $('btnBoost').addEventListener('touchstart', (e) => { input.keys.add('ShiftLeft'); e.preventDefault(); }, { passive: false });
   for (const ev of ['touchend', 'touchcancel']) $('btnBoost').addEventListener(ev, (e) => { input.keys.delete('ShiftLeft'); e.preventDefault(); }, { passive: false });
@@ -421,6 +435,34 @@ function startGame() {
   input.enabled = true;
   startDay();
 }
+// ===================================================================== 操作說明：一開始只教開車，買了新功能再教
+const HELP_BASE = [['W A S D', '走路／開車（油門、煞車、方向盤）'], ['滑鼠', '轉動視角（點一下畫面鎖定游標）'], ['E', '出門、上車、下車、開商店'], ['空白鍵', '手煞車'], ['M', '全市地圖']];
+const FEATURE_HELP = {
+  nav: { title: '導航', rows: [['藍線', '路面上的藍色線就是建議路線'], ['螢幕', '右下角的車內螢幕會提示下一個轉彎和距離']] },
+  ev: { title: '電動車', rows: [['充電', '可以停停車場裡的「電動車專用格」，停著就會充電']] },
+  roadster: { title: '飛天跑車', rows: [['Shift', '推進器：約 1 秒破百（手機：推進）'], ['F', '垂直升空，飛越前面的車陣，約 10 台車（手機：飛越）'], ['T', '飛越時空中翻轉，落地前要轉正（手機：翻轉）'], ['G', '面向大樓：吸住外牆往上開；在高架橋下：吸在橋底倒著開；再按一次脫離（手機：吸附）'], ['空氣', '特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。開車慢慢補、停電動車充電格快速補、回家補滿（遊戲設定）']] },
+  drone: { title: '無人機飛行系統', rows: [['U', '開飛天跑車時按 U：旋翼伸出、升空，自動避撞飛到目的地附近降落；再按一次取消（手機：無人機）'], ['C', '飛行中切換車外／駕駛座視角']] },
+};
+const featureOn = (k) => econ.has(k) && (k === 'nav' || (k === 'ev' ? !!(car && car.spec.electric) : !!(car && car.spec.stunt)));
+function renderHelp() {
+  const rows = [...HELP_BASE];
+  for (const k of ['nav', 'ev', 'roadster', 'drone']) if (featureOn(k)) rows.push(...FEATURE_HELP[k].rows);
+  $('help').innerHTML = rows.map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('') +
+    '<kbd>H</kbd><span>收起／打開這張說明</span><span class="more">其他：C 車外視角・Z／X 後照鏡・V 調座椅・N／B 配樂／引擎聲</span>';
+}
+const TIP_KEY = 'taipei-commute-tips';
+function tipsSeen() { try { return JSON.parse(localStorage.getItem(TIP_KEY) || '[]'); } catch (err) { return []; } }
+/** 買了新功能、第一次開上路時：跳出一張卡片說明怎麼用。 */
+function showTips() {
+  if (G.demo || G.state !== 'drive' || G.seatAdj) return;
+  const seen = tipsSeen(), k = ['nav', 'ev', 'roadster', 'drone'].find(x => featureOn(x) && !seen.includes(x));
+  if (!k) { $('tipCard').hidden = true; return; }
+  const F = FEATURE_HELP[k];
+  $('tipTitle').textContent = `新功能：${F.title}`;
+  $('tipRows').innerHTML = F.rows.map(([a, b]) => `<kbd>${a}</kbd><span>${b}</span>`).join('');
+  $('tipCard').hidden = false; $('help').hidden = true; input.releaseLock();   // 說明卡出現時先收起按鍵說明，一次只看一樣
+  $('tipOk').onclick = () => { seen.push(k); try { localStorage.setItem(TIP_KEY, JSON.stringify(seen)); } catch (err) { /* ignore */ } showTips(); };
+}
 function makeCar(key) {
   const spec = carSpec(key);
   if (car) scene.remove(car.group);
@@ -450,7 +492,7 @@ function toMenu() {
   input.enabled = false; input.releaseLock(); engine.shutdown();
   G.state = 'menu'; $('hud').hidden = true; $('menu').hidden = false; $('touch').hidden = true;
   destBeacon.visible = carBeacon.visible = false; bayMarks.count = 0; routeLine.visible = false;
-  traffic.clear(); refreshContinue(); renderModes(); renderDemos();
+  traffic.clear(); refreshContinue(); renderModes(); renderDemos(); $('tipCard').hidden = true;
 }
 /** 公司附近的路邊停車：早上 110 m 內都停滿了，110～260 m 至少留 3 個空格（電動車可以停停車場的電動車格，比較近）。 */
 function workParking() {
@@ -467,6 +509,7 @@ function save() {
 function startDay() {
   const h = G.cfg.home;
   if (!car || car.spec.key !== econ.carKey) makeCar(econ.carKey);
+  renderHelp();
   G.state = 'loading'; G.leg = 'am'; G.phase = 'room'; G.parked = null; G.clock = TIME.startMin;
   setSun('am'); applyMode();
   $('hud').hidden = true; $('loading').hidden = false;
@@ -531,7 +574,7 @@ function enterCar() {
     camera.near = 0.8; camera.updateProjectionMatrix();
     planRoute();
     if (!seatShown) { seatShown = true; openSeat(); }
-    else { loadSeat(); applySeat(); toast(input.touch ? '按住「左鏡／右鏡」看後照鏡' : '按住 Z／X 看後照鏡，停車時按 V 調座椅', 2.5); }
+    else { loadSeat(); applySeat(); toast(input.touch ? '地圖、後照鏡、視角在右上角「⋯」' : '按住 Z／X 看後照鏡，停車時按 V 調座椅', 2.5); showTips(); }
   });
 }
 
@@ -644,7 +687,7 @@ function renderShop() {
     else if (!ready) { b.textContent = '製作中'; b.disabled = true; }
     else if (it.requires && !econ.has(it.requires)) { b.textContent = '要先有飛天跑車'; b.disabled = true; }
     else if (econ.money < p) { b.textContent = `還差 ${fmtMoney(p - econ.money)}`; b.disabled = true; }
-    else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(r.msg, 2.5); save(); renderShop(); }; }
+    else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(r.ok ? `${r.msg}：上路時會告訴你怎麼用` : r.msg, 2.8); save(); renderShop(); renderHelp(); }; }
     d.appendChild(b); box.appendChild(d);
   }
   const cars = econ.cars(), names = { gas: '油車', ev: '電動車', roadster: '飛天跑車' };
@@ -810,7 +853,7 @@ function walkFrame(dt) {
 
 // ===================================================================== 駕駛座調整、舒適設定
 const SEAT_DEF = { h: 0, f: 0, fov: 46, tilt: 10 };
-const seatKey = () => 'taipei-seat-' + (car ? car.spec.key : 'gas');
+const seatKey = () => 'taipei-seat2-' + (car ? car.spec.key : 'gas');   // 2：駕駛座預設改成以擋風玻璃為主（舊的座椅設定不沿用）
 let seat = Object.assign({}, SEAT_DEF);
 const seatDef = () => Object.assign({}, SEAT_DEF, (car && car.spec.seat) || {});   // 跑車坐得低、車頂低：預設視線不往上抬
 function loadSeat() { try { seat = Object.assign(seatDef(), JSON.parse(localStorage.getItem(seatKey()) || '{}')); } catch (err) { seat = seatDef(); } }
@@ -825,6 +868,7 @@ function applySeat() {
 }
 for (const [id, k] of [['seatH', 'h'], ['seatF', 'f'], ['seatV', 'fov'], ['seatT', 'tilt']]) $(id).addEventListener('input', (e) => { seat[k] = +e.target.value; applySeat(); });
 $('seatReset').onclick = () => { Object.assign(seat, seatDef()); applySeat(); };
+window.__tc.setSeat = (o) => { Object.assign(seat, o); applySeat(); return Object.assign({}, seat); };
 $('seatGo').onclick = () => closeSeat();
 const COMFORT_KEY = 'drive-comfort', COMFORT_DEF = { autoCenter: false, followPitch: false, quality: 'high', inch: 14, cm: 55 };
 const comfort = (() => { try { return Object.assign({}, COMFORT_DEF, JSON.parse(localStorage.getItem(COMFORT_KEY) || '{}')); } catch (err) { return Object.assign({}, COMFORT_DEF); } })();
@@ -863,7 +907,8 @@ function closeSeat() {
   G.seatAdj = false; input.noLock = false; $('seat').hidden = true;
   cockpit.lookYaw = 0; cockpit.lookPitch = 0;
   if (AUTO) AUTO.t = 0;
-  toast(input.touch ? '開車囉！按住「左鏡／右鏡」看後照鏡，視線轉開了按「回正」' : '開車囉！按住 Z／X 看後照鏡，視線轉開了按 R 回正', 3.5);
+  toast(input.touch ? '開車囉！地圖、後照鏡、視角在右上角「⋯」' : '開車囉！按住 Z／X 看後照鏡，視線轉開了按 R 回正', 3.5);
+  showTips();
 }
 
 // ===================================================================== 開車（第一人稱駕駛座）
@@ -902,6 +947,7 @@ function driveFrame(dt) {
   const fov = G.camMode === 'cockpit' ? seat.fov + (camera.aspect < 1 ? 26 : 0) : (camera.aspect < 1 ? 76 : 62);
   if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
   if (G.seatAdj && input.pressed('Enter')) closeSeat();
+  else if (!$('tipCard').hidden && input.pressed('Enter')) $('tipOk').click();   // 新功能說明卡：Enter 關掉
   if (!G.seatAdj && input.pressed('KeyV') && Math.abs(c.v) < 0.3) openSeat();
   if (input.pressed('KeyR') && G.cam === 'cockpit') cockpit.recenter();
   const fw = G.seatAdj ? 0 : input.forward;
@@ -975,10 +1021,10 @@ function driveFrame(dt) {
   const ni = navTick(dt);
   if (G.camMode === 'cockpit') {
     cockpit.drawDash(c, dt);
-    if (frameN % 6 === 0) {
+    if (frameN % 4 === 0) {
       const ang = Math.atan2(d.x - c.x, -(d.z - c.z)), heading = Math.atan2(c.fwdX, -c.fwdZ);
-      const info = { title: G.leg === 'am' ? d.n : '回家', dist: fmtDist(dDest), bearing: ang - heading };
-      if (econ.has('nav') && ni) Object.assign(info, { nav: true, turn: ni.turn, road: ni.road, rest: fmtDist(ni.rest) });
+      const info = { title: G.leg === 'am' ? d.n : '回家', dist: fmtDist(dDest), bearing: ang - heading, kmh: Math.round(c.kmh), energy: (c.spec.electric ? '電量 ' : '油量 ') + Math.round(c.energy / c.spec.capacity * 100) + '%' };
+      if (econ.has('nav') && ni) Object.assign(info, { nav: true, turn: ni.turn, road: ni.road, rest: fmtDist(ni.rest), map: navScreenMap });
       cockpit.drawNav(info);
     }
   }
@@ -1079,7 +1125,29 @@ function hud(dt) {
   placeT -= dt;
   if (placeT <= 0 && G.state !== 'room') { placeT = 0.6; const o = {}, e = world.nearestEdge(P.x, P.z, 40, null, o); $('placeRoad').textContent = (e && e.name) || '　'; $('placeDist').textContent = world.districtAt(P.x, P.z) || '臺北市外'; }
   else if (G.state === 'room') { $('placeRoad').textContent = '家裡'; $('placeDist').textContent = districtName(G.cfg.di); }
-  miniT -= dt; if (miniT <= 0) { miniT = 0.1; drawMini(); }
+  // 小地圖：買了導航才有；開車在駕駛座時導航改在車內螢幕上。還沒買導航只能按 M 看全螢幕地圖
+  const showMini = econ.has('nav') && !(G.state === 'drive' && G.camMode === 'cockpit');
+  if ($('mini').hidden === showMini) $('mini').hidden = !showMini;
+  miniT -= dt; if (miniT <= 0 && showMini) { miniT = 0.1; drawMini(); }
+}
+/** 車內螢幕的導航地圖（買了導航才有）：車頭朝上、跟著轉，藍線是路線。 */
+function navScreenMap(g, x, y, w, h) {
+  const cx = car.x, cz = car.z, head = car.psi, scale = h / 380, ax = x + w * 0.5, ay = y + h * 0.74;
+  g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
+  g.fillStyle = '#121a20'; g.fillRect(x, y, w, h);
+  g.translate(ax, ay); g.rotate(head); g.scale(scale, scale); g.translate(-cx, -cz);
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  const span = Math.max(w, h) / scale, lists = [[], [], [], [], [], [], [], []];
+  world.forEdgesNear(cx, cz, span, (e) => lists[e.cls].push(e));
+  for (let cls = 7; cls >= 0; cls--) {
+    g.strokeStyle = ROADCOL[cls]; g.lineWidth = ROADW[cls] * 1.1 / scale; g.beginPath();
+    for (const e of lists[cls]) { const p = e.pts; g.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) g.lineTo(p[i], p[i + 1]); }
+    g.stroke();
+  }
+  const r = G.routePoly;
+  if (r) { g.strokeStyle = 'rgba(70,165,255,0.95)'; g.lineWidth = 6 / scale; g.beginPath(); g.moveTo(r[0], r[1]); for (let i = 2; i < r.length; i += 2) g.lineTo(r[i], r[i + 1]); g.stroke(); }
+  g.restore();
+  g.fillStyle = '#fff'; g.strokeStyle = '#10141a'; g.lineWidth = 2; g.beginPath(); g.moveTo(ax, ay - 12); g.lineTo(ax + 8, ay + 9); g.lineTo(ax, ay + 4); g.lineTo(ax - 8, ay + 9); g.closePath(); g.fill(); g.stroke();
 }
 const ROADCOL = ['#e9c46a', '#e9c46a', '#f1f3f4', '#d7dbdf', '#b9c0c6', '#8f99a3', '#6b757e', '#d7dbdf'], ROADW = [5, 5, 4.5, 4, 3.2, 2.4, 1.6, 2.6];
 function drawMini() {
@@ -1111,28 +1179,50 @@ function drawMini() {
   g.fillStyle = 'rgba(255,255,255,.75)'; g.font = '700 20px "Barlow Semi Condensed", sans-serif'; g.textAlign = 'center';
   g.fillText('N', R + Math.sin(head) * (R - 16), R - Math.cos(head) * (R - 16) + 7);
 }
+let mapT = 0, mapBase = null;
 function toggleBigMap(force) {
   const el = $('bigmap'), show = force !== undefined ? force : el.hidden;
   el.hidden = !show; if (!show) return;
   input.releaseLock();
   const cv = $('bigCv'), dpr = Math.min(2, window.devicePixelRatio || 1);
   cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr;
-  const g = cv.getContext('2d'), [x0, z0, x1, z1] = meta.bounds;
+  mapBase = null; mapT = 0; drawMap();
+  if (G.state === 'drive' && Math.abs(car.v) > 1) toast('看地圖時車子還在開！', 2);
+}
+/** 全市地圖：行政區＋道路（第一次畫好存起來），每 0.25 秒更新你的位置。 */
+function drawMap() {
+  const cv = $('bigCv'), dpr = Math.min(2, window.devicePixelRatio || 1), [x0, z0, x1, z1] = meta.bounds;
   const sc = Math.min(cv.width / (x1 - x0), cv.height / (z1 - z0)) * 0.94;
   const ox = (cv.width - (x1 - x0) * sc) / 2 - x0 * sc, oz = (cv.height - (z1 - z0) * sc) / 2 - z0 * sc;
   const X = (x) => x * sc + ox, Z = (z) => z * sc + oz;
-  g.fillStyle = '#0d1115'; g.fillRect(0, 0, cv.width, cv.height);
-  meta.districts.forEach((d, i) => {
-    g.beginPath();
-    for (const r of d.poly) { for (let k = 0; k < r.length; k += 2) k ? g.lineTo(X(r[k]), Z(r[k + 1])) : g.moveTo(X(r[k]), Z(r[k + 1])); g.closePath(); }
-    g.fillStyle = i === G.cfg.di ? '#1d4a3c' : '#1c232b'; g.fill(); g.strokeStyle = '#3a4652'; g.lineWidth = 2 * dpr; g.stroke();
-    g.fillStyle = '#9aa6b0'; g.font = `500 ${13 * dpr}px "Noto Sans TC", sans-serif`; g.textAlign = 'center'; g.fillText(d.name, X(d.c[0]), Z(d.c[1]));
-  });
+  if (!mapBase || mapBase.width !== cv.width || mapBase.height !== cv.height || (!mapBase.roads && nav)) {
+    const b = document.createElement('canvas'); b.width = cv.width; b.height = cv.height; const g = b.getContext('2d');
+    g.fillStyle = '#0d1115'; g.fillRect(0, 0, b.width, b.height);
+    meta.districts.forEach((d, i) => {
+      g.beginPath();
+      for (const r of d.poly) { for (let k = 0; k < r.length; k += 2) k ? g.lineTo(X(r[k]), Z(r[k + 1])) : g.moveTo(X(r[k]), Z(r[k + 1])); g.closePath(); }
+      g.fillStyle = i === G.cfg.di ? '#1d4a3c' : '#1c232b'; g.fill(); g.strokeStyle = '#3a4652'; g.lineWidth = 2 * dpr; g.stroke();
+    });
+    if (nav) {
+      // 道路：大馬路粗、巷道細
+      for (const [cmax, col, w] of [[6, 'rgba(150,165,178,.28)', 0.6], [4, 'rgba(190,200,210,.55)', 1.1], [2, 'rgba(235,225,190,.85)', 1.8]]) {
+        g.strokeStyle = col; g.lineWidth = w * dpr; g.beginPath();
+        for (let k = 0; k < nav.E; k++) { const c = nav.ecls[k]; if (c > cmax || (cmax === 4 && c <= 2) || (cmax === 6 && c <= 4)) continue; const a = nav.ea[k], e = nav.eb[k]; g.moveTo(X(nav.nx[a]), Z(nav.nz[a])); g.lineTo(X(nav.nx[e]), Z(nav.nz[e])); }
+        g.stroke();
+      }
+    }
+    meta.districts.forEach((d) => { g.fillStyle = '#c3ccd4'; g.font = `700 ${13 * dpr}px "Noto Sans TC", sans-serif`; g.textAlign = 'center'; g.strokeStyle = 'rgba(13,17,21,.85)'; g.lineWidth = 4 * dpr; g.strokeText(d.name, X(d.c[0]), Z(d.c[1])); g.fillText(d.name, X(d.c[0]), Z(d.c[1])); });
+    b.roads = !!nav; mapBase = b;
+  }
+  const g = cv.getContext('2d');
+  g.drawImage(mapBase, 0, 0);
   if (econ.has('nav') && G.routePoly) { const r = G.routePoly; g.strokeStyle = 'rgba(80,170,255,0.95)'; g.lineWidth = 3 * dpr; g.beginPath(); g.moveTo(X(r[0]), Z(r[1])); for (let i = 2; i < r.length; i += 2) g.lineTo(X(r[i]), Z(r[i + 1])); g.stroke(); }
   const dot = (x, z, col, r) => { g.fillStyle = col; g.beginPath(); g.arc(X(x), Z(z), r * dpr, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#0d1115'; g.lineWidth = 2 * dpr; g.stroke(); };
-  dot(G.cfg.home.x, G.cfg.home.z, '#4fd08c', 7); dot(G.cfg.work.x, G.cfg.work.z, '#f5c518', 8);
+  if (G.cfg.home) dot(G.cfg.home.x, G.cfg.home.z, '#4fd08c', 7);
+  if (G.cfg.work) dot(G.cfg.work.x, G.cfg.work.z, '#f5c518', 8);
   const inCar = G.state === 'drive', px = inCar ? car.x : P.x, pz = inCar ? car.z : P.z, hd = inCar ? car.psi : P.yaw;
-  if (G.state !== 'room') { g.save(); g.translate(X(px), Z(pz)); g.rotate(-hd); g.fillStyle = '#fff'; g.beginPath(); g.moveTo(0, -12 * dpr); g.lineTo(8 * dpr, 9 * dpr); g.lineTo(0, 4 * dpr); g.lineTo(-8 * dpr, 9 * dpr); g.closePath(); g.fill(); g.restore(); }
+  if (G.state !== 'room') { g.save(); g.translate(X(px), Z(pz)); g.rotate(-hd); g.fillStyle = '#fff'; g.strokeStyle = '#0d1115'; g.lineWidth = 2 * dpr; g.beginPath(); g.moveTo(0, -13 * dpr); g.lineTo(9 * dpr, 10 * dpr); g.lineTo(0, 5 * dpr); g.lineTo(-9 * dpr, 10 * dpr); g.closePath(); g.fill(); g.stroke(); g.restore(); }
+  if (inCar) { g.fillStyle = Math.abs(car.v) > 1 ? '#ff6b5b' : '#9aa6b0'; g.font = `700 ${15 * dpr}px "Noto Sans TC", sans-serif`; g.textAlign = 'left'; g.fillText(Math.abs(car.v) > 1 ? `車子還在開：${Math.round(car.kmh)} km/h` : '車子停著', 14 * dpr, cv.height - 14 * dpr); }
 }
 
 // ===================================================================== 自動示範（選單按鈕或 F8）
@@ -1354,7 +1444,11 @@ function frame(dt) {
   if (input.pressed('KeyN')) { audioStart(); music.toggle(); toast(music.on ? '音樂：開' : '音樂：關', 1.2); }
   if (input.pressed('KeyB')) { audioStart(); engine.toggle(); toast(engine.on ? '引擎聲：開' : '引擎聲：關', 1.2); }
   if (input.pressed('KeyM') && ['walk', 'drive', 'room'].includes(G.state)) toggleBigMap();
-  if (!$('bigmap').hidden || !$('shop').hidden) { if (!window.__tc.noRender) render(); input.endFrame(); return; }
+  if (!$('shop').hidden) { if (!window.__tc.noRender) render(); input.endFrame(); return; }
+  // 全螢幕地圖打開時遊戲不暫停：車子還在動就會繼續開（沒有導航只能這樣看地圖）
+  const mapOpen = !$('bigmap').hidden;
+  if (mapOpen) { mapT -= dt; if (mapT <= 0) { mapT = 0.25; drawMap(); } }
+  music.setStyle(G.demo ? 'cyber' : 'drive');   // 看示範：賽博龐克電子樂
   music.update(G.state === 'drive' ? (G.seatAdj ? 'walk' : 'drive') : G.state === 'summary' ? 'done' : G.state === 'menu' ? 'title' : 'walk', car ? car.v : 0);
   const st = G.state;
   // 測試用快轉：window.__tc.steps > 1 時，每一幀跑好幾次遊戲邏輯（只畫一次）。正常遊戲是 1。
@@ -1379,18 +1473,21 @@ function frame(dt) {
     const flyingNow = !!(flight && flight.active), busyNow = flyingNow || !!(stunts && stunts.busy);
     const stn = st === 'drive' && !!stunts && !G.seatAdj && !flyingNow;
     const airOut = econ.stuntFuel <= 1e-4;
-    for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (el && el.hidden === stn) el.hidden = !stn; if (el) el.classList.toggle('off', airOut || (id === 'btnJump' && econ.stuntFuel < 1 / AIR.jumpsPerTank - 1e-6)); }
-    const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone') && car.spec.key === 'roadster';
+    // 飛天跑車的按鈕：只在用得到的時候出現（推進：在地面；飛越：停著或很慢、或在屋頂；翻轉：在空中；吸附：面對大樓或在高架橋下）
+    const sm = stunts ? stunts.mode : 'ground', slowNow = Math.abs(car ? car.v : 0) < 4.2;
+    G.gripT = (G.gripT || 0) - dt;
+    if (G.gripT <= 0) { G.gripT = 0.3; G.gripOk = !!(stn && sm === 'ground' && (stunts._deckAbove(car.x, car.z, car.y, 3.9) || stunts._wallAhead(car.x, car.z, car.psi, 5.5, car.y))); }
+    const vis = { btnBoost: stn && sm === 'ground', btnJump: stn && ((sm === 'ground' && slowNow) || sm === 'roof'), btnFlip: stn && sm === 'air', btnGrip: stn && (G.gripOk || ['wall', 'under', 'roof'].includes(sm)) };
+    for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (!el) continue; if (el.hidden === vis[id]) el.hidden = !vis[id]; el.classList.toggle('off', airOut || (id === 'btnJump' && econ.stuntFuel < 1 / AIR.jumpsPerTank - 1e-6)); }
+    const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone') && car.spec.key === 'roadster' && (flyingNow || Math.abs(car.v) < 3);
     if (dbt) { if (dbt.hidden === showDr) dbt.hidden = !showDr; const lb = flight && flight.active ? '取消飛行' : '無人機'; if (dbt.textContent !== lb) dbt.textContent = lb; }
-    for (const id of ['btnMirL', 'btnMirR']) { const el = $(id); if (el && el.hidden === drv) el.hidden = !drv; }
+    for (const id of ['btnMirL', 'btnMirR']) { const el = $(id), on = drv && mirrorBtns; if (el && el.hidden === on) el.hidden = !on; }
     const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : 'E') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : 'E') : st === 'room' ? '出門' : 'E';
     if (act && act.textContent !== lab) act.textContent = lab;
     const bc = $('btnCenter'), showC = !!(drv && cockpit && (Math.abs(cockpit.lookYaw) > 0.05 || Math.abs(cockpit.lookPitch) > 0.05) && !G.glance);
     if (bc && bc.hidden === showC) bc.hidden = !showC;
-    const sb = $('btnSeat'), showSeat = st === 'drive' && !G.seatAdj && Math.abs(car.v) < 0.3 && !busyNow;
-    if (sb && sb.hidden === showSeat) sb.hidden = !showSeat;
   }
-  if (!window.__tc.noRender) render();
+  if (!window.__tc.noRender && !mapOpen) render();
   input.endFrame();
 }
 function menuFrame(dt) {
