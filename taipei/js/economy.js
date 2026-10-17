@@ -1,5 +1,5 @@
 // 台北上班路 — 金錢、商店、存檔。
-// 收入：每天準時打卡領日薪，遲到每分鐘扣錢。支出：油錢／電費、上班時的路邊停車費、特技燃料。
+// 收入：每天準時打卡領日薪，遲到每分鐘扣錢。支出：油錢／電費、上班時的路邊停車費、壓縮空氣、無人機燃料、修車。
 // 商店的價錢原則（玩家訂的）：能讓你越快到達的東西越貴。實際價錢依「每趟平均省下的分鐘數」換算（見 PRICE_RULE），
 // 省下的分鐘數用自動測試在尖峰時段實際跑出來，數字放在 SAVED_MIN。
 
@@ -11,7 +11,18 @@ export const PAY = {
   bayKwh: 6,            // 停車場電動車格充電（元／度）
   roadParkHr: 30,       // 路邊停車（元／小時），上班 9 小時
   workHours: 9,
-  stuntRefill: 600,     // 特技燃料（壓縮空氣）從空充到滿（元）
+};
+
+// 飛天跑車的壓縮空氣罐（推進器、垂直升空、吸附風扇都靠它）。
+// ※ 以下全部是「遊戲設定」：Tesla 沒有公布空氣罐的容量、能跳幾次、怎麼補充，這裡的數字是遊戲自己訂的。
+export const AIR = {
+  gameSetting: true,
+  jumpsPerTank: 8,       // 滿罐可以垂直升空飛越 8 次（每次 1/8 罐，含落地前的反推）
+  homePrice: 300,        // 回家補：每晚在家用壓縮機補滿，從空補到滿 300 元（依補的量算）
+  stationPrice: 600,     // 充電站補：停在電動車充電格補氣，比較快但比較貴，從空到滿 600 元
+  stationRate: 0.04,     // 充電格補氣速度：每秒 4%（約 25 秒補滿）
+  drivePerKm: 0.05,      // 開車時慢慢補：車上的小壓縮機，每開 1 公里補 5%（用車子的電，約 1 度電補滿一罐）
+  driveKwhPerTank: 1,
 };
 
 // 價錢 ＝ 每趟平均省下的分鐘數（遊戲時間）× 每天 2 趟 × 每分鐘的價值（＝遲到每分鐘扣的錢）× 10 個上班日；最低 1,000 元。
@@ -35,7 +46,7 @@ export const SAVED_NOTE = {
 export const SHOP = [
   { key: 'nav', name: '導航系統', kind: 'upgrade', desc: '中控螢幕與小地圖顯示建議路線，轉彎前提示。' },
   { key: 'ev', name: '電動車', kind: 'car', car: 'ev', desc: '可以停停車場裡的電動車專用格（停的時候順便充電，很少被占滿），電費比油錢便宜很多。' },
-  { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車＋高壓氣體推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技另外消耗燃料（每晚在家充滿，用多少算多少錢），也可以停電動車格。' },
+  { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；每晚在家補滿（300 元／罐）、停電動車充電格補（600 元／罐）、開車時每公里慢慢補 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
   { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', desc: '塞車時按 U 升空（車子伸出四組旋翼），自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。燃料費每分鐘 40 元，飛越久越貴。' },
 ];
 export function priceOf(key) {
@@ -68,11 +79,16 @@ export class Economy {
     this.money -= p; this.owned.add(key); this.totals.spent += p;
     const item = SHOP.find(s => s.key === key);
     if (item && item.kind === 'car') this.carKey = item.car;
+    if (key === 'roadster') this.stuntFuel = 1;   // 新車的空氣罐是滿的
     return { ok: true, msg: `買了${item ? item.name : key}` };
   }
 
   /** 一天開始。 */
-  startDay() { this.day = { pay: 0, late: 0, energy: 0, parking: 0, charge: 0, stunt: 0, drone: 0, repair: 0, lines: [] }; this.stuntFuel = 1; }   // 特技燃料每晚在家充滿（用掉的錢已算在當天）
+  startDay() { this.day = { pay: 0, late: 0, energy: 0, parking: 0, charge: 0, stunt: 0, drone: 0, repair: 0, lines: [] }; }
+  /** 晚上回到家：用家裡的壓縮機把空氣罐補滿，回傳補的量（0..1）。錢算在今天。 */
+  refillAirHome() { const f = Math.max(0, 1 - this.stuntFuel); this.day.stunt += f * AIR.homePrice; this.stuntFuel = 1; return f; }
+  /** 在充電格補氣（每幀呼叫）。 */
+  refillAirStation(frac) { const f = Math.min(frac, 1 - this.stuntFuel); if (f <= 0) return 0; this.stuntFuel += f; this.day.stunt += f * AIR.stationPrice; return f; }
   /** 上班打卡。 */
   clockIn(lateMin) {
     const d = this.day; d.late = Math.max(0, Math.round(lateMin));
@@ -87,7 +103,6 @@ export class Economy {
   addParking(type) {
     if (type === 'road') this.day.parking += PAY.roadParkHr * PAY.workHours;
   }
-  addStunt(frac) { this.day.stunt += frac * PAY.stuntRefill; }
   addDrone(cost) { this.day.drone += cost; }
   addRepair(cost) { this.day.repair = (this.day.repair || 0) + cost; }
   /** 一天結束：結算，回傳明細。 */

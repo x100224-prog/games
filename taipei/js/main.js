@@ -5,7 +5,8 @@ import * as THREE from '../lib/three.module.min.js';
 import { World, hash2 } from './world.js';
 import { Parking } from './parking.js';
 import { Traffic } from './traffic.js';
-import { PlayerCar, Cockpit, carSpec } from './vehicles.js';
+import { PlayerCar, Cockpit, carSpec, ROADSTER_JETS } from './vehicles.js';
+import { Mist } from './mist.js';
 import { Input } from './input.js';
 import { Avatar } from './avatar.js';
 import { ThirdPersonCam } from './tpcam.js';
@@ -15,7 +16,7 @@ import { EngineSound } from './engine.js';
 import { Nav, polyProgress, nextTurn } from './nav.js';
 import { Stunts } from './stunts.js';
 import { DroneTraffic, DroneFlight, DRONE } from './drone.js';
-import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE } from './economy.js';
+import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR } from './economy.js';
 import { VIEW, TIME, PARK, WORK_DIST, RUSH } from './config.js';
 
 const $ = (id) => document.getElementById(id);
@@ -146,6 +147,7 @@ const G = {
 };
 const P = { x: 0, y: 0, z: 0, yaw: 0, speed: 0, inRoom: false };
 let world, parking, traffic, signs, car, cockpit, avatar, tp, meta, nav = null, stunts = null, drones = null, flight = null, statics = [];
+const mist = new Mist(scene);   // 壓縮空氣噴出的白霧
 window.__tc = { G, P, renderer, scene, camera, econ, engine };
 if (location.hash.startsWith('#lowq')) { renderer.shadowMap.enabled = false; renderer.setPixelRatio(0.75); }
 
@@ -307,10 +309,12 @@ function makeCar(key) {
   cockpit = new Cockpit(spec);
   cockpit.hemi.intensity = 5.0; cockpit.sun.intensity = 3.2;
   engine.setKind(spec.key === 'gas' ? 'gas' : 'ev');
-  // 飛天跑車：特技系統（燃料從存檔裡的特技燃料扣，用掉的量當天算錢）
+  // 飛天跑車：特技系統。特技用空氣罐的壓縮空氣（存檔裡的 stuntFuel，0..1）；用完特殊功能就停用。
+  // 補氣的錢在補的時候算（回家補、充電格補）；開車時慢慢補用的是車子的電。
   stunts = spec.stunt ? new Stunts(car, world, {
     fuel: () => econ.stuntFuel,
-    burn: (f) => { if (econ.stuntFuel <= 1e-4 || (f > 0.005 && econ.stuntFuel < f)) return false; const u = Math.min(econ.stuntFuel, f); econ.stuntFuel -= u; econ.addStunt(u); return true; },
+    burn: (f) => { if (econ.stuntFuel <= 1e-4 || (f > 0.005 && econ.stuntFuel < f - 1e-6)) return false; econ.stuntFuel = Math.max(0, econ.stuntFuel - f); return true; },
+    regen: (d) => { if (econ.stuntFuel >= 1) return; const add = Math.min(1 - econ.stuntFuel, d / 1000 * AIR.drivePerKm); econ.stuntFuel += add; car.energy = Math.max(0, car.energy - add * AIR.driveKwhPerTank); G.airRegenT = 1.5; },
     toast: (m, sec) => toast(m, sec),
     crash: (fee, msg) => { econ.addRepair(fee); toast(`${msg}　修車費 ${fmtMoney(fee)}`, 2.8); },
     bump: (st) => car._bump(st),
@@ -467,6 +471,8 @@ function finishDay() {
   const c = car, s = G.stats, km = (c.odo - s.odo0) / 1000, bumps = c.bumps - s.bumps0;
   G.gasLeft = c.spec.key === 'gas' ? c.energy : undefined;
   G.homeCar = G.parked && G.parked.bay ? { x: G.parked.bay.x, z: G.parked.bay.z, psi: G.parked.bay.psi } : { x: car.x, z: car.z, psi: car.psi };
+  // 有飛天跑車：晚上在家用壓縮機把空氣罐補滿（錢算在今天）
+  const airHome = econ.has('roadster') ? econ.refillAirHome() : 0;
   const charge = Math.round(econ.day.charge || 0), r = econ.endDay(km);
   G.state = 'summary'; input.releaseLock(); setPrompt('');
   $('sumTitle').textContent = r.late ? `第 ${G.dayN} 天｜遲到 ${r.late} 分鐘` : `第 ${G.dayN} 天｜準時上班`;
@@ -481,7 +487,7 @@ function finishDay() {
     [c.spec.key === 'gas' ? '油錢' : '電費', '−' + fmtMoney(r.energy), ''],
     ['停車／充電', '−' + fmtMoney(r.parking + charge), ''],
   ];
-  if (r.stunt) rows.push(['特技燃料', '−' + fmtMoney(r.stunt), '']);
+  if (r.stunt) rows.push([airHome > 0.005 ? `壓縮空氣（回家補 ${Math.round(airHome * 100)}%）` : '壓縮空氣補充', '−' + fmtMoney(r.stunt), '']);
   if (r.drone) rows.push(['無人機燃料', '−' + fmtMoney(r.drone), '']);
   if (r.repair) rows.push(['修車', '−' + fmtMoney(r.repair), 'bad']);
   rows.push(['今天淨賺', fmtMoney(r.net), r.net >= 0 ? 'good' : 'bad'], ['存款', fmtMoney(r.money), '']);
@@ -777,10 +783,19 @@ function driveFrame(dt) {
     stunts.update(dt, ctl, sk, obs, traffic);
   } else c.update(dt, ctl, obs);
   if (drones) drones.update(dt, c.x, c.z, flying ? [{ x: flight.x, y: flight.y, z: flight.z, vx: flight.vx, vy: flight.vy, vz: flight.vz }] : null);
+  // 壓縮空氣：停在電動車充電格（車停著）就快速補氣（遊戲設定：每秒 4%，滿罐 600 元）
+  G.airRegenT = Math.max(0, (G.airRegenT || 0) - dt);
+  if (stunts && !stunts.busy && !flying && Math.abs(c.v) < 0.3 && econ.stuntFuel < 1) {
+    G.airBayT = (G.airBayT || 0) - dt;
+    if (G.airBayT <= 0) { G.airBayT = 0.3; const b = parking.bayAt(c.x, c.z, c.psi, _err); G.airBay = !!(b && b.type === 'ev'); }
+    G.airStation = G.airBay && econ.refillAirStation(AIR.stationRate * dt) > 0;
+  } else { G.airStation = false; G.airBay = false; }
+  if (stunts) c.airText = `空氣 ${Math.round(econ.stuntFuel * 100)}%・${Math.floor(econ.stuntFuel * AIR.jumpsPerTank + 1e-6)} 次`;
   engine.update(dt, { v: flying ? 0 : c.v, throttle: c.energy > 0 && !flying ? c.thrF : 0, brake: c.brkF, cockpit: G.camMode === 'cockpit' });
   engine.stunt(flying ? 0.22 : stunts ? stunts.thrust : 0, flying ? 0.9 : stunts ? stunts.suction : 0);
   world.update(c.x, c.z, dt); parking.update(dt, c.x, c.z); signs.update(dt, c.x, c.z);
   traffic.update(dt, c.x, c.z, [{ x: c.x, z: c.z, y: c.y, r: 2.3 }]);
+  jetMist(dt);
   for (const ev of traffic.events.splice(0)) {
     if (ev.type === 'hitPlayer') { c._bump(2); toast('被飛過來的飛天跑車壓到了！（對方負責修車費）', 2.6); }
     else if (Math.hypot(ev.x - c.x, ev.z - c.z) < 150) toast('前面有飛天跑車落地壓到別的車，撞成一團', 2.4);
@@ -836,6 +851,38 @@ function driveFrame(dt) {
   }
 }
 
+// ===================================================================== 壓縮空氣的白霧
+const _jp = new THREE.Vector3(), _jd = new THREE.Vector3(), JET_FX = {
+  rear: { rate: 70, speed: 14, life: 1.0, s1: 2.4 }, down: { rate: 55, speed: 12, life: 1.4, s1: 3.2 },
+  left: { rate: 50, speed: 10, life: 0.8, s1: 1.8 }, right: { rate: 50, speed: 10, life: 0.8, s1: 1.8 }, front: { rate: 50, speed: 10, life: 0.8, s1: 1.8 },
+};
+let mistAcc = {}, lastCar = null;
+function jetMist(dt) {
+  if (!car) return;
+  const vx = lastCar ? (car.x - lastCar.x) / Math.max(dt, 1e-3) : 0, vy = lastCar ? (car.y - lastCar.y) / Math.max(dt, 1e-3) : 0, vz = lastCar ? (car.z - lastCar.z) / Math.max(dt, 1e-3) : 0;
+  lastCar = { x: car.x, y: car.y, z: car.z };
+  if (stunts) {
+    const J = stunts.jets(); car.group.updateMatrixWorld(true); const mw = car.group.matrixWorld;
+    for (const k of Object.keys(ROADSTER_JETS)) {
+      const lv = J[k] || 0; if (lv < 0.02) { mistAcc[k] = 0; continue; }
+      const fx = JET_FX[k]; mistAcc[k] = (mistAcc[k] || 0) + fx.rate * lv * dt;
+      const n = Math.floor(mistAcc[k]); if (!n) continue; mistAcc[k] -= n;
+      for (const j of ROADSTER_JETS[k]) {
+        _jp.set(j.p[0], j.p[1], j.p[2]).applyMatrix4(mw); _jd.set(j.d[0], j.d[1], j.d[2]).transformDirection(mw);
+        mist.emit(_jp.x, _jp.y, _jp.z, _jd.x, _jd.y, _jd.z, n, { speed: fx.speed, life: fx.life, s1: fx.s1, vx: vx * 0.3, vy: vy * 0.3, vz: vz * 0.3 });
+      }
+    }
+  }
+  // 別人的飛天跑車：升空、落地時車底也會噴霧
+  mistAcc.ai = (mistAcc.ai || 0) + dt * 40; const nAi = Math.floor(mistAcc.ai); mistAcc.ai -= nAi;
+  if (nAi) for (const c of traffic.cars) {
+    if (!c.hop || Math.abs(c.x - car.x) > 220 || Math.abs(c.z - car.z) > 220) continue;
+    const u = c.hop.t / c.hop.T; if (u > 0.3 && u < 0.75) continue;
+    const cs = Math.cos(c.psi), sn = Math.sin(c.psi);
+    for (const [lx, lz] of [[-0.62, -1.6], [0.62, -1.6], [-0.62, 1.6], [0.62, 1.6]]) mist.emit(c.x + lx * cs + lz * sn, c.y + 0.17, c.z - lx * sn + lz * cs, 0, -1, 0, nAi, { speed: 12, life: 1.3, s1: 3 });
+  }
+}
+
 // ===================================================================== 隧道光線（不閃白光）
 let tunnelF = 0;
 function tunnelLight(dt, e) {
@@ -878,9 +925,12 @@ function hud(dt) {
   const sb = $('stunt'), showS = !!(G.state === 'drive' && stunts);
   if (sb.hidden === showS) sb.hidden = !showS;
   if (showS) {
-    const f = Math.max(0, econ.stuntFuel);
-    $('stuntBar').style.width = (f * 100).toFixed(1) + '%'; $('stuntBar').classList.toggle('low', f < 0.15);
-    $('stuntPct').textContent = Math.round(f * 100) + '%';
+    const f = Math.max(0, econ.stuntFuel), jumps = Math.floor(f * AIR.jumpsPerTank + 1e-6);
+    $('stuntBar').style.width = (f * 100).toFixed(1) + '%'; $('stuntBar').classList.toggle('low', f < 1 / AIR.jumpsPerTank);
+    sb.classList.toggle('empty', f <= 1e-4);
+    const pct = `${Math.round(f * 100)}%・可飛越 ${jumps} 次`; if ($('stuntPct').textContent !== pct) $('stuntPct').textContent = pct;
+    const fill = G.airStation ? '充電格補氣中' : (G.airRegenT > 0 && f < 1 ? '開車中慢慢補' : '');
+    if ($('stuntFill').textContent !== fill) $('stuntFill').textContent = fill;
     const lb = stunts.label(), hint = input.touch ? '' : stunts.mode === 'air' ? 'T 翻轉　A/D 轉向' : stunts.mode === 'wall' ? 'W 往上　A/D 轉向　G 跳離' : stunts.mode === 'under' ? 'W 前進　A/D 左右　G 翻轉落地' : stunts.mode === 'roof' ? 'F 飛下去　邊緣按 G 沿牆開下去' : 'Shift 推進　F 飛越　G 吸附';
     const t = lb ? lb + (hint ? '・' + hint : '') : hint;
     if ($('stuntMode').textContent !== t) $('stuntMode').textContent = t;
@@ -891,7 +941,7 @@ function hud(dt) {
   const sp = $('speedo');
   if (G.state === 'drive' && (G.camMode !== 'cockpit' || input.touch)) {
     sp.hidden = false; $('spd').textContent = Math.round(car.kmh);
-    $('energy').textContent = (car.spec.key === 'gas' ? '油量 ' : '電量 ') + Math.round(car.energy / car.spec.capacity * 100) + '%' + (stunts && input.touch ? `・特技 ${Math.round(econ.stuntFuel * 100)}%` : '');
+    $('energy').textContent = (car.spec.key === 'gas' ? '油量 ' : '電量 ') + Math.round(car.energy / car.spec.capacity * 100) + '%' + (stunts && input.touch ? `・空氣 ${Math.round(econ.stuntFuel * 100)}%（${Math.floor(econ.stuntFuel * AIR.jumpsPerTank + 1e-6)} 次）${G.airStation ? ' 補氣中' : ''}` : '');
   } else sp.hidden = true;
   placeT -= dt;
   if (placeT <= 0 && G.state !== 'room') { placeT = 0.6; const o = {}, e = world.nearestEdge(P.x, P.z, 40, null, o); $('placeRoad').textContent = (e && e.name) || '　'; $('placeDist').textContent = world.districtAt(P.x, P.z) || '臺北市外'; }
@@ -956,7 +1006,7 @@ function toggleBigMap(force) {
 let AUTO = location.hash.includes('autotest') ? { t: 0 } : null;
 function startAuto() { if (!AUTO) AUTO = { t: 0 }; autoSay('啟動'); }
 // 測試用：尖峰時段實測。放一台「通勤車」進車流（跟其他車一樣跟車、等紅燈、排隊），照導航路線開到目的地，量遊戲時間。
-// mode：'gas'（一般車）或 'roadster'（塞住時飛越車陣，同一段路上最多 60 m，每趟最多飛 3 次＝約半箱特技燃料）。
+// mode：'gas'（一般車）或 'roadster'（塞住時飛越車陣，同一段路上最多 60 m，每趟最多飛 3 次＝不到半罐壓縮空氣）。
 window.__tc.startMeasure = (o) => {
   const oo = {}, e = world.nearestEdge(o.from.x, o.from.z, 500, (ed) => ed.cls >= 1 && ed.cls <= 4 && !ed.bridge && !ed.tunnel, oo);
   if (!e || !nav) return null;
@@ -1180,11 +1230,13 @@ function loop(now) {
     if (['walk', 'drive', 'room', 'measure'].includes(st)) G.clock += dt * TIME.scale / 60;
   }
   if (['walk', 'drive', 'room'].includes(st)) hud(dt);
+  if (st === 'drive' || st === 'walk' || mist.n) mist.update(dt, camera, canvas.clientHeight || innerHeight, (x, z, y) => world.groundAt(x, z, y));
   if (input.touch) {
     const drv = st === 'drive' && G.camMode === 'cockpit' && !G.seatAdj;
     const flyingNow = !!(flight && flight.active), busyNow = flyingNow || !!(stunts && stunts.busy);
     const stn = st === 'drive' && !!stunts && !G.seatAdj && !flyingNow;
-    for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (el && el.hidden === stn) el.hidden = !stn; }
+    const airOut = econ.stuntFuel <= 1e-4;
+    for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (el && el.hidden === stn) el.hidden = !stn; if (el) el.classList.toggle('off', airOut || (id === 'btnJump' && econ.stuntFuel < 1 / AIR.jumpsPerTank - 1e-6)); }
     const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone');
     if (dbt) { if (dbt.hidden === showDr) dbt.hidden = !showDr; const lb = flight && flight.active ? '取消飛行' : '無人機'; if (dbt.textContent !== lb) dbt.textContent = lb; }
     for (const id of ['btnMirL', 'btnMirR']) { const el = $(id); if (el && el.hidden === drv) el.hidden = !drv; }

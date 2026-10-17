@@ -90,6 +90,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #toast { position: absolute; left: 50%; top: calc(88px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); background: rgba(10, 13, 16, .9); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; max-width: min(520px, calc(100% - 32px)); box-sizing: border-box; text-align: center; transition: opacity .3s; }
 #help { position: absolute; left: 16px; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font-size: 13px; color: var(--mute); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
 #help kbd { font-family: var(--f-num); color: var(--ink); font-weight: 700; }
+#help { max-width: min(460px, calc(100% - 220px)); box-sizing: border-box; }
 .touch #help { display: none; }
 #osm { position: absolute; right: 8px; bottom: 2px; font-size: 10px; color: rgba(255, 255, 255, .55); pointer-events: auto; }
 #osm a { color: inherit; }
@@ -173,15 +174,22 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #btnMirR { left: 92px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); }
 #btnSeat { left: 162px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); }
 #btnCenter { left: 232px; bottom: calc(252px + env(safe-area-inset-bottom, 0px)); background: rgba(245, 197, 24, .25); }
-/* 飛天跑車：特技燃料、特技按鈕 */
+/* 飛天跑車：壓縮空氣量表、特技按鈕 */
 #stunt { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; font-size: 13px; pointer-events: none; white-space: nowrap; }
 #stunt .lab { color: var(--mute); font-weight: 700; }
 #stunt .bar { width: 96px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.12); overflow: hidden; }
 #stunt .bar i { display: block; height: 100%; width: 100%; background: #6fd3ff; }
 #stunt .bar i.low { background: #ff6b5e; }
+#stunt .bar { position: relative; }
+#stunt .bar::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 11px, rgba(10,12,16,.75) 11px 12px); }   /* 8 格＝可飛越 8 次 */
+#stunt em { font-style: normal; color: #6fd3ff; font-weight: 700; }
+#stunt .gs { font-size: 10.5px; color: var(--mute); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; pointer-events: auto; cursor: help; }
+#stunt.empty { border-color: #ff6b5e; }
+#stunt.empty b { color: #ff6b5e; }
+.sbtn.off { opacity: .35; }
 #stunt b { font-family: var(--f-num); font-variant-numeric: tabular-nums; min-width: 38px; }
 #stunt small { color: var(--mute); }
-/* 手機：特技燃料改顯示在速度表裡（畫面下方已經很擠） */
+/* 手機：壓縮空氣改顯示在速度表裡（畫面下方已經很擠） */
 .touch #stunt { display: none !important; }
 @media (max-width: 560px) {
   .touch #place { max-width: calc(100% - 236px); }
@@ -269,6 +277,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
       <kbd>T</kbd><span>飛天跑車：空中翻轉（落地前要轉正）</span>
       <kbd>G</kbd><span>飛天跑車：吸附大樓外牆／高架橋底（再按一次脫離）</span>
       <kbd>U</kbd><span>無人機飛行系統：升空自動飛到目的地（再按一次取消）</span>
+      <kbd>空氣</kbd><span>特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。開車慢慢補、停電動車充電格快速補、晚上回家補滿（遊戲設定）</span>
       <kbd>V</kbd><span>停車時調整駕駛座（含舒適設定）</span>
       <kbd>M</kbd><span>全市地圖</span>
       <kbd>N B</kbd><span>配樂／引擎聲開關</span>
@@ -277,7 +286,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     <div id="place"><span id="placeRoad"></span><small id="placeDist"></small></div>
     <div id="speedo" hidden><b id="spd">0</b><span>km/h</span><i id="energy"></i></div>
     <canvas id="daa" width="220" height="230" hidden aria-label="無人機避撞面板"></canvas>
-    <div id="stunt" hidden><span class="lab">特技燃料</span><span class="bar"><i id="stuntBar"></i></span><b id="stuntPct">100%</b><small id="stuntMode"></small></div>
+    <div id="stunt" hidden><span class="lab">壓縮空氣</span><span class="bar"><i id="stuntBar"></i></span><b id="stuntPct">100%</b><em id="stuntFill"></em><small id="stuntMode"></small><span class="gs" title="空氣罐容量、可飛幾次、補充方式與價錢都是遊戲設定，Tesla 沒有公布這些數字">遊戲設定</span></div>
     <div id="prompt" hidden></div>
     <div id="toast" hidden></div>
   </div>
