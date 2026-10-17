@@ -105,7 +105,13 @@ export class DemoRunner {
 
   /** 跑一段示範。結束（或中途取消）後回到正常遊戲。 */
   async run(key) {
-    try { await this['_' + key](); this._cleanup(); this.ui.done(true); }
+    try {
+      await this['_' + key]();
+      // 結束時把車停好（飛行中就不管，讓它自己飛完）
+      const { car, flight } = this.T;
+      if (!(flight && flight.active) && Math.abs(car.v) > 0.5) { this.keys('KeyS'); await this.until(() => Math.abs(car.v) < 0.5, 8); }
+      this._cleanup(); this.ui.done(true);
+    }
     catch (e) { this._cleanup(); if (e !== CANCEL) { console.warn('demo', e); this.ui.done(false, e); } }
   }
 
@@ -195,8 +201,8 @@ export class DemoRunner {
     const r = this.mainRoad(); if (r) await this.place(r.x, r.z, r.psi);
     this.cap('全城飛天跑車：車流就位中（快轉）'); this.speed(8); await this.sleep(28); this.speed(1);
     G.cam = 'chase';
-    const base = { x: car.x + car.fwdX * 70, y: car.y, z: car.z + car.fwdZ * 70 }; let th = car.psi + 0.9;
-    this.cam((cam) => { th += 0.0016; cam.up.set(0, 1, 0); cam.position.set(base.x + Math.sin(th) * 95, base.y + 48, base.z + Math.cos(th) * 95); cam.lookAt(base.x, base.y + 2, base.z); });
+    const base = { x: car.x + car.fwdX * 55, y: car.y, z: car.z + car.fwdZ * 55 }; let th = car.psi + 0.9;
+    this.cam((cam) => { th += 0.0016; cam.up.set(0, 1, 0); cam.position.set(base.x + Math.sin(th) * 70, base.y + 30, base.z + Math.cos(th) * 70); cam.lookAt(base.x, base.y + 3, base.z); });
     this.cap('每台車都是飛天跑車：塞住 1.5 秒就飛越車陣（遊戲設定）'); await this.sleep(8);
     this.cap('落地的空位大家搶：飛的時候被占走，就壓在別台車上撞成一團'); await this.sleep(7);
     this.cam(null);

@@ -1,0 +1,33 @@
+// 上線前檢查：一般模式開得動（油車）、新玩法鎖住；存檔有飛天跑車＋無人機系統後解鎖。
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const URL = 'http://localhost:8768/index.html' + (process.argv[2] || '#lowq');
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
+const errs = []; page.on('pageerror', e => errs.push('PAGEERR ' + e.message + ' ' + (e.stack || '').split('\n').slice(1, 3).join(' | ')));
+const ev = (f, a) => page.evaluate(f, a), wait = (ms) => page.waitForTimeout(ms);
+page.setDefaultTimeout(300000);
+const boot = async () => { await page.goto('about:blank'); await page.goto(URL); await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'menu' && window.__tc.drones, null, { timeout: 180000 }); };
+const menu = () => ev(() => ({ modes: [...document.querySelectorAll('#modeOpts button')].map(b => b.textContent.slice(0, 14) + (b.disabled ? '[鎖]' : '')), demos: document.querySelectorAll('#demoOpts button').length, mode: window.__tc.G.mode }));
+await boot();
+await ev(() => { localStorage.clear(); const m = window.__tc.meta, di = 6, home = m.homes[di][0]; const work = m.works.find(w => { const d = Math.hypot(w.x - home.x, w.z - home.z); return d > 3000 && d < 4800; });
+  localStorage.setItem('taipei-commute-v2', JSON.stringify({ v: 2, cfg: { di, home, work }, day: 2, econ: { money: 500000, owned: [], carKey: 'gas' } })); });
+await boot();
+console.log('fresh save (gas car):', JSON.stringify(await menu()));
+await ev(() => { window.__tc.noRender = true; }); await page.click('#btnContinue');
+await page.waitForFunction(() => window.__tc.G.state === 'room', null, { timeout: 200000 });
+await ev(() => { const { P } = window.__tc; P.x = 1.2; P.z = -2.0; }); await wait(400); await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout: 60000 }); await wait(800);
+await ev(() => { const { P, car } = window.__tc; P.x = car.x - Math.cos(car.psi) * 2; P.z = car.z + Math.sin(car.psi) * 2; });
+await wait(600); await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'drive', null, { timeout: 60000 }); await wait(1000);
+await page.keyboard.press('Enter'); await page.waitForFunction(() => !window.__tc.G.seatAdj, null, { timeout: 30000 }); await wait(500);
+const x0 = await ev(() => [window.__tc.car.x, window.__tc.car.z, window.__tc.car.spec.key]);
+await page.keyboard.down('KeyW'); await wait(4000); await page.keyboard.up('KeyW');
+const x1 = await ev(() => [window.__tc.car.x, window.__tc.car.z, window.__tc.car.kmh]);
+console.log('gas car drives:', x0[2], 'moved m', Math.hypot(x1[0] - x0[0], x1[1] - x0[1]).toFixed(1), 'kmh', x1[2].toFixed(0));
+// 買了飛天跑車＋無人機系統的存檔 → 解鎖
+await ev(() => { const sv = JSON.parse(localStorage.getItem('taipei-commute-v2')); sv.econ.owned = ['roadster', 'drone']; sv.econ.carKey = 'roadster'; localStorage.setItem('taipei-commute-v2', JSON.stringify(sv)); });
+await boot();
+console.log('after owning roadster+drone:', JSON.stringify(await menu()), 'flag', await ev(() => localStorage.getItem('taipei-commute-unlock')));
+console.log(errs.slice(0, 6).join('\n') || 'no page errors');
+await browser.close();

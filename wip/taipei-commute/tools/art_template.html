@@ -3,20 +3,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
 <style>
-/* 版面：最上面是一塊綠色路標，下面依序是能力片段、無人機全程、兩個新玩法、比較、試玩。 */
+/* 版面：最上面一塊綠色路標；下面依序是遊戲畫面（示範與試玩共用）、錄好的影片、兩個新玩法、說明。 */
 :root {
-  --sign: #0b6a4e;        /* 指示標誌綠 */
-  --sign-ink: #f4f8f6;
-  --signal: #f2b705;      /* 號誌黃 */
-  --signal-ink: #1d1700;
-  --bg: #edf1ef;
-  --panel: #ffffff;
-  --fg: #17211d;
-  --mute: #56645e;
-  --line: #d2dad6;
-  --a: #c4161c;           /* 全城飛天跑車 */
-  --b: #2b6cb0;           /* 全城無人機 */
-  --base: #7d8a84;
+  --sign: #0b6a4e; --sign-ink: #f4f8f6;
+  --signal: #f2b705; --signal-ink: #1d1700;
+  --bg: #edf1ef; --panel: #ffffff; --fg: #17211d; --mute: #56645e; --line: #d2dad6;
+  --a: #c4161c; --b: #2b6cb0; --base: #7d8a84;
   --tag: #fff3c4; --tag-ink: #5a4500;
   --f-text: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
   --f-num: "Barlow Semi Condensed", "Noto Sans TC", system-ui, sans-serif;
@@ -34,267 +26,149 @@ h1, h2, h3 { text-wrap: balance; margin: 0; }
 p { margin: 0; }
 a { color: inherit; }
 kbd { font: 700 13px/1 var(--f-num); letter-spacing: .04em; background: var(--fg); color: var(--bg); border-radius: 5px; padding: 5px 8px; min-width: 28px; text-align: center; display: inline-block; }
-kbd.off { background: transparent; color: var(--mute); border: 1px dashed var(--line); }
-.tag { display: inline-block; font-size: 12px; font-weight: 700; background: var(--tag); color: var(--tag-ink); border-radius: 4px; padding: 1px 7px; letter-spacing: .02em; vertical-align: 2px; }
-
-/* 路標 */
+.tag { display: inline-block; font-size: 12px; font-weight: 700; background: var(--tag); color: var(--tag-ink); border-radius: 4px; padding: 1px 7px; vertical-align: 2px; }
 .sign { background: var(--sign); color: var(--sign-ink); }
-.sign .wrap { padding-block: 34px 30px; display: grid; gap: 18px; }
-.sign .eyebrow { font: 700 13px/1 var(--f-num); letter-spacing: .14em; opacity: .85; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.sign .wrap { padding-block: 30px 26px; display: grid; gap: 14px; }
+.sign .eyebrow { font: 700 13px/1 var(--f-num); letter-spacing: .14em; opacity: .9; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .sign .eyebrow span { border: 1.5px solid currentColor; border-radius: 4px; padding: 4px 8px; }
-.sign h1 { font-weight: 900; font-size: clamp(34px, 6vw, 60px); line-height: 1.1; letter-spacing: .02em; display: flex; align-items: center; gap: 18px; }
+.sign h1 { font-weight: 900; font-size: clamp(32px, 6vw, 56px); line-height: 1.1; letter-spacing: .02em; display: flex; align-items: center; gap: 16px; }
 .sign h1 .arr { font: 700 .8em/1 var(--f-num); border: 3px solid currentColor; border-radius: 8px; width: 1.2em; height: 1.2em; display: inline-grid; place-items: center; flex: none; }
-.sign .lede { max-width: 62ch; font-size: 17px; opacity: .95; }
-.sign nav { display: flex; flex-wrap: wrap; gap: 8px; }
-.sign nav a { text-decoration: none; font-weight: 700; font-size: 14px; border-radius: 6px; padding: 7px 12px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.28); }
-.sign nav a:hover, .sign nav a:focus-visible { background: rgba(255,255,255,.24); outline: none; }
-.sign nav a.play { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
-
-section { padding-block: 44px 8px; }
-section > .wrap { display: grid; gap: 20px; }
-.sh { display: grid; gap: 8px; max-width: 70ch; }
+.sign .lede { max-width: 64ch; font-size: 16.5px; opacity: .95; }
+section { padding-block: 34px 6px; }
+section > .wrap { display: grid; gap: 18px; }
+section > .wrap, .sign .wrap, footer .wrap { grid-template-columns: minmax(0, 1fr); }
+.sh { display: grid; gap: 6px; max-width: 72ch; }
 .sh .k { font: 700 13px/1 var(--f-num); letter-spacing: .14em; color: var(--mute); text-transform: uppercase; }
-.sh h2 { font-size: clamp(24px, 3.4vw, 32px); font-weight: 900; }
+.sh h2 { font-size: clamp(22px, 3.2vw, 30px); font-weight: 900; }
 .sh p { color: var(--mute); }
 .sh p b { color: var(--fg); }
 
-/* 片段 */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 22px; }
-.clip { margin: 0; display: grid; gap: 10px; min-width: 0; }
-video { width: 100%; max-width: 100%; aspect-ratio: 16 / 9; background: #0c0f0e; border-radius: 8px; display: block; }
-.clip figcaption { display: grid; gap: 6px; }
-.ct { display: flex; align-items: center; gap: 10px; }
-.ct h3 { font-size: 18px; font-weight: 900; }
-.len { margin-left: auto; font: 600 14px/1 var(--f-num); color: var(--mute); }
-.clip p { color: var(--mute); font-size: 15px; }
-.jets { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-.jet { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; }
-.jet b { font: 700 26px/1 var(--f-num); }
-.jet span { font-size: 13px; color: var(--mute); }
-
-/* 大影片＋步驟 */
-.feature { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 26px; align-items: start; }
-@media (max-width: 820px) { .feature { grid-template-columns: 1fr; } }
-.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: s; }
-.steps li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
-.steps li::before { content: counter(s); font: 700 16px/30px var(--f-num); text-align: center; width: 30px; height: 30px; border-radius: 50%; background: var(--sign); color: var(--sign-ink); }
-.steps li b { display: block; }
-.steps li span { color: var(--mute); font-size: 14.5px; }
-.facts { display: flex; flex-wrap: wrap; gap: 10px 22px; padding-top: 6px; }
-.facts div { display: grid; }
-.facts b { font: 700 30px/1.1 var(--f-num); }
-.facts span { font-size: 13px; color: var(--mute); }
-
-/* 玩法 */
-.mode { border-top: 6px solid var(--a); }
-.mode.b { border-top-color: var(--b); }
-.rules { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-.rules li { padding-left: 16px; position: relative; color: var(--mute); font-size: 15px; }
-.rules li::before { content: ""; position: absolute; left: 0; top: .72em; width: 7px; height: 7px; border-radius: 2px; background: var(--a); }
-.mode.b .rules li::before { background: var(--b); }
-.rules li b { color: var(--fg); }
-.verdict { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 8px; }
-.verdict h3 { font-size: 17px; font-weight: 900; }
-.verdict p { font-size: 15px; color: var(--mute); }
-.verdict p b { color: var(--fg); }
-
-/* 比較圖 */
-.chart { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 18px 12px; display: grid; gap: 10px; }
-.chart h3 { font-size: 16px; font-weight: 900; }
-.bar { display: grid; grid-template-columns: minmax(0, 210px) minmax(0, 1fr) 70px; gap: 12px; align-items: center; }
-.bl { display: grid; line-height: 1.3; min-width: 0; }
-.bl .w { font-size: 12px; color: var(--mute); }
-.bl b { font-size: 14.5px; }
-.bt { height: 18px; background: color-mix(in srgb, var(--line) 55%, transparent); border-radius: 3px; overflow: hidden; }
-.bt i { display: block; height: 100%; background: var(--base); border-radius: 3px; }
-.bar.a .bt i { background: var(--a); } .bar.b .bt i { background: var(--b); }
-.bv { font: 600 14px/1 var(--f-num); color: var(--mute); text-align: right; font-variant-numeric: tabular-nums; }
-.bv b { font: 700 22px/1 var(--f-num); color: var(--fg); }
-@media (max-width: 560px) { .bar { grid-template-columns: 1fr 58px; } .bl { grid-column: 1 / -1; } }
-.note { font-size: 13.5px; color: var(--mute); max-width: 80ch; }
-details { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
-summary { cursor: pointer; padding: 12px 16px; font-weight: 700; }
-summary:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
-.tbl { overflow-x: auto; padding: 0 16px 14px; }
-table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 14px; }
-th, td { padding: 8px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
-th { font-size: 12px; color: var(--mute); font-weight: 700; }
-td span { display: block; color: var(--mute); font-size: 12.5px; }
-td.n, th.n { text-align: right; font: 600 16px/1.3 var(--f-num); font-variant-numeric: tabular-nums; }
-th.n { font: 700 12px/1.3 var(--f-text); }
-td.a { color: var(--a); } td.b { color: var(--b); }
-
-/* 試玩 */
-.play { display: grid; gap: 14px; }
+/* 遊戲畫面＋示範清單 */
+.player { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .player { grid-template-columns: minmax(0, 1fr); } }
 .stage { position: relative; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; background: #0c0f0e; border-radius: 10px; overflow: hidden; display: grid; place-items: center; }
 .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.stage .start { display: grid; gap: 12px; justify-items: center; color: #e9efec; text-align: center; padding: 20px; }
-.btn { font: 900 18px/1 var(--f-text); background: var(--signal); color: var(--signal-ink); border: 0; border-radius: 8px; padding: 14px 22px; cursor: pointer; text-decoration: none; display: inline-block; }
-.btn:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
-.btn.ghost { background: transparent; color: var(--fg); border: 1.5px solid var(--line); font-size: 15px; padding: 10px 14px; }
-.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 6px 18px; font-size: 14px; color: var(--mute); }
-.keys div { display: flex; gap: 10px; align-items: center; }
-footer { padding-block: 40px 50px; }
+.stage .idle { display: grid; gap: 10px; justify-items: center; color: #e9efec; text-align: center; padding: 20px; max-width: 46ch; }
+.stage .idle b { font-size: 20px; font-weight: 900; }
+.stage .idle span { font-size: 14px; opacity: .8; }
+.list { display: grid; gap: 6px; }
+.list h3 { font-size: 13px; color: var(--mute); font-weight: 700; letter-spacing: .06em; margin-top: 6px; }
+.dbtn { text-align: left; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: grid; gap: 1px; cursor: pointer; font: inherit; }
+.dbtn b { font-size: 15px; }
+.dbtn span { font-size: 12.5px; color: var(--mute); line-height: 1.45; }
+.dbtn:hover { border-color: var(--sign); }
+.dbtn:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.dbtn.on { border-color: var(--sign); box-shadow: inset 4px 0 0 var(--sign); }
+.dbtn.a.on { box-shadow: inset 4px 0 0 var(--a); } .dbtn.b.on { box-shadow: inset 4px 0 0 var(--b); }
+.dbtn.play { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
+.dbtn.play span { color: var(--signal-ink); opacity: .8; }
+.row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; font-size: 14px; color: var(--mute); }
+.row a { font-weight: 700; color: var(--fg); }
+.keys { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13.5px; color: var(--mute); }
+.keys div { display: flex; gap: 8px; align-items: center; }
+
+/* 影片 */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 20px; }
+.clip { margin: 0; display: grid; gap: 8px; min-width: 0; }
+video { width: 100%; max-width: 100%; aspect-ratio: 16 / 9; background: #0c0f0e; border-radius: 8px; display: block; }
+.clip figcaption { display: grid; gap: 4px; }
+.clip h3 { font-size: 17px; font-weight: 900; display: flex; gap: 10px; align-items: center; }
+.clip p { color: var(--mute); font-size: 14.5px; }
+
+/* 新玩法 */
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; }
+.mode { background: var(--panel); border: 1px solid var(--line); border-top: 6px solid var(--a); border-radius: 10px; padding: 18px; display: grid; gap: 12px; align-content: start; }
+.mode.b { border-top-color: var(--b); }
+.mode h3 { font-size: 20px; font-weight: 900; }
+.rules { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.rules li { padding-left: 16px; position: relative; color: var(--mute); font-size: 14.5px; }
+.rules li::before { content: ""; position: absolute; left: 0; top: .7em; width: 7px; height: 7px; border-radius: 2px; background: var(--a); }
+.mode.b .rules li::before { background: var(--b); }
+.rules li b { color: var(--fg); }
+.res { display: grid; gap: 7px; border-top: 1px solid var(--line); padding-top: 12px; }
+.res h4 { margin: 0; font-size: 14px; }
+.bar { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr) 58px; gap: 10px; align-items: center; font-size: 13.5px; }
+.bt { height: 14px; background: color-mix(in srgb, var(--line) 60%, transparent); border-radius: 3px; overflow: hidden; }
+.bt i { display: block; height: 100%; background: var(--base); }
+.bar.a .bt i { background: var(--a); } .bar.b .bt i { background: var(--b); }
+.bv { font: 700 18px/1 var(--f-num); text-align: right; font-variant-numeric: tabular-nums; }
+.bv small { font: 500 12px var(--f-text); color: var(--mute); }
+.res p { font-size: 13.5px; color: var(--mute); }
+.res p b { color: var(--fg); }
+footer { padding-block: 36px 48px; }
 footer .wrap { display: grid; gap: 10px; }
-footer h2 { font-size: 18px; font-weight: 900; }
+footer h2 { font-size: 17px; font-weight: 900; }
 footer ul { margin: 0; padding-left: 20px; color: var(--mute); font-size: 14px; display: grid; gap: 6px; max-width: 86ch; }
-@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 </style>
 
 <header class="sign">
   <div class="wrap">
-    <div class="eyebrow"><span>TAIPEI COMMUTE</span>試看版・線上版還沒更新</div>
+    <div class="eyebrow"><span>TAIPEI COMMUTE</span>試看版：兩個新玩法直接開放</div>
     <h1><span class="arr" aria-hidden="true">↑</span>台北上班路 飛行篇</h1>
-    <p class="lede">飛天跑車的每一項能力、進入無人機系統一路飛到公司的全程，還有兩個新玩法：全城都是飛天跑車、全城都在無人機系統裡飛。影片全是遊戲畫面一格一格錄下來的，快轉的段落畫面上有標示倍數。</p>
-    <nav aria-label="頁內導覽">
-      <a href="#abilities">飛天跑車的能力</a><a href="#drone">無人機全程</a><a href="#allfly">全城飛天跑車</a><a href="#alldrone">全城無人機</a><a href="#compare">誰比較快</a><a class="play" href="#play">試玩</a>
-    </nav>
+    <p class="lede">飛天跑車的各項能力、無人機系統、兩個新玩法，都可以從「看示範」清單點開：遊戲自己開給你看，畫面是你的瀏覽器即時跑出來的，看完可以直接接手。</p>
   </div>
 </header>
 
-<section id="abilities">
+<section id="watch">
   <div class="wrap">
-    <div class="sh">
-      <span class="k">Roadster</span>
-      <h2>飛天跑車的能力</h2>
-      <p>噴嘴有 <b>5 個方向、10 個</b>，依動作自動噴，不用另外操作。白霧就是噴出來的壓縮空氣。空氣罐滿罐可以飛越 <b>8 次</b>，怎麼補也是遊戲自己定的 <span class="tag">遊戲設定</span>（Tesla 沒有公布這些數字）。</p>
+    <div class="player">
+      <div style="display:grid;gap:10px;min-width:0">
+        <div class="stage" id="stage">
+          <div class="idle"><b>從示範清單選一段</b><span>第一次會載入台北的地圖資料（約 40 MB），要等一下。示範中按 Esc 或「結束示範」回到選單。</span></div>
+        </div>
+        <div class="keys" aria-label="操作">
+          <div><kbd>WASD</kbd>開車</div><div><kbd>Shift</kbd>推進器</div><div><kbd>F</kbd>飛越</div><div><kbd>T</kbd>翻轉</div><div><kbd>G</kbd>吸附</div><div><kbd>U</kbd>無人機系統</div><div><kbd>C</kbd>視角</div>
+        </div>
+        <div class="row"><a href="game/index.html" target="_blank" rel="noopener">在新分頁開遊戲（畫面比較大）</a><span>點一下遊戲畫面才能用鍵盤操作</span></div>
+      </div>
+      <div class="list" role="group" aria-label="示範清單">
+{{DEMO_BUTTONS}}
+      </div>
     </div>
-    <div class="jets" aria-label="噴嘴配置">
-      <div class="jet"><b>2</b><span>車尾：推進器、往前飛</span></div>
-      <div class="jet"><b>4</b><span>車底：升空、落地前減速</span></div>
-      <div class="jet"><b>1＋1</b><span>左右兩側：翻轉、轉向</span></div>
-      <div class="jet"><b>2</b><span>車頭：空中煞車</span></div>
-    </div>
+  </div>
+</section>
+
+<section id="clips">
+  <div class="wrap">
+    <div class="sh"><span class="k">Recorded</span><h2>錄好的片段</h2><p>這兩段是遊戲畫面一格一格錄下來的。噴嘴有 5 個方向、10 個，依動作自動噴，白霧就是噴出來的壓縮空氣 <span class="tag">遊戲設定</span></p></div>
     <div class="grid">
-{{CARDS}}
+      <figure class="clip"><video src="clips/boost.mp4" poster="clips/boost.jpg" controls muted loop playsinline preload="none"></video>
+        <figcaption><h3><kbd>Shift</kbd>推進器</h3><p>約 1 秒從 0 加速到 100 km/h，車尾 2 個噴嘴往後噴。</p></figcaption></figure>
+      <figure class="clip"><video src="clips/flip.mp4" poster="clips/flip.jpg" controls muted loop playsinline preload="none"></video>
+        <figcaption><h3><kbd>T</kbd>空中翻轉</h3><p>飛越途中翻一圈，左右兩側噴嘴輪流噴。落地前要轉正，太晚翻會翻車、要付修車費。</p></figcaption></figure>
     </div>
   </div>
 </section>
 
-<section id="drone">
+<section id="modes">
   <div class="wrap">
-    <div class="sh">
-      <span class="k">Drone system</span>
-      <h2>進入無人機系統，飛到公司的全程</h2>
-      <p>從大安區的家門口出發，飛到直線 {{DR_KM}} 公里外的{{DR_WORK}}。全程 {{DRONE_SEC}} 秒，升空、巡航、下降的段落有快轉。</p>
-    </div>
-    <div class="feature">
-      <figure class="clip" style="margin:0"><video src="clips/drone.mp4" poster="clips/drone.jpg" controls muted playsinline preload="none"></video></figure>
-      <div style="display:grid;gap:14px">
-        <ol class="steps">
-          <li><div><b>按 U，旋翼翻出來</b><span>四組旋翼平常收在車身裡，外觀還是一台車。</span></div></li>
-          <li><div><b>垂直升空</b><span>選路線附近別架最少的高度層（130／150／170 m）。</span></div></li>
-          <li><div><b>巡航、自動避撞</b><span>右下角是避撞面板：綠色是可以飛的方向，紅色會跟別架靠太近。做法參考 NASA DAIDALUS 的公開概念，自己寫的簡化版。</span></div></li>
-          <li><div><b>到降落點上方</b><span>降落點下面有車，就停在空中等，等的時間也算燃料費。</span></div></li>
-          <li><div><b>降落，旋翼收回</b><span>停在公司附近的路上，接著找車位停好。</span></div></li>
-        </ol>
-        <div class="facts">
-          <div><b>{{DR_FLY}} 分</b><span>這趟飛行（遊戲時間）</span></div>
-          <div><b>{{DR_WAIT}} 分</b><span>空中等待</span></div>
-          <div><b>{{DR_COST}} 元</b><span>燃料費</span></div>
+    <div class="sh"><span class="k">New modes</span><h2>兩個新玩法：主角怎麼到公司</h2><p>選單的「玩法」可以切換，各有自己的存檔。線上版要先在一般模式買了飛天跑車和無人機飛行系統才解鎖；這個試看版直接開放。</p></div>
+    <div class="modes">
+      <div class="mode">
+        <h3>全城飛天跑車</h3>
+        <ul class="rules">
+          <li><b>每台車都會飛越。</b>塞住 1.5 秒就升空飛越車陣，落地後 8 秒內不再飛 <span class="tag">遊戲設定</span></li>
+          <li><b>落地要搶空位。</b>起飛時看好的空位，飛的 2～3 秒裡可能被別台占走，就壓在上面撞成一團，兩台停 7 秒。</li>
+          <li><b>主角的辦法。</b>一樣能飛越（空氣罐 8 次），也能開上屋頂、鑽到高架橋底，避開地面的混亂。</li>
+        </ul>
+        <div class="res">
+          <h4>實測：到公司的時間（{{NPAIRS}} 組住家→公司的中位數，遊戲分鐘）</h4>
+{{BARS_A}}
+          <p>每 100 次飛越約有 <b>{{A_CRASH}} 次</b>落地壓到別台；{{A_N}} 趟裡有 {{A_WRECKED}} 趟主角自己被壓到。大家都會飛，不一定比較快。</p>
         </div>
       </div>
-    </div>
-  </div>
-</section>
-
-<section id="allfly" class="mode a">
-  <div class="wrap">
-    <div class="sh">
-      <span class="k">New mode A</span>
-      <h2>新玩法：全城飛天跑車</h2>
-      <p>路上每一台車都是飛天跑車，你也是。主角要怎麼準時到公司？</p>
-    </div>
-    <div class="feature">
-      <figure class="clip" style="margin:0"><video src="clips/mode_allfly.mp4" poster="clips/mode_allfly.jpg" controls muted playsinline preload="none"></video></figure>
-      <ul class="rules">
-        <li><b>大家都會飛越。</b>塞住 1.5 秒就升空飛越車陣，落地後 8 秒內不會再飛 <span class="tag">遊戲設定</span></li>
-        <li><b>落地要搶空位。</b>起飛時看好的空位，飛的 2～3 秒裡可能被別台開進來，就壓在上面撞成一團，兩台都停住 7 秒。</li>
-        <li><b>你的辦法。</b>一樣能飛越（空氣罐 8 次），也能開上大樓屋頂、鑽到高架橋底，避開地面的混亂。</li>
-      </ul>
-    </div>
-    <div class="verdict">
-      <h3>實測：大家都飛，反而不一定比較快</h3>
-      <p>同樣 {{A_N}} 組住家→公司，主角開飛天跑車的中位數是 <b>{{MED_A}} 分鐘</b>；一般世界裡開飛天跑車是 <b>{{MED_RD}} 分鐘</b>、開油車 <b>{{MED_GAS}} 分鐘</b>。每 100 次飛越約有 <b>{{A_CRASH}} 次</b>落地壓到別台，路口常常卡著撞成一團的車；{{A_N}} 趟裡有 {{A_WRECKED}} 趟主角自己被壓到。</p>
-    </div>
-  </div>
-</section>
-
-<section id="alldrone" class="mode b">
-  <div class="wrap">
-    <div class="sh">
-      <span class="k">New mode B</span>
-      <h2>新玩法：全城無人機</h2>
-      <p>每一台車都進入無人機系統。路上幾乎沒有車，天上擠滿會飛的車。主角要飛，還是在空蕩蕩的路上開？</p>
-    </div>
-    <div class="feature">
-      <figure class="clip" style="margin:0"><video src="clips/mode_alldrone.mp4" poster="clips/mode_alldrone.jpg" controls muted playsinline preload="none"></video></figure>
-      <ul class="rules">
-        <li><b>天上有多少架。</b>你附近 1.3 公里內的路網，尖峰時有多少車，天上就有多少架；實測時大約 {{SKY_MIN}}～{{SKY_MAX}} 架。全市約 7.4 萬台，這裡只模擬你附近的一塊。</li>
-        <li><b>6 個高度層。</b>90～190 m，依航向分層（每 60 度一層），同一層的車大致同方向飛；同一層跟前車保持 80 m <span class="tag">遊戲設定</span></li>
-        <li><b>穿過別的高度層。</b>起降時要穿過下面幾層。先向系統登記一根「空中柱子」，那一層的車繞開讓出空檔，你再穿過去 <span class="tag">遊戲設定</span></li>
-      </ul>
-    </div>
-    <div class="verdict">
-      <h3>實測：還是飛比較快，但天上也會塞</h3>
-      <p>在空的路上開，中位數 <b>{{MED_BD}} 分鐘</b>（只剩紅綠燈）；跟著大家飛是 <b>{{MED_BF}} 分鐘</b>，跟一般世界的無人機系統（{{MED_DR}} 分鐘）差不多。空中跟車變慢的時間中位數 {{BF_JAM}} 分鐘，等各層讓出空檔 {{BF_WAIT}} 分鐘，燃料費約 {{BF_COST}} 萬元。</p>
-    </div>
-  </div>
-</section>
-
-<section id="compare">
-  <div class="wrap">
-    <div class="sh">
-      <span class="k">Commute time</span>
-      <h2>到公司要多久</h2>
-      <p>同樣 {{NPAIRS}} 組住家→公司（直線 3～4.5 公里，早上尖峰），每種走法跑一次，取中位數。單位是遊戲時間：遊戲裡的時鐘比現實快 6 倍。</p>
-    </div>
-    <div class="chart" role="img" aria-label="各種走法到公司的時間中位數">
-      <h3>中位數（遊戲分鐘）</h3>
-{{BARS}}
-    </div>
-    <details>
-      <summary>每一組的結果</summary>
-      <div class="tbl">
-        <table>
-          <thead><tr><th>住家 → 公司</th><th class="n">直線 km</th><th class="n">一般・油車</th><th class="n">一般・飛天跑車</th><th class="n">一般・無人機</th><th class="n">全城飛天跑車</th><th class="n">全城無人機・開</th><th class="n">全城無人機・飛</th></tr></thead>
-          <tbody>
-{{ROWS}}
-          </tbody>
-        </table>
-      </div>
-    </details>
-    <p class="note">「一般世界」的三欄是之前定價格時量的；兩個新玩法用同樣的住家、公司和量法重跑。開車的時間是放一台照導航路線開的車在車流裡（跟車、等紅燈、排隊），開到公司 300 m 內為止；飛的時間從按 U 到降落。每組只跑一次，單趟差很多（例如有一趟被落地的車壓到），所以看中位數。</p>
-  </div>
-</section>
-
-<section id="play">
-  <div class="wrap">
-    <div class="sh">
-      <span class="k">Play</span>
-      <h2>試玩</h2>
-      <p>選單最上面多了「玩法」：一般、全城飛天跑車、全城無人機，三種世界各有自己的存檔。這個試玩版也修正了線上版進駕駛座後車子開不動的問題。</p>
-    </div>
-    <div class="play">
-      <div class="stage" id="stage">
-        <div class="start" id="startBox">
-          <button class="btn" id="btnPlay" type="button">在這裡開始玩</button>
-          <span style="font-size:14px;opacity:.8">第一次載入台北的地圖資料約 40 MB，需要一點時間</span>
+      <div class="mode b">
+        <h3>全城無人機</h3>
+        <ul class="rules">
+          <li><b>天上有多少架。</b>你附近 1.3 公里內的路網尖峰時有多少車，天上就有多少架（實測時約 {{SKY_MIN}}～{{SKY_MAX}} 架）。全市約 7.4 萬台，只模擬你附近的一塊。</li>
+          <li><b>6 個高度層。</b>90～190 m，依航向分層，同一層的車大致同方向飛，跟前車保持 80 m <span class="tag">遊戲設定</span></li>
+          <li><b>穿過別的高度層。</b>起降要穿過下面幾層：先向系統登記一根「空中柱子」，那一層的車繞開讓出空檔 <span class="tag">遊戲設定</span></li>
+        </ul>
+        <div class="res">
+          <h4>實測：到公司的時間（{{NPAIRS}} 組住家→公司的中位數，遊戲分鐘）</h4>
+{{BARS_B}}
+          <p>路上沒車，開車只剩紅綠燈；但飛還是快很多。天上也會塞：同一層跟車變慢的時間中位數 {{BF_JAM}} 分鐘，等各層讓出空檔 {{BF_WAIT}} 分鐘。</p>
         </div>
-      </div>
-      <div class="row">
-        <a class="btn ghost" href="game/index.html" target="_blank" rel="noopener">在新分頁開（畫面比較大）</a>
-      </div>
-      <div class="keys" aria-label="操作">
-        <div><kbd>W A S D</kbd>油門、煞車、方向盤</div>
-        <div><kbd>Shift</kbd>推進器</div>
-        <div><kbd>F</kbd>飛越車陣</div>
-        <div><kbd>T</kbd>空中翻轉</div>
-        <div><kbd>G</kbd>吸附外牆／高架橋底</div>
-        <div><kbd>U</kbd>無人機飛行系統</div>
-        <div><kbd>C</kbd>駕駛座／車外視角</div>
-        <div><kbd>H</kbd>完整說明</div>
       </div>
     </div>
   </div>
@@ -304,9 +178,9 @@ footer ul { margin: 0; padding-left: 20px; color: var(--mute); font-size: 14px; 
   <div class="wrap">
     <h2>這些數字怎麼來的</h2>
     <ul>
-      <li>所有時間、距離都是遊戲模擬跑出來的，不是現實的預測。車流密度依道路等級估算，尖峰時段乘 1.8 倍。</li>
-      <li>空氣罐容量、補氣方式、噴嘴配置、無人機高度層、跟車距離、讓出空檔的規則都是遊戲設定；Tesla 沒有公布飛天跑車的這些規格。</li>
-      <li>無人機避撞參考 NASA DAIDALUS 的公開概念（水平 70 m、垂直 18 m 的安全距離），是自己寫的簡化版，不是它的原始程式碼。</li>
+      <li>時間都是遊戲模擬跑出來的（遊戲時鐘比現實快 6 倍），不是現實的預測。同一組住家和公司，每種走法各跑一次，只跑了 {{NPAIRS}} 組，單趟差很多，所以看中位數。</li>
+      <li>開車：放一台照導航路線開的車在車流裡（跟車、等紅燈、排隊），開到公司 300 m 內為止。飛：從按 U 到降落。一般世界的數字是之前定價格時量的。</li>
+      <li>空氣罐容量、補氣方式、噴嘴配置、無人機高度層、跟車距離、讓出空檔的規則都是遊戲設定；Tesla 沒有公布飛天跑車的這些規格。無人機避撞參考 NASA DAIDALUS 的公開概念，是自己寫的簡化版。</li>
       <li>地圖資料 © OpenStreetMap 貢獻者；地形：內政部 20 公尺網格數值地形模型（政府資料開放授權條款第 1 版）；人物：Quaternius（CC0）。</li>
     </ul>
   </div>
@@ -314,13 +188,14 @@ footer ul { margin: 0; padding-left: 20px; color: var(--mute); font-size: 14px; 
 
 <script>
 (() => {
-  const btn = document.getElementById('btnPlay'), stage = document.getElementById('stage');
-  btn.addEventListener('click', () => {
+  const stage = document.getElementById('stage'), btns = [...document.querySelectorAll('.dbtn')];
+  for (const b of btns) b.addEventListener('click', () => {
+    for (const o of btns) o.classList.toggle('on', o === b);
     const f = document.createElement('iframe');
-    f.src = 'game/index.html'; f.title = '台北上班路'; f.allow = 'fullscreen; autoplay';
+    f.src = 'game/index.html' + (b.dataset.demo ? '#demo-' + b.dataset.demo : '');
+    f.title = '台北上班路'; f.allow = 'fullscreen; autoplay';
     stage.replaceChildren(f); f.focus();
   });
-  // 一次只播一支影片
   const vids = [...document.querySelectorAll('video')];
   for (const v of vids) v.addEventListener('play', () => { for (const o of vids) if (o !== v && !o.paused) o.pause(); });
 })();

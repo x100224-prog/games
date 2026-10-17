@@ -15,13 +15,13 @@ console.log('demo buttons', await ev(() => [...document.querySelectorAll('#demoO
 await page.screenshot({ path: 'shots/demo_menu.png' });
 for (const key of KEYS) {
   const t0 = Date.now(), caps = [];
-  await ev((k) => window.__tc.startDemo(k), key);
+  await ev((k) => { window.__tc.noRender = true; window.__tc.startDemo(k); }, key);
   let done = false, shots = 0, lastCap = '';
   for (let i = 0; i < 400 && !done; i++) {
-    await wait(1500);
+    await wait(700);
     const s = await ev(() => ({ cap: document.getElementById('demoCap').textContent, st: window.__tc.G.state, mode: window.__tc.stunts && window.__tc.stunts.mode, fl: window.__tc.flight && window.__tc.flight.phase, kmh: window.__tc.car ? Math.round(window.__tc.car.kmh) : 0, spd: window.__tc.steps }));
     if (s.cap !== lastCap) { caps.push(`${((Date.now() - t0) / 1000).toFixed(0)}s ${s.cap} [${s.mode}/${s.fl} ${s.kmh}km/h x${s.spd}]`); lastCap = s.cap;
-      if (shots < 4 && !/載入/.test(s.cap)) { await page.screenshot({ path: `shots/demo_${key}_${shots++}.png` }); } }
+      if (shots < 4 && !/載入/.test(s.cap)) { await ev(() => { window.__tc.noRender = false; }); await wait(1200); await page.screenshot({ path: `shots/demo_${key}_${shots++}.png` }); await ev(() => { window.__tc.noRender = true; }); } }
     done = /示範結束|示範中斷/.test(s.cap);
   }
   console.log(`== ${key}: ${done ? 'done' : 'NOT DONE'} in ${((Date.now() - t0) / 1000).toFixed(0)} s`);

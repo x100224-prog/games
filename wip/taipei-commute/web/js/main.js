@@ -19,7 +19,7 @@ import { DroneTraffic, DroneFlight, DRONE } from './drone.js';
 import { DenseSky, SKY } from './sky.js';
 import { DemoRunner, DEMOS } from './demo.js';
 import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES } from './economy.js';
-import { VIEW, TIME, PARK, WORK_DIST, RUSH } from './config.js';
+import { VIEW, TIME, PARK, WORK_DIST, RUSH, FEATURES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 // 目前已經做好、可以買的項目（其他的會顯示「製作中」）
@@ -148,6 +148,18 @@ const G = {
   homeCar: null, route: null, routePoly: null, routeIdx: 0,
   mode: (() => { const h = location.hash.match(/mode=(\w+)/); if (h && GAME_MODES[h[1]]) return h[1]; try { const m = localStorage.getItem('taipei-commute-mode'); if (m && GAME_MODES[m]) return m; } catch (err) { /* ignore */ } return 'normal'; })(),
 };
+/** 新玩法解鎖了沒：一般模式擁有飛天跑車＋無人機飛行系統（買到時記下來，之後開新遊戲也不會再鎖）。 */
+const UNLOCK_KEY = 'taipei-commute-unlock';
+function modesUnlocked() {
+  if (FEATURES.unlockModes) return true;
+  try {
+    if (localStorage.getItem(UNLOCK_KEY) === '1') return true;
+    const sv = JSON.parse(localStorage.getItem(GAME_MODES.normal.save) || 'null'), o = (sv && sv.econ && sv.econ.owned) || [];
+    if (o.includes('roadster') && o.includes('drone')) { localStorage.setItem(UNLOCK_KEY, '1'); return true; }
+  } catch (err) { /* ignore */ }
+  return false;
+}
+if (G.mode !== 'normal' && !modesUnlocked()) G.mode = 'normal';
 store.setMode(G.mode);
 const P = { x: 0, y: 0, z: 0, yaw: 0, speed: 0, inRoom: false };
 let world, parking, traffic, signs, car, cockpit, avatar, tp, meta, nav = null, stunts = null, drones = null, flight = null, statics = [];
@@ -265,9 +277,12 @@ function buildMenu() {
 // 玩法：一般／全城飛天跑車／全城無人機（各自的存檔）
 function renderModes() {
   const box = $('modeOpts'); if (!box) return; box.innerHTML = '';
+  const open = modesUnlocked();
   for (const M of Object.values(GAME_MODES)) {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'opt mode' + (G.mode === M.key ? ' on' : '');
-    b.innerHTML = `<b>${M.name}</b><span class="sub">${M.desc}</span>`;
+    const locked = M.key !== 'normal' && !open;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'opt mode' + (G.mode === M.key ? ' on' : '') + (locked ? ' locked' : '');
+    b.innerHTML = `<b>${M.name}${locked ? '　（未解鎖）' : ''}</b><span class="sub">${locked ? '在一般模式買了飛天跑車和無人機飛行系統後解鎖。' : M.desc}</span>`;
+    if (locked) { b.disabled = true; box.appendChild(b); continue; }
     b.onclick = () => { G.mode = M.key; try { localStorage.setItem('taipei-commute-mode', M.key); } catch (err) { /* ignore */ } store.setMode(M.key); renderModes(); refreshContinue(); };
     box.appendChild(b);
   }
@@ -279,7 +294,9 @@ function renderModes() {
 let demo = null;
 function renderDemos() {
   const box = $('demoOpts'); if (!box) return; box.innerHTML = '';
+  const open = modesUnlocked();
   for (const D of DEMOS) {
+    if (D.mode && !open) continue;   // 新玩法的示範：解鎖後才出現
     const b = document.createElement('button'); b.type = 'button'; b.className = 'opt demo';
     b.innerHTML = `<b>${D.name}</b><span class="sub">${D.sub}</span>`;
     b.onclick = () => startDemo(D.key);
@@ -292,7 +309,7 @@ function demoCfg(near) {
   return { di, home, work: (ws[0] || { w: meta.works[0] }).w };
 }
 function startDemo(key) {
-  const D = DEMOS.find(d => d.key === key); if (!D) return;
+  const D = DEMOS.find(d => d.key === key); if (!D || (D.mode && !modesUnlocked())) return;
   if (!nav || !droneCity) { $('demoCap').hidden = false; $('demoCap').textContent = '載入路網中…'; setTimeout(() => startDemo(key), 500); return; }
   G.demo = { key, prevMode: G.demo ? G.demo.prevMode : G.mode };
   G.mode = D.mode || 'normal';
@@ -433,7 +450,7 @@ function toMenu() {
   input.enabled = false; input.releaseLock(); engine.shutdown();
   G.state = 'menu'; $('hud').hidden = true; $('menu').hidden = false; $('touch').hidden = true;
   destBeacon.visible = carBeacon.visible = false; bayMarks.count = 0; routeLine.visible = false;
-  traffic.clear(); refreshContinue();
+  traffic.clear(); refreshContinue(); renderModes(); renderDemos();
 }
 /** 公司附近的路邊停車：早上 110 m 內都停滿了，110～260 m 至少留 3 個空格（電動車可以停停車場的電動車格，比較近）。 */
 function workParking() {
@@ -441,7 +458,10 @@ function workParking() {
   if (G.leg === 'am') { parking.rushNear(w.x, w.z, PARK.rushR); parking.ensureFreeNear(w.x, w.z, 3, PARK.rushR); }
   else parking.ensureFreeNear(w.x, w.z, 3);
 }
-function save() { if (G.demo) return; store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft }); }
+function save() {
+  if (G.demo) return;
+  if (G.mode === 'normal' && econ.has('roadster') && econ.has('drone')) { try { localStorage.setItem(UNLOCK_KEY, '1'); } catch (err) { /* ignore */ } }
+  store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft }); }
 
 // ===================================================================== 每日流程
 function startDay() {
