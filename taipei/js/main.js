@@ -122,7 +122,7 @@ const room = buildRoom();
 
 // ===================================================================== 狀態
 const input = new Input(canvas, $('touch'));
-const music = new Music({ key: 'taipei-music', rapUrl: null });
+const music = new Music({ key: 'taipei-music', rapUrl: null, cyberUrl: 'audio/cyber.mp3' });
 for (const [id, code] of [['btnMirL', 'KeyZ'], ['btnMirR', 'KeyX']]) {
   const el = $(id); if (!el) continue;
   el.addEventListener('touchstart', (e) => { input.keys.add(code); e.preventDefault(); }, { passive: false });
