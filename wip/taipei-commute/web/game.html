@@ -105,6 +105,28 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #tipRows { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 14px; line-height: 1.5; }
 #tipRows kbd { font-family: var(--f-num); font-weight: 700; color: #fff; white-space: nowrap; }
 #tipOk { justify-self: end; background: var(--signal, #f5c518); color: #1d1700; border: 0; border-radius: 6px; padding: 7px 16px; font-weight: 900; cursor: pointer; }
+/* 路空總控：按 U 時的評估卡（右上，不擋擋風玻璃中間） */
+#ctlCard { position: absolute; right: 16px; top: calc(244px + env(safe-area-inset-top, 0px)); z-index: 34; width: min(410px, calc(100% - 32px)); box-sizing: border-box; background: rgba(10, 13, 16, .9); border: 1px solid rgba(111, 211, 255, .55); border-radius: 10px; padding: 10px 13px; display: grid; gap: 6px; color: #e8eef0; pointer-events: none; }
+#ctlCard h3 { margin: 0; font-size: 14px; color: #6fd3ff; letter-spacing: .04em; }
+#ctlRows { display: grid; gap: 5px; }
+#ctlRows .row { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 2px 9px; padding: 5px 8px; border-radius: 7px; background: rgba(255, 255, 255, .05); }
+#ctlRows .row.win { background: rgba(63, 208, 138, .16); outline: 1px solid rgba(63, 208, 138, .5); }
+#ctlRows b { font-size: 14px; }
+#ctlRows em { font-style: normal; font-family: var(--f-num); font-weight: 900; font-size: 18px; color: #fff; white-space: nowrap; }
+#ctlRows span { grid-column: 1 / -1; font-size: 12px; line-height: 1.45; color: #b9c5cc; }
+#ctlVerdict { margin: 0; font-weight: 900; font-size: 14px; line-height: 1.45; }
+#ctlVerdict.ok { color: #3fd08a; }
+#ctlVerdict.no { color: #ffd27a; }
+#ctlNote { font-size: 11px; color: #8b96a1; line-height: 1.4; }
+/* 手機：精簡版（只留兩個時間和建議），放在「⋯」下面，不蓋到油門、煞車 */
+.touch #ctlCard { top: calc(232px + env(safe-area-inset-top, 0px)); left: 16px; right: 16px; width: auto; padding: 8px 10px; gap: 5px; }
+.touch #ctlRows { grid-template-columns: 1fr 1fr; }
+.touch #ctlRows .row { grid-template-columns: auto auto; justify-content: start; }
+.touch #ctlRows span, .touch #ctlNote { display: none; }
+.touch #ctlVerdict { font-size: 12.5px; }
+@media (max-height: 500px) { .touch #ctlCard { top: calc(12px + env(safe-area-inset-top, 0px)); left: 16px; right: auto; width: min(380px, 46%); } }
+@media (max-height: 640px) { #ctlCard { top: calc(10px + env(safe-area-inset-top, 0px)); right: 16px; width: min(400px, 46%); padding: 7px 10px; gap: 4px; } #ctlRows span { font-size: 11px; } #ctlNote { display: none; } #ctlRows em { font-size: 15px; } }
+@media (max-width: 700px) { #ctlCard { left: 16px; right: 16px; width: auto; top: calc(186px + env(safe-area-inset-top, 0px)); padding: 8px 10px; } #ctlRows span { font-size: 11px; } #ctlNote { display: none; } }
 #osm { position: absolute; right: 8px; bottom: 2px; font-size: 10px; color: rgba(255, 255, 255, .55); pointer-events: auto; }
 #osm a { color: inherit; }
 
@@ -234,6 +256,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #btnDrone { right: 170px; bottom: calc(136px + env(safe-area-inset-bottom, 0px)); background: rgba(245, 197, 24, .25); }
 #daa { position: absolute; right: 16px; top: calc(250px + env(safe-area-inset-top, 0px)); width: 176px; height: 184px; pointer-events: none; }
 .touch #daa { top: auto; right: auto; left: 16px; bottom: calc(190px + env(safe-area-inset-bottom, 0px)); width: 132px; height: 138px; }
+@media (max-height: 500px) { .touch #daa { left: 150px; bottom: calc(74px + env(safe-area-inset-bottom, 0px)); width: 104px; height: 108px; } }   /* 手機橫向：放在搖桿右邊，不壓到任務欄 */
 .touch #seat { top: 12px; bottom: auto; transform: none; max-height: calc(100% - 24px); }
 @media (max-height: 500px) {
   .touch #btnMore { top: calc(12px + env(safe-area-inset-top, 0px)); right: 180px; }
@@ -282,6 +305,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     <button id="btnSfx" type="button" aria-pressed="true">引擎聲 開</button>
     <div id="help"></div>
     <div id="tipCard" hidden><h3 id="tipTitle"></h3><div id="tipRows"></div><button id="tipOk" type="button">知道了（Enter）</button></div>
+    <div id="ctlCard" hidden aria-live="polite"><h3>路空總控中心</h3><div id="ctlRows"></div><p id="ctlVerdict"></p><small id="ctlNote"></small></div>
     <div id="place"><span id="placeRoad"></span><small id="placeDist"></small></div>
     <div id="speedo" hidden><b id="spd">0</b><span>km/h</span><i id="energy"></i></div>
     <canvas id="daa" width="220" height="230" hidden aria-label="無人機避撞面板"></canvas>

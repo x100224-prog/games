@@ -3,22 +3,22 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
 <style>
-/* 版面：最上面一塊綠色路標；下面依序是遊戲畫面（示範與試玩共用）、錄好的影片、兩個新玩法、說明。 */
+/* 版面：最上面一塊綠色路標；下面依序是遊戲畫面（示範與試玩共用）、錄好的影片、三個新玩法、說明。 */
 :root {
   --sign: #0b6a4e; --sign-ink: #f4f8f6;
   --signal: #f2b705; --signal-ink: #1d1700;
   --bg: #edf1ef; --panel: #ffffff; --fg: #17211d; --mute: #56645e; --line: #d2dad6;
-  --a: #c4161c; --b: #2b6cb0; --base: #7d8a84;
+  --a: #c4161c; --b: #2b6cb0; --c: #0f7d70; --base: #7d8a84;
   --tag: #fff3c4; --tag-ink: #5a4500;
   --f-text: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
   --f-num: "Barlow Semi Condensed", "Noto Sans TC", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --sign: #0d5a43; --sign-ink: #eef6f2; --bg: #121715; --panel: #1a201e; --fg: #e5ebe8; --mute: #9aa8a1; --line: #2b3431;
-  --a: #ff5a5f; --b: #6aa8ec; --base: #8b9892; --tag: #3a3110; --tag-ink: #f6dc8a; color-scheme: dark; } }
+  --a: #ff5a5f; --b: #6aa8ec; --c: #4fd1bf; --base: #8b9892; --tag: #3a3110; --tag-ink: #f6dc8a; color-scheme: dark; } }
 :root[data-theme="dark"] {
   --sign: #0d5a43; --sign-ink: #eef6f2; --bg: #121715; --panel: #1a201e; --fg: #e5ebe8; --mute: #9aa8a1; --line: #2b3431;
-  --a: #ff5a5f; --b: #6aa8ec; --base: #8b9892; --tag: #3a3110; --tag-ink: #f6dc8a; color-scheme: dark; }
+  --a: #ff5a5f; --b: #6aa8ec; --c: #4fd1bf; --base: #8b9892; --tag: #3a3110; --tag-ink: #f6dc8a; color-scheme: dark; }
 * { box-sizing: border-box; }
 body { background: var(--bg); color: var(--fg); font: 400 16px/1.7 var(--f-text); }
 .wrap { max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
@@ -59,7 +59,7 @@ section > .wrap, .sign .wrap, footer .wrap { grid-template-columns: minmax(0, 1f
 .dbtn:hover { border-color: var(--sign); }
 .dbtn:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .dbtn.on { border-color: var(--sign); box-shadow: inset 4px 0 0 var(--sign); }
-.dbtn.a.on { box-shadow: inset 4px 0 0 var(--a); } .dbtn.b.on { box-shadow: inset 4px 0 0 var(--b); }
+.dbtn.a.on { box-shadow: inset 4px 0 0 var(--a); } .dbtn.b.on { box-shadow: inset 4px 0 0 var(--b); } .dbtn.c.on { box-shadow: inset 4px 0 0 var(--c); }
 .dbtn.play { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
 .dbtn.play span { color: var(--signal-ink); opacity: .8; }
 .row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; font-size: 14px; color: var(--mute); }
@@ -78,23 +78,27 @@ video { width: 100%; max-width: 100%; aspect-ratio: 16 / 9; background: #0c0f0e;
 /* 新玩法 */
 .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; }
 .mode { background: var(--panel); border: 1px solid var(--line); border-top: 6px solid var(--a); border-radius: 10px; padding: 18px; display: grid; gap: 12px; align-content: start; }
-.mode.b { border-top-color: var(--b); }
+.mode.b { border-top-color: var(--b); } .mode.c { border-top-color: var(--c); }
 .mode h3 { font-size: 20px; font-weight: 900; }
 .rules { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .rules li { padding-left: 16px; position: relative; color: var(--mute); font-size: 14.5px; }
 .rules li::before { content: ""; position: absolute; left: 0; top: .7em; width: 7px; height: 7px; border-radius: 2px; background: var(--a); }
-.mode.b .rules li::before { background: var(--b); }
+.mode.b .rules li::before { background: var(--b); } .mode.c .rules li::before { background: var(--c); }
 .rules li b { color: var(--fg); }
 .res { display: grid; gap: 7px; border-top: 1px solid var(--line); padding-top: 12px; }
 .res h4 { margin: 0; font-size: 14px; }
 .bar { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr) 58px; gap: 10px; align-items: center; font-size: 13.5px; }
 .bt { height: 14px; background: color-mix(in srgb, var(--line) 60%, transparent); border-radius: 3px; overflow: hidden; }
 .bt i { display: block; height: 100%; background: var(--base); }
-.bar.a .bt i { background: var(--a); } .bar.b .bt i { background: var(--b); }
+.bar.a .bt i { background: var(--a); } .bar.b .bt i { background: var(--b); } .bar.c .bt i { background: var(--c); }
+.bar.c .bt { display: flex; } .bar.c .bt i.h { background: color-mix(in srgb, var(--c) 38%, transparent); }
 .bv { font: 700 18px/1 var(--f-num); text-align: right; font-variant-numeric: tabular-nums; }
 .bv small { font: 500 12px var(--f-text); color: var(--mute); }
 .res p { font-size: 13.5px; color: var(--mute); }
 .res p b { color: var(--fg); }
+.chk { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: baseline; font-size: 13.5px; border-bottom: 1px dashed var(--line); padding: 3px 0; }
+.chk b { font: 700 15px/1.2 var(--f-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chk b + b { color: var(--c); }
 footer { padding-block: 36px 48px; }
 footer .wrap { display: grid; gap: 10px; }
 footer h2 { font-size: 17px; font-weight: 900; }
@@ -103,9 +107,9 @@ footer ul { margin: 0; padding-left: 20px; color: var(--mute); font-size: 14px; 
 
 <header class="sign">
   <div class="wrap">
-    <div class="eyebrow"><span>TAIPEI COMMUTE</span>試看版：兩個新玩法直接開放</div>
+    <div class="eyebrow"><span>TAIPEI COMMUTE</span>試看版：三個新玩法直接開放</div>
     <h1><span class="arr" aria-hidden="true">↑</span>台北上班路 飛行篇</h1>
-    <p class="lede">飛天跑車的各項能力、無人機系統、兩個新玩法，都可以從「看示範」清單點開：遊戲自己開給你看，畫面是你的瀏覽器即時跑出來的，看完可以直接接手。</p>
+    <p class="lede">飛天跑車的各項能力、無人機系統、三個新玩法，都可以從「看示範」清單點開：遊戲自己開給你看，畫面是你的瀏覽器即時跑出來的，看完可以直接接手。</p>
   </div>
 </header>
 
@@ -142,7 +146,7 @@ footer ul { margin: 0; padding-left: 20px; color: var(--mute); font-size: 14px; 
 
 <section id="modes">
   <div class="wrap">
-    <div class="sh"><span class="k">New modes</span><h2>兩個新玩法：主角怎麼到公司</h2><p>選單的「玩法」可以切換，各有自己的存檔。線上版要先在一般模式買了飛天跑車和無人機飛行系統才解鎖；這個試看版直接開放。</p></div>
+    <div class="sh"><span class="k">New modes</span><h2>三個新玩法：主角怎麼到公司</h2><p>選單的「玩法」可以切換，各有自己的存檔。線上版要先在一般模式買了飛天跑車和無人機飛行系統才解鎖；這個試看版直接開放。</p></div>
     <div class="modes">
       <div class="mode">
         <h3>全城飛天跑車</h3>
@@ -170,6 +174,22 @@ footer ul { margin: 0; padding-left: 20px; color: var(--mute); font-size: 14px; 
           <p>路上沒車，開車只剩紅綠燈；但飛還是快很多。天上也會塞：同一層跟車變慢的時間中位數 {{BF_JAM}} 分鐘，等各層讓出空檔 {{BF_WAIT}} 分鐘。</p>
         </div>
       </div>
+      <div class="mode c">
+        <h3>全城無人機・路空總控</h3>
+        <ul class="rules">
+          <li><b>路上照樣有車。</b>每台車都有無人機系統。總控每秒比較「開車要多久」和「飛要多久（含排隊降落）」，分配多少車飛、多少車開；飛的越多，路上越空、降落越要排隊 <span class="tag">遊戲設定</span></li>
+          <li><b>降落要排隊。</b>目的地 250 m 內的巷道、一般道路每 300 m 算一個降落點（3～12 個），每次降落佔用遊戲 4 分鐘；上班 8:10 左右最擠，熱鬧的地方排比較久 <span class="tag">遊戲設定</span></li>
+          <li><b>按 U 問總控。</b>它看全市有多少比例的車在飛（路上因此有多塞）、你附近天上每台車的位置和航向（升空要穿過的高度層有多擠）、目的地排隊的飛行計畫，算出兩種各要幾分鐘：飛比較快就核准、排好降落時段；要排很久就建議先開、時段快到再升空（地面等待）；開車比較快就建議繼續開，10 秒內再按 U 可以堅持飛。</li>
+          <li><b>參考的做法。</b>NASA 的無人機交通管理（UTM）事先排時段、機場的地面等待、交通工程的使用者均衡（Wardrop 原則）。不需要蜂群或螞蟻那種各自協調的系統：總控看得到全部，直接分配。</li>
+        </ul>
+        <div class="res">
+          <h4>同一套估算：{{HY_N}} 組住家→公司（直線 1.8～4.8 km），幾點出門總控會建議飛</h4>
+{{BARS_C}}
+          <p>深色：直接核准升空；淺色：飛比較快，但降落要排比較久，總控建議先往公司開、時段到了再升空（地面等待）。用遊戲裡同一套估算算的（沒有真的開完）。越接近 8:10 的尖峰，熱鬧地方的降落越要排，總控越常建議繼續開；8:30 以後往那裡的車改開車，排隊慢慢消化，建議飛的又變多。</p>
+          <h4>實際跑完檢驗：總控預估 vs 實際（遊戲分鐘，從按 U 那一刻算到落地／開到公司附近）</h4>
+{{HY_CHECK}}
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -180,7 +200,7 @@ footer ul { margin: 0; padding-left: 20px; color: var(--mute); font-size: 14px; 
     <ul>
       <li>時間都是遊戲模擬跑出來的（遊戲時鐘比現實快 6 倍），不是現實的預測。同一組住家和公司，每種走法各跑一次，只跑了 {{NPAIRS}} 組，單趟差很多，所以看中位數。</li>
       <li>開車：放一台照導航路線開的車在車流裡（跟車、等紅燈、排隊），開到公司 300 m 內為止。飛：從按 U 到降落。一般世界的數字是之前定價格時量的。</li>
-      <li>空氣罐容量、補氣方式、噴嘴配置、無人機高度層、跟車距離、讓出空檔的規則都是遊戲設定；Tesla 沒有公布飛天跑車的這些規格。無人機避撞參考 NASA DAIDALUS 的公開概念，是自己寫的簡化版。</li>
+      <li>空氣罐容量、補氣方式、噴嘴配置、無人機高度層、跟車距離、讓出空檔的規則、路空總控的降落容量和尖峰時間都是遊戲設定；Tesla 沒有公布飛天跑車的這些規格。無人機避撞參考 NASA DAIDALUS 的公開概念，是自己寫的簡化版。</li>
       <li>地圖資料 © OpenStreetMap 貢獻者；地形：內政部 20 公尺網格數值地形模型（政府資料開放授權條款第 1 版）；人物：Quaternius（CC0）。</li>
     </ul>
   </div>

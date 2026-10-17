@@ -16,6 +16,7 @@ export const DEMOS = [
   { key: 'drone', name: '無人機系統（片段）', sub: 'U：旋翼伸出、升空、避撞、降落', near: true },
   { key: 'allfly', name: '新玩法：全城飛天跑車', sub: '每台車都會飛越，主角怎麼到公司', mode: 'allfly' },
   { key: 'alldrone', name: '新玩法：全城無人機', sub: '路上沒車、天上擠滿，主角飛上去', mode: 'alldrone' },
+  { key: 'hybrid', name: '新玩法：全城無人機・路空總控', sub: '路上照樣有車，按 U 問總控：開還是飛', mode: 'hybrid' },
 ];
 
 export class DemoRunner {
@@ -242,5 +243,42 @@ export class DemoRunner {
     this.speed(1);
     this.cap('示範到這裡。飛機會繼續自己飛到目的地降落，你也可以按 U 取消、自己降落');
     await this.sleep(4);
+  }
+  async _hybrid() {
+    const { G, car, flight } = this.T;
+    const r = this.mainRoad(); if (r) await this.place(r.x, r.z, r.psi);
+    this.cap('全城無人機・路空總控：路上照樣有車在開，天上也有（快轉讓車流就位）'); this.speed(6); await this.sleep(14); this.speed(1);
+    await this.until(() => this.T.drones && this.T.drones.dense && this.T.drones.list.length > 30, 15);
+    const ctl = this.T.ctl, gm = (s) => Math.max(1, Math.round(s / 10));   // 現實秒 → 遊戲分鐘
+    G.cam = 'chase';
+    this.cam((cam) => { const fx = car.fwdX, fz = car.fwdZ; cam.up.set(0, 1, 0); cam.position.set(car.x - fx * 9, car.y + 3.2, car.z - fz * 9); cam.lookAt(car.x + fx * 40, car.y + 16, car.z + fz * 40); });
+    this.cap(`總控每秒比較「開車」和「飛」哪個快來分配：現在全市 ${Math.round(ctl.p * 100)}% 的車在飛，其他的在路上開`);
+    await this.each(() => { this.keys(car.v > 9 ? '' : 'KeyW'); }, 7);
+    this.cam(null); G.cam = 'cockpit';
+    this.cap('按 U 問總控：現在飛比較快嗎？（開著也能問）'); await this.sleep(1.2);
+    this.press('KeyU'); await this.sleep(0.4);
+    const C = G.ctl; if (!C || !C.ev) { this.cap('總控還沒準備好'); await this.sleep(3); return; }
+    const ev = C.ev, rm = ev.road ? gm(ev.road.sec) : 0, am = gm(ev.air.sec);
+    if (ev.fly && !ev.holdGround) {
+      this.cap(`總控：開車約 ${rm} 分、飛約 ${am} 分（含排隊降落 ${gm(ev.air.queue)} 分）→ 核准升空，降落時段已排好`);
+      await this.each(() => { this.keys(car.v > 9 ? '' : 'KeyW'); }, 4);
+      this.cap('慢下來停住就自動升空'); this.keys('KeyS'); await this.until(() => flight.active, 14); this.keys();
+      if (!flight.active) { this.cap('這裡上方有高架橋或建物，不能升空：開出去再問一次總控'); await this.sleep(4); return; }
+      await this.sleep(1.5); this.speed(4); this.cap('升空：穿過下面幾層的車流（4 倍速）');
+      await this.until(() => flight.phase !== 'lift', 90);
+      this.cap('往目的地飛；降落時段總控已經排好，到了如果還沒輪到就在上空等（4 倍速）'); await this.sleep(16);
+      this.speed(1); this.cap('示範到這裡：飛機會自己飛到目的地，輪到你的時段再降落');
+      await this.sleep(4);
+    } else if (ev.fly) {
+      this.cap(`總控：飛比較快，但目的地降落要排 ${gm(ev.air.queue)} 分 → 建議先繼續開，時段快到再升空（在地面等比在空中繞圈省燃料）`);
+      await this.each(() => { this.keys(car.v > 9 ? '' : 'KeyW'); }, 9);
+      this.cap('時段到了會提醒你停車升空；現在就要飛的話，10 秒內再按一次 U');
+      await this.each(() => { this.keys(car.v > 9 ? '' : 'KeyW'); }, 6);
+    } else {
+      this.cap(`總控：開車約 ${rm} 分、飛約 ${am} 分 → 建議繼續開`);
+      await this.each(() => { this.keys(car.v > 9 ? '' : 'KeyW'); }, 8);
+      this.cap('還是想飛：10 秒內再按一次 U，總控照樣幫你排降落時段');
+      await this.each(() => { this.keys(car.v > 9 ? '' : 'KeyW'); }, 5);
+    }
   }
 }

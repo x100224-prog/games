@@ -1,14 +1,16 @@
 // 示範模式實測：每一段從選單開始，看能不能跑完（字幕出現「示範結束」），途中截圖。
 // 用法：node tests/demo_test.mjs boost,hop,...  [hash]
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
-const KEYS = (process.argv[2] || 'boost,hop,flip,wall,under,empty,drone,allfly,alldrone').split(',');
+const KEYS = (process.argv[2] || 'boost,hop,flip,wall,under,empty,drone,allfly,alldrone,hybrid').split(',');
 const HASH = process.argv[3] || '#lowq';
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
+const [VW, VH] = (process.env.VP || '960x540').split('x').map(Number);
+const page = await browser.newPage({ viewport: { width: VW, height: VH } });
 const errs = []; page.on('pageerror', e => errs.push('PAGEERR ' + e.message + ' ' + (e.stack || '').split('\n').slice(1, 3).join(' | ')));
 page.on('console', m => { if ((m.type() === 'error' || m.type() === 'warning') && !/ERR_TUNNEL|fonts|net::/.test(m.text())) errs.push(m.type() + ' ' + m.text()); });
 const ev = (f, a) => page.evaluate(f, a), wait = (ms) => page.waitForTimeout(ms);
 page.setDefaultTimeout(300000);
+await page.addInitScript(() => { try { localStorage.setItem('taipei-commute-unlock', '1'); } catch (e) { /* ignore */ } });   // 新玩法的示範要解鎖才出現
 await page.goto('http://localhost:8768/index.html' + HASH);
 await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'menu' && window.__tc.drones, null, { timeout: 180000 });
 console.log('demo buttons', await ev(() => [...document.querySelectorAll('#demoOpts button b')].map(b => b.textContent).join(' / ')));
@@ -22,6 +24,7 @@ for (const key of KEYS) {
     const s = await ev(() => ({ cap: document.getElementById('demoCap').textContent, st: window.__tc.G.state, mode: window.__tc.stunts && window.__tc.stunts.mode, fl: window.__tc.flight && window.__tc.flight.phase, kmh: window.__tc.car ? Math.round(window.__tc.car.kmh) : 0, spd: window.__tc.steps }));
     if (s.cap !== lastCap) { caps.push(`${((Date.now() - t0) / 1000).toFixed(0)}s ${s.cap} [${s.mode}/${s.fl} ${s.kmh}km/h x${s.spd}]`); lastCap = s.cap;
       if (shots < 4 && !/載入/.test(s.cap)) { await ev(() => { window.__tc.noRender = false; }); await wait(1200); await page.screenshot({ path: `shots/demo_${key}_${shots++}.png` }); await ev(() => { window.__tc.noRender = true; }); } }
+    if (key === 'hybrid') { const ov = await ev(() => { const c = document.getElementById('ctlCard'); if (c.hidden) return null; const a = c.getBoundingClientRect(), o = (id) => { const e = document.getElementById(id); if (e.hidden) return false; const b = e.getBoundingClientRect(); return a.right > b.left && b.right > a.left && a.bottom > b.top && b.bottom > a.top; }; return { cap: o('demoCap'), toast: o('toast'), card: [Math.round(a.left), Math.round(a.top), Math.round(a.right), Math.round(a.bottom)] }; }); if (ov && (ov.cap || ov.toast) && !caps.some(c => c.startsWith('OVERLAP'))) caps.push('OVERLAP ' + JSON.stringify(ov)); }
     done = /示範結束|示範中斷/.test(s.cap);
   }
   console.log(`== ${key}: ${done ? 'done' : 'NOT DONE'} in ${((Date.now() - t0) / 1000).toFixed(0)} s`);

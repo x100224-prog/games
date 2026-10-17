@@ -158,6 +158,39 @@ export class Traffic {
     });
   }
 
+  /**
+   * 玩法「路空總控」：路上的車改成飛的——挑玩家附近一台停著或很慢、上方沒擋住的車，從車流移除，回傳它的位置和顏色。
+   * ok(x, z, y)：上方能不能升空（高架橋、建物）。
+   */
+  takeForLift(px, pz, ok) {
+    for (let k = 0; k < 6; k++) {
+      const c = this.cars[Math.floor(Math.random() * this.cars.length)];
+      if (!c || c.agent || c.hop || c.turn || c.wreck > 0 || c.v > 3 || c.e.tunnel || c.e.dead) continue;
+      const d2 = (c.x - px) ** 2 + (c.z - pz) ** 2; if (d2 > 230 * 230 || d2 < 25 * 25) continue;
+      if (ok && !ok(c.x, c.z, c.y)) continue;
+      this._detach(c); const i = this.cars.indexOf(c); if (i >= 0) { this.cars[i] = this.cars[this.cars.length - 1]; this.cars.pop(); }
+      return { x: c.x, y: c.y, z: c.z, psi: c.psi, color: c.color };
+    }
+    return null;
+  }
+  /** 從天上降落的車：找最近的一段路，放在車道上（前後 9 m 內沒車才放），回傳車道上的位置或 null。 */
+  laneAt(x, z) {
+    const o = {}, e = this.world.nearestEdge(x, z, 60, (ed) => !ed.bridge && !ed.tunnel && !ed.dead && ed.cls >= 2 && ed.cls <= 5 && ed.len > 30, o);
+    if (!e) return null;
+    const s = Math.max(e.trimA + 6, Math.min(e.len - e.trimB - 6, o.s)); if (e.len - e.trimB - e.trimA < 14) return null;
+    const dir = e.oneway ? 1 : (Math.random() < 0.5 ? 1 : -1), lane = Math.floor(Math.random() * e.lanesDir);
+    edgePoint(e, s, _a); const off = laneOffset(e, dir, lane);
+    return { e, s, dir, lane, x: _a.x - _a.dz * off, y: _a.y, z: _a.z + _a.dx * off, psi: Math.atan2(-_a.dx * dir, -_a.dz * dir) };
+  }
+  addAt(L, color) {
+    if (!L || L.e.dead || this.cars.length >= TRAFFIC.maxCars) return false;
+    for (const c of L.e.cars) if (c.dir === L.dir && c.lane === L.lane && Math.abs(c.s - L.s) < 9) return false;
+    const car = { e: L.e, dir: L.dir, lane: L.lane, s: L.s, v: 0, fac: 0.78 + Math.random() * 0.24, x: 0, y: 0, z: 0, psi: 0, turn: null, next: null, wait: 0,
+      color: color || TRAFFIC_COLORS[0], scale: 1, flyer: false, hop: null, hopCd: 99, wreck: 0, pitch: 0 };
+    L.e.cars.push(car); this.cars.push(car); this._pose(car);
+    return true;
+  }
+
   _detach(c) { if (c.e) { const i = c.e.cars.indexOf(c); if (i >= 0) c.e.cars.splice(i, 1); } }
 
   // ------------------------------------------------------------- 行駛

@@ -1,0 +1,5 @@
+[
+ {"case": "7:35 出門・飛（總控直接核准）", "pair": 6, "km": 3.7, "pred": 22.7, "act": 21.4, "log": "/tmp/claude-0/hyb/run6.txt"},
+ {"case": "8:10 出門・先開、時段到了再飛（地面等待）", "pair": 0, "km": 3.5, "pred": 45.0, "act": 41.0, "log": "/tmp/claude-0/hyb/late0.txt"},
+ {"case": "7:35 出門・近距離，總控建議繼續開", "pair": 6, "km": 2.0, "pred": 26, "act": 20, "log": "/tmp/claude-0/hyb/near6.txt"}
+]

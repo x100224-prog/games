@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""試看版 artifact（build/art/）：遊戲（新玩法直接開放）＋示範清單＋兩支錄好的影片＋新玩法實測。不碰 git。"""
+"""試看版 artifact（build/art/）：遊戲（新玩法直接開放）＋示範清單＋兩支錄好的影片＋新玩法實測與估算。不碰 git。"""
 import json, os, re, shutil, subprocess, statistics, html
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 B = os.path.join(ROOT, 'build'); OUT = os.path.join(B, 'art'); WEB = os.path.join(ROOT, 'web')
@@ -29,12 +29,12 @@ os.makedirs(os.path.join(G, 'audio')); shutil.copy(os.path.join(WEB, 'audio', 'c
 # 示範清單（跟 web/js/demo.js 的 DEMOS 一樣）
 demo_src = open(os.path.join(WEB, 'js', 'demo.js'), encoding='utf-8').read()
 demos = re.findall(r"\{ key: '(\w+)', name: '([^']+)', sub: '([^']+)'(?:, near: true)?(?:, mode: '(\w+)')? \}", demo_src)
-assert len(demos) == 9, demos
+assert len(demos) == 10, demos
 btn = ['        <button class="dbtn play" type="button" data-demo=""><b>自己玩</b><span>打開選單：選玩法、住址和公司</span></button>', '        <h3>飛天跑車</h3>']
 for key, name, sub, mode in demos:
     if key == 'drone': btn.append('        <h3>無人機系統</h3>')
     if key == 'allfly': btn.append('        <h3>新玩法</h3>')
-    cls = ' a' if mode == 'allfly' else ' b' if mode == 'alldrone' else ''
+    cls = ' a' if mode == 'allfly' else ' b' if mode == 'alldrone' else ' c' if mode == 'hybrid' else ''
     btn.append(f'        <button class="dbtn{cls}" type="button" data-demo="{key}"><b>{E(name.replace("新玩法：", ""))}</b><span>{E(sub)}</span></button>')
 
 # 實測（新玩法跑完的組）
@@ -57,8 +57,17 @@ def bar(k, label, cls):
 bars_a = '\n'.join([bar('gas', '一般世界・油車', 'base'), bar('roadster', '一般世界・飛天跑車', 'base'), bar('A', '全城飛天跑車・主角', 'a')])
 bars_b = '\n'.join([bar('Bd', '在空的路上開', 'b'), bar('Bf', '跟著大家飛', 'b'), bar('drone', '一般世界・無人機', 'base')])
 A = [get(m3, p, 'A-roadster') for p in pairs]; Bf = [get(m3, p, 'B-fly') for p in pairs]
+# 路空總控：同一套估算（tools/hybrid_model.mjs → build/hybrid_model.json）。深色＝直接核准升空，淺色＝核准但建議先開、時段到再升空
+hy = json.load(open(os.path.join(B, 'hybrid_model.json')))
+def hy_bar(r):
+    n = hy['pairs']; f = r['fly'] - r['hold']; h = r['hold']
+    seg = f'<i style="width:{f / n * 100:.1f}%"></i><i class="h" style="width:{h / n * 100:.1f}%"></i>'
+    return f'          <div class="bar c"><span>{r["t"]} 出門</span><div class="bt">{seg}</div><div class="bv">{r["fly"]} <small>組</small></div></div>'
+bars_c = '\n'.join(hy_bar(r) for r in hy['rows'])
+hc = json.load(open(os.path.join(B, 'hybrid_check.json')))
+hy_check = '\n'.join(f'          <div class="chk"><span>{E(r["case"])}</span><b>預估 {r["pred"]:.0f}</b><b>實際 {r["act"]:.0f}</b></div>' for r in hc)
 rep = {
-    '{{DEMO_BUTTONS}}': '\n'.join(btn), '{{BARS_A}}': bars_a, '{{BARS_B}}': bars_b, '{{NPAIRS}}': str(len(pairs)),
+    '{{DEMO_BUTTONS}}': '\n'.join(btn), '{{BARS_A}}': bars_a, '{{BARS_B}}': bars_b, '{{NPAIRS}}': str(len(pairs)), '{{BARS_C}}': bars_c, '{{HY_N}}': str(hy['pairs']), '{{HY_CHECK}}': hy_check,
     '{{A_CRASH}}': f'{statistics.median([x["cityCrashes"] / max(1, x["cityHops"]) for x in A]) * 100:.0f}',
     '{{A_N}}': str(len(A)), '{{A_WRECKED}}': str(sum(1 for x in A if x.get('wrecked'))),
     '{{SKY_MIN}}': f'{min(x["sky"] for x in Bf):,}', '{{SKY_MAX}}': f'{max(x["sky"] for x in Bf):,}',

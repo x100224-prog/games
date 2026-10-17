@@ -66,7 +66,7 @@ export const PARK = {
 // 上下班尖峰：車流密度乘上這個倍數（之後做塞車時會再調）
 export const RUSH = { factor: 1.8 };
 
-// 新玩法（全城飛天跑車、全城無人機）要在一般模式買了飛天跑車和無人機飛行系統後才解鎖。
+// 新玩法（全城飛天跑車、全城無人機、路空總控）要在一般模式買了飛天跑車和無人機飛行系統後才解鎖。
 // unlockModes: true 時一開始就全部解鎖（給試看版用）。
 export const FEATURES = { unlockModes: false };
 

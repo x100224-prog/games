@@ -63,6 +63,8 @@ export class DenseSky {
     this.stats = { spawned: 0, landed: 0 };
     // 起降保留區：玩家要穿過某一層時向系統登記，那一層的車會繞開這根「空中柱子」、讓出空檔（遊戲設定）
     this.reserve = [];
+    // 玩法「路空總控」：只有 share 比例的車在飛（其他在路上開）；hybrid 是跟路面車流交換車子的掛鉤
+    this.share = 1; this.hybrid = null; this._takeT = 0;
   }
   setVisible(v) { for (const m of [this.body, this.trim, this.rotors, this.far]) m.visible = v; }
 
@@ -76,7 +78,7 @@ export class DenseSky {
       if (d2 < R2) { n += nv.elen[k] / 1000 * TRAFFIC_DENSITY[c] * LANES[c] * (nv.eow[k] ? 1 : 2) * this.factor; if (nv.elen[k] > 25) nodes.push(a); }
       else if (d2 < ext && (k & 3) === 0) outer.push(a);
     }
-    this.roadCars = Math.round(n); this.target = Math.min(SKY.maxN, this.roadCars);
+    this.roadCars = Math.round(n); this.target = Math.min(SKY.maxN, Math.round(this.roadCars * this.share));
     this.nodes = nodes; this.outer = outer.length ? outer : nodes;
   }
   _node(arr) { const i = arr[Math.floor(Math.random() * arr.length)]; return { x: this.nav.nx[i], z: this.nav.nz[i] }; }
@@ -92,6 +94,13 @@ export class DenseSky {
     const a = this._node(this.nodes); let b = this._node(Math.random() < 0.5 ? this.nodes : this.outer);
     for (let k = 0; k < 12 && Math.hypot(b.x - a.x, b.z - a.z) < 900; k++) b = this._node(Math.random() < 0.5 ? this.nodes : this.outer);
     return this._mk(a.x, a.z, b.x, b.z, 'lift', this.world.groundAt(a.x, a.z, 10));
+  }
+  _fromRoad() {
+    const c = this.hybrid.take(); if (!c) return null;
+    let b = this._node(Math.random() < 0.5 ? this.nodes : this.outer);
+    for (let k = 0; k < 12 && Math.hypot(b.x - c.x, b.z - c.z) < 900; k++) b = this._node(Math.random() < 0.5 ? this.nodes : this.outer);
+    const d = this._mk(c.x, c.z, b.x, b.z, 'lift', c.y); d.color = c.color; d.track = Math.atan2(b.x - c.x, b.z - c.z);
+    this.stats.fromRoad = (this.stats.fromRoad || 0) + 1; return d;
   }
   /** 從範圍邊緣飛進來。 */
   _spawnRing(initial) {
@@ -139,7 +148,8 @@ export class DenseSky {
       const first = this.cx === null; this._recenter(px, pz);
       if (first) { this.list.length = 0; for (let i = 0; i < this.target; i++) this.list.push(Math.random() < 0.06 ? this._spawnLift() : this._spawnRing(true)); }
     }
-    this.count = this.list.length;
+    this.target = Math.min(SKY.maxN, Math.round(this.roadCars * this.share));
+    this.count = this.list.length; this._takeT -= dt;
     this._grid();
     const R2 = (SKY.R + 250) ** 2, list = this.list, W = this.world;
     let removed = 0;
@@ -182,12 +192,20 @@ export class DenseSky {
         d.v += Math.max(-8 * dt, Math.min(4 * dt, vlim - d.v));
         d.vx = Math.sin(d.track) * d.v; d.vz = Math.cos(d.track) * d.v;
         d.vy = Math.max(-3, Math.min(3, (d.g + d.layer - d.y) * 0.5));
-        if (dist < 50) { d.phase = 'land'; this.stats.landed++; }
+        if (dist < 50) {
+          d.phase = 'land'; this.stats.landed++;
+          // 路空總控：在玩家附近降落的，降到車道上，落地後加入路上的車流
+          if (this.hybrid && (d.x - px) ** 2 + (d.z - pz) ** 2 < 230 * 230) { const L = this.hybrid.lane(d.tx, d.tz); if (L) { d.L = L; d.tx = L.x; d.tz = L.z; } }
+        }
       } else if (d.phase === 'land') {
         d.vx = (d.tx - d.x) * 0.5; d.vz = (d.tz - d.z) * 0.5; d.vy = -SKY.descend; d.v = 0;
-        if (d.y <= d.g + 0.1) { d.y = d.g; d.vy = 0; d.vx = d.vz = 0; d.phase = 'ground'; d.wait = 3 + Math.random() * 4; }
+        if (d.y <= d.g + 0.1) {
+          d.y = d.g; d.vy = 0; d.vx = d.vz = 0; d.phase = 'ground'; d.wait = 3 + Math.random() * 4;
+          if (this.hybrid) { if (d.L && this.hybrid.give(d)) { list[k] = null; removed++; this.stats.toRoad = (this.stats.toRoad || 0) + 1; continue; } d.wait = 1.5; }
+        }
       } else if (d.phase === 'ground') {
-        d.wait -= dt; if (d.wait <= 0) { list[k] = this._spawnLift(); continue; }
+        d.wait -= dt;
+        if (d.wait <= 0) { if (this.hybrid) { list[k] = null; removed++; continue; } list[k] = this._spawnLift(); continue; }
       }
       d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
       if ((d.x - this.cx) ** 2 + (d.z - this.cz) ** 2 > R2) {
@@ -196,7 +214,12 @@ export class DenseSky {
       }
     }
     if (removed) { let w = 0; for (let k = 0; k < list.length; k++) if (list[k]) list[w++] = list[k]; list.length = w; }
-    while (list.length < this.target) list.push(this._spawnRing(false));
+    while (list.length < this.target) {
+      // 路空總控：有些是附近路上的車改成飛的（停著的車原地升空），其他從範圍邊緣飛進來
+      let d = null;
+      if (this.hybrid && this._takeT <= 0 && Math.random() < 0.35) { this._takeT = 0.6; d = this._fromRoad(); }
+      list.push(d || this._spawnRing(false));
+    }
     this._grid();   // 位置更新後重建格網（玩家的避撞在後面會查）
     this._draw(px, pz);
   }

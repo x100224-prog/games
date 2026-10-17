@@ -1,13 +1,14 @@
-# 台北上班路：進度（2026-10-17 15:00 更新）
+# 台北上班路：進度（2026-10-17 晚上更新）
 
 ## 已完成
-- 線上版 main（d452ae8）：修正車子開不動、加入「看示範」（9 段，已逐段測過能跑完）、兩個新玩法（一般模式擁有飛天跑車＋無人機飛行系統後解鎖，解鎖旗標 localStorage taipei-commute-unlock）。
-- artifact 試看版：https://claude.ai/artifact/HUxKh2zE8gfrQCxY5YJAZW（tools/build_art.py 產生 build/art/，config.js 的 unlockModes 改成 true；兩支錄好的影片；4 組實測比較）。
-- 實測：使用者說先不用補（第 4、6、7 組沒跑）。
+- 第三個新玩法「全城無人機・路空總控」（hybrid）：web/js/control.js（總控：降落時段排隊、Wardrop 式分配飛／開的比例、按 U 評估開 vs 飛、地面等待）、sky.js（天上的車跟路上的車互相交換）、traffic.js（takeForLift／laneAt／addAt）、drone.js（排好的降落時段、預估 vs 實際）、main.js（問總控、卡片、手機版精簡卡片）、demo.js（第 10 段示範）。
+- 實際跑完檢驗（tests/hybrid_test.mjs）：飛 預估 23／實際 21 分；8:10 出門先開再飛 預估 45／實際 41 分；近距離建議開車 預估 26／實際 20 分（build/hybrid_check.json）。
+- 試看頁：tools/hybrid_model.mjs → build/hybrid_model.json（不同出門時間總控建議飛的組數）。
+- 示範配樂：原創曲「鉻色脈衝」（web/audio/cyber.mp3，music.js CYBER_LOOP）。
 
 ## 還沒做
-- 下午兩點的新需求：全城無人機再加一個版本——路面照常有車，玩家要升空時，總系統評估「繼續開」和「飛」哪個比較快（地面用各路段即時車速／排隊，天上用各高度層密度與起降等待），並用實際跑完的時間檢驗。
 - 新玩法的完整一天（下班回家、商店）沒有完整測過。
+- 手機橫向飛行時，避撞面板（DAA）會壓到任務欄下緣（之前就有）。
 
 ---
 （以下是之前的筆記）
