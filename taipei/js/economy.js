@@ -1,11 +1,12 @@
 // 台北上班路 — 金錢、商店、存檔。
-// 收入：每天準時打卡領日薪，遲到每分鐘扣錢。支出：油錢／電費、上班時的路邊停車費、壓縮空氣、無人機燃料、修車。
+// 收入：每趟（上班、回家）各 20 萬，上班遲到每分鐘扣錢。支出：油錢／電費、上班時的路邊停車費、壓縮空氣、無人機燃料、修車。
+// 收入用「萬」計，是配合換車的價錢（幾百萬）：準時上下班約 20 天可以買飛天跑車（玩家訂的）。
 // 商店的價錢原則（玩家訂的）：能讓你越快到達的東西越貴。實際價錢依「每趟平均省下的分鐘數」換算（見 PRICE_RULE），
 // 省下的分鐘數用自動測試在尖峰時段實際跑出來，數字放在 SAVED_MIN。
 
 export const PAY = {
-  daily: 2000,          // 準時上班的日薪（元）
-  latePerMin: 25,       // 遲到每分鐘扣（元），最多扣到日薪的一半
+  trip: 200000,         // 每趟收入：準時到公司 20 萬、回到家 20 萬（一天 40 萬）
+  latePerMin: 2500,     // 上班遲到每分鐘扣（元），最多扣到這趟收入的一半
   gasPrice: 30,         // 汽油（元／公升）
   homeKwh: 4,           // 在家充電（元／度）
   bayKwh: 6,            // 停車場電動車格充電（元／度）
@@ -18,21 +19,23 @@ export const PAY = {
 export const AIR = {
   gameSetting: true,
   jumpsPerTank: 8,       // 滿罐可以垂直升空飛越 8 次（每次 1/8 罐，含落地前的反推）
-  homePrice: 300,        // 回家補：每晚在家用壓縮機補滿，從空補到滿 300 元（依補的量算）
-  stationPrice: 600,     // 充電站補：停在電動車充電格補氣，比較快但比較貴，從空到滿 600 元
+  homePrice: 3000,       // 回家補：每晚在家用壓縮機補滿，從空補到滿 3,000 元（依補的量算）
+  stationPrice: 8000,    // 充電站補：停在電動車充電格補氣，比較快但比較貴，從空到滿 8,000 元
   stationRate: 0.04,     // 充電格補氣速度：每秒 4%（約 25 秒補滿）
   drivePerKm: 0.05,      // 開車時慢慢補：車上的小壓縮機，每開 1 公里補 5%（用車子的電，約 1 度電補滿一罐）
   driveKwhPerTank: 1,
 };
 
-// 價錢 ＝ 每趟平均省下的分鐘數（遊戲時間）× 每天 2 趟 × 每分鐘的價值（＝遲到每分鐘扣的錢）× 10 個上班日；最低 1,000 元。
-// 意思是：這項功能用 10 個上班日（來回 20 趟），省下的時間剛好抵得上它的價錢。省越多時間就越貴。
-export const PRICE_RULE = { tripsPerDay: 2, perMin: PAY.latePerMin, paybackDays: 10, min: 1000 };
+// 價錢（玩家訂的原則：省越多時間越貴；車和加裝功能分開比；換車要幾百萬）：
+//   車（電動車、飛天跑車）＝ 基本車價 200 萬 ＋ 每趟省下的分鐘數 × 2 趟 × 每分鐘 2,500 元 × 60 天（每省 1 分鐘多 30 萬）
+//   加裝功能（導航、無人機系統）＝ 每趟省下的分鐘數 × 2 趟 × 每分鐘 2,500 元 × 10 天（每省 1 分鐘 5 萬）
+//   都進位到萬。準時上下班一天 40 萬：飛天跑車約 20 天、無人機系統約 10 天、電動車約 5 天、導航約 1.4 天。
+export const PRICE_RULE = { tripsPerDay: 2, perMin: PAY.latePerMin, carBase: 2000000, carDays: 60, upgradeDays: 10 };
 // 每趟平均省下的遊戲分鐘數：2026/10/17 尖峰時段（車流 1.8 倍）實測，取中位數。
 //   導航：300 組住家→公司，最快路線 vs「沒有導航、只看方向箭頭」的開法（每個路口往前看 3 個路口選路），tests/nav_saving.mjs → 11 分。
 //   電動車：18 個公司附近，最近的空路邊格（早上 110 m 內停滿）vs 最近的電動車格，差的走路時間，tests/ev_measure.mjs → 約 0.2 分。
 //   飛天跑車：8 組，同一條路線在車流裡開，一般車 vs 塞住時飛越車陣（每趟最多 3 次），tests/measure2.mjs → 20 分。
-//   無人機：7 組，一般車開 vs 用無人機飛（含避撞、等降落），tests/measure2.mjs → 82 分（飛一趟約 12～14 分、燃料費約 550 元）。
+//   無人機：7 組，一般車開 vs 用無人機飛（含避撞、等降落），tests/measure2.mjs → 82 分（飛一趟約 12～14 分鐘）。
 //   模擬的尖峰車速中位數 15 km/h（TomTom 2025 臺北：早上尖峰 19 km/h、晚上 15 km/h）。
 export const SAVED_MIN = { nav: 11, ev: 0.2, roadster: 20, drone: 82 };
 export const SAVED_MEASURED = true;
@@ -40,18 +43,19 @@ export const SAVED_NOTE = {
   nav: '尖峰實測：每趟約省 11 分鐘（不用自己找路、不會繞遠路）',
   ev: '實測：停車走路幾乎省不到時間（電動車格多在停車場裡，不一定比路邊近）；好處是電費比油錢便宜很多',
   roadster: '尖峰實測：每趟約省 20 分鐘（塞車時飛越車陣）',
-  drone: '尖峰實測：每趟約省 82 分鐘；一趟燃料費約 550 元',
+  drone: '尖峰實測：每趟約省 82 分鐘；飛一趟約 12～14 分鐘，燃料費約 3～3.5 萬',
 };
 
 export const SHOP = [
   { key: 'nav', name: '導航系統', kind: 'upgrade', desc: '中控螢幕與小地圖顯示建議路線，轉彎前提示。' },
   { key: 'ev', name: '電動車', kind: 'car', car: 'ev', desc: '可以停停車場裡的電動車專用格（停的時候順便充電，很少被占滿），電費比油錢便宜很多。' },
-  { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；每晚在家補滿（300 元／罐）、停電動車充電格補（600 元／罐）、開車時每公里慢慢補 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
-  { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', desc: '塞車時按 U 升空（車子伸出四組旋翼），自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。燃料費每分鐘 40 元，飛越久越貴。' },
+  { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；每晚在家補滿（3,000 元／罐）、停電動車充電格補（8,000 元／罐）、開車時每公里慢慢補 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
+  { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', desc: '加裝在你的車上：塞車時按 U，車身伸出四組折疊旋翼（像多旋翼無人機），整台車升空，自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。降落後旋翼收回，還是你的車。燃料費每分鐘 2,500 元，飛越久越貴。' },
 ];
 export function priceOf(key) {
-  const m = SAVED_MIN[key] || 0, r = PRICE_RULE;
-  return Math.max(r.min, Math.round(m * r.tripsPerDay * r.perMin * r.paybackDays / 100) * 100);
+  const m = SAVED_MIN[key] || 0, r = PRICE_RULE, it = SHOP.find(s => s.key === key);
+  const v = it && it.kind === 'car' ? r.carBase + m * r.tripsPerDay * r.perMin * r.carDays : m * r.tripsPerDay * r.perMin * r.upgradeDays;
+  return Math.max(10000, Math.round(v / 10000) * 10000);
 }
 
 const SAVE_KEY = 'taipei-commute-v2';
@@ -84,7 +88,7 @@ export class Economy {
   }
 
   /** 一天開始。 */
-  startDay() { this.day = { pay: 0, late: 0, energy: 0, parking: 0, charge: 0, stunt: 0, drone: 0, repair: 0, lines: [] }; }
+  startDay() { this.day = { pay: 0, payAm: 0, payPm: 0, late: 0, energy: 0, parking: 0, charge: 0, stunt: 0, drone: 0, repair: 0, lines: [] }; }
   /** 晚上回到家：用家裡的壓縮機把空氣罐補滿，回傳補的量（0..1）。錢算在今天。 */
   refillAirHome() { const f = Math.max(0, 1 - this.stuntFuel); this.day.stunt += f * AIR.homePrice; this.stuntFuel = 1; return f; }
   /** 在充電格補氣（每幀呼叫）。 */
@@ -92,8 +96,10 @@ export class Economy {
   /** 上班打卡。 */
   clockIn(lateMin) {
     const d = this.day; d.late = Math.max(0, Math.round(lateMin));
-    d.pay = PAY.daily - Math.min(PAY.daily / 2, d.late * PAY.latePerMin);
+    d.payAm = PAY.trip - Math.min(PAY.trip / 2, d.late * PAY.latePerMin); d.pay = d.payAm + d.payPm;
   }
+  /** 回到家：回家這趟的收入。 */
+  homeTrip() { const d = this.day; d.payPm = PAY.trip; d.pay = d.payAm + d.payPm; }
   /** 開車用掉的能源（油車：公升；電動車：度）。 */
   addEnergy(spec, used, atHome = true) {
     if (used <= 0) return;
@@ -111,7 +117,7 @@ export class Economy {
     const net = Math.round(d.pay) - spend;
     this.money += net; this.totals.days++; this.totals.km += km; if (d.late) this.totals.late++;
     this.totals.earned += Math.round(d.pay); this.totals.spent += spend;
-    return { pay: Math.round(d.pay), late: d.late, energy: Math.round(d.energy), parking: Math.round(d.parking), stunt: Math.round(d.stunt), drone: Math.round(d.drone), repair: Math.round(d.repair || 0), spend, net, money: this.money };
+    return { pay: Math.round(d.pay), payAm: Math.round(d.payAm), payPm: Math.round(d.payPm), late: d.late, energy: Math.round(d.energy), parking: Math.round(d.parking), stunt: Math.round(d.stunt), drone: Math.round(d.drone), repair: Math.round(d.repair || 0), spend, net, money: this.money };
   }
 }
 

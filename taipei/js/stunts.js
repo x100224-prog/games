@@ -19,7 +19,7 @@ export const STUNT = {
   wallSpeed: 13, wallFuel: 0.02, climbFuel: 0.0015,        // 垂直開：每秒 2%，每往上 1 m 再 0.15%
   underSpeed: 22, underFuel: 0.02, underMin: 3.9, underDrop: 3.4,   // 橋底倒著開：每秒 2%；橋底離地至少 3.9 m 才吸得上去
   retroFuel: 0.04, airFuel: 0.01,                          // 落地前反推減速、空中加速
-  crash: 300, hardCrash: 800,                              // 修車費（元）
+  crash: 30000, hardCrash: 100000,                         // 修車費（元）：跑車撞壞 3 萬、翻車 10 萬
 };
 const HALF_L = 2.15, HALF_W = 0.95;
 const UP = new THREE.Vector3(0, 1, 0);

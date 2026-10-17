@@ -27,7 +27,7 @@ export const DRONE = {
   layers: [130, 150, 170],     // 巡航高度層（離地，m）；高於大部分建物，超高大樓（台北 101 等）另外繞開
   cruise: 50, climb: 6, descend: 4,   // m/s（巡航約 180 km/h）
   share: 0.001,                // 會用無人機系統的車：千分之一
-  costPerMin: 40,              // 燃料費（元／遊戲分鐘），飛行、空中等待都算
+  costPerMin: 2500,            // 燃料費（元／遊戲分鐘），飛行、空中等待都算（跟遲到每分鐘扣的錢一樣）
   landClear: 9,                // 降落點周圍幾公尺內不能有車
 };
 const LANES = [3, 2, 2, 2, 1, 1, 1, 1];
@@ -99,16 +99,34 @@ export function computeBands(o, speed, want, list, statics) {
   return { bands, pick: best, vs, alert, nearest };
 }
 
-// ------------------------------------------------------------------ 有旋翼的車（玩家與別台無人機共用）
+// ------------------------------------------------------------------ 折疊旋翼（玩家的車進入無人機系統時從車身伸出來）
+// 四組旋翼平常收在車身裡（看起來就是一般的車）；進入無人機系統時從車頂四角伸出、展開，降落後再收回。
 export function rotorGeometry() {
-  const g = new THREE.Group();
+  const g = new THREE.Group(); g.userData.corners = []; g.userData.discs = [];
   const arm = new THREE.MeshLambertMaterial({ color: 0x2a2e33 }), disc = new THREE.MeshBasicMaterial({ color: 0xcfd8df, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide });
+  const blade = new THREE.MeshLambertMaterial({ color: 0x15171a });
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const a = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.12), arm); a.position.set(sx * 1.25, 1.35, sz * 1.55); g.add(a);
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.18, 10), arm); hub.position.set(sx * 1.7, 1.42, sz * 1.55); g.add(hub);
-    const d = new THREE.Mesh(new THREE.CircleGeometry(1.0, 24).rotateX(-Math.PI / 2), disc); d.position.set(sx * 1.7, 1.52, sz * 1.55); g.add(d);
+    const c = new THREE.Group(); c.userData.sx = sx; c.userData.sz = sz;
+    const a = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.08, 0.12), arm); a.position.set(sx * 0.5, 0, 0); c.add(a);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.18, 10), arm); hub.position.set(sx * 1.0, 0.06, 0); c.add(hub);
+    const rot = new THREE.Group(); rot.position.set(sx * 1.0, 0.16, 0); c.add(rot);
+    rot.add(new THREE.Mesh(new THREE.CircleGeometry(0.95, 24).rotateX(-Math.PI / 2), disc));
+    for (let k = 0; k < 2; k++) { const bl = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.02, 0.1), blade); bl.rotation.y = k * Math.PI / 2; rot.add(bl); }
+    g.add(c); g.userData.corners.push(c); g.userData.discs.push(rot);
   }
+  setDeploy(g, 0);
   return g;
+}
+/** 旋翼展開程度 0（收在車身裡）～1（完全展開）。 */
+export function setDeploy(g, k) {
+  const e = k * k * (3 - 2 * k);
+  g.visible = k > 0.01;
+  for (const c of g.userData.corners) {
+    const { sx, sz } = c.userData;
+    c.position.set(sx * (0.55 + 0.15 * e), 0.95 + 0.4 * e, sz * 1.5);
+    c.scale.set(Math.max(0.01, e), Math.max(0.01, 0.4 + 0.6 * e), Math.max(0.01, e));
+    c.rotation.z = sx * (1 - e) * 1.2;   // 從車身側邊往上翻出來
+  }
 }
 
 // ------------------------------------------------------------------ 全市的無人機（千分之一的車）
@@ -205,7 +223,7 @@ export class DroneFlight {
   constructor(car, world, hooks) {
     this.car = car; this.world = world; this.h = hooks;
     this.active = false; this.phase = 'off'; this.vx = this.vy = this.vz = 0;
-    this.rotors = rotorGeometry(); this.rotors.visible = false; car.body.add(this.rotors);
+    this.rotors = rotorGeometry(); car.body.add(this.rotors); this.deploy = 0;
     this.costSum = 0; this.waitSec = 0; this.flySec = 0; this.r = null; this.cp = null;
   }
 
@@ -274,7 +292,7 @@ export class DroneFlight {
     const lp = this._pickLayer(c, spot, drones ? drones.list : []);
     Object.assign(this, { avoid: [], spotWait: 0, active: true, phase: 'lift', spot, layer: lp.layer, layerCounts: lp.counts, vx: 0, vy: 0, vz: 0, track: Math.atan2(spot.x - c.x, spot.z - c.z), costSum: 0, waitSec: 0, flySec: 0, cp: null });
     this.x = c.x; this.y = c.y; this.z = c.z; this.psi = c.psi;
-    c.v = 0; this.rotors.visible = true;
+    c.v = 0;
     this.h.toast(`無人機飛行：升空到 ${lp.layer} m（這一層最空：${lp.counts.join(' / ')} 架）`, 3);
     return true;
   }
@@ -306,7 +324,8 @@ export class DroneFlight {
     const sp = this.spot, dx = sp.x - this.x, dz = sp.z - this.z, dist = Math.hypot(dx, dz), want = Math.atan2(dx, dz);
     this.daaT = (this.daaT || 0) - dt;
     if (this.phase === 'lift') {
-      this.vx *= 0.9; this.vz *= 0.9; this.vy = DRONE.climb;
+      // 旋翼還沒完全展開前先停在原地（約 1 秒）
+      this.vx *= 0.9; this.vz *= 0.9; this.vy = this.deploy >= 0.98 ? DRONE.climb : 0;
       if (this.y >= gr + this.layer) { this.phase = 'cruise'; this.vy = 0; }
     } else if (this.phase === 'cruise' || this.phase === 'approach') {
       if (this.daaT <= 0) {
@@ -351,7 +370,6 @@ export class DroneFlight {
     if (Math.hypot(this.vx, this.vz) > 1) this.psi = Math.atan2(-this.vx, -this.vz);
     c.x = this.x; c.y = this.y; c.z = this.z; c.psi = this.psi; c.v = Math.hypot(this.vx, this.vz); c.edge = null; c.pitch = 0;
     c.group.position.set(c.x, c.y, c.z); c.group.rotation.set(0, c.psi, 0, 'YXZ');
-    for (const ch of this.rotors.children) if (ch.geometry.type === 'CircleGeometry') ch.rotation.y += dt * 30;
   }
   _clear(sp) {
     const t = this.h.traffic(); if (!t) return true;
@@ -362,8 +380,17 @@ export class DroneFlight {
     const c = this.car;
     c.x = this.spot.x; c.z = this.spot.z; c.y = y; c.psi = this.spot.psi; c.v = 0; c.steer = 0; c.edge = null;
     c.sync();
-    this.active = false; this.phase = 'off'; this.rotors.visible = false;
+    this.active = false; this.phase = 'off';
     this.h.toast(`降落完成：飛了 ${(this.flySec * this.h.gameMinPerSec()).toFixed(0)} 分鐘${this.waitSec > 0.5 ? `（在空中等下方沒車 ${(this.waitSec * this.h.gameMinPerSec()).toFixed(0)} 分鐘）` : ''}，燃料費 ${Math.round(this.costSum)} 元`, 4);
+  }
+
+  /** 每幀（飛不飛都要呼叫）：旋翼展開／收回、轉動。 */
+  animate(dt) {
+    const t = this.active ? 1 : 0;
+    this.deploy += Math.max(-dt / 1.0, Math.min(dt / 1.0, t - this.deploy));
+    setDeploy(this.rotors, this.deploy);
+    const spin = this.active ? (this.phase === 'lift' ? 10 + 30 * this.deploy : 40) : 12 * this.deploy;
+    for (const r of this.rotors.userData.discs) r.rotation.y += dt * spin;
   }
 
   /** 車外視角：在後上方、地平線水平。 */

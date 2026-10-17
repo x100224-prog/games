@@ -1,5 +1,5 @@
 // 台北上班路 — 主程式。每天：房間起床 → 走到路邊的車 → 開去公司 → 停進合法車格 → 走進公司打卡
-// → 下班走回車上 → 開回家 → 停好車走進家門 → 結算日薪與花費。賺的錢可以在商店買導航、電動車、飛天跑車、無人機飛行系統。
+// → 下班走回車上 → 開回家 → 停好車走進家門 → 結算收入（每趟 20 萬）與花費。賺的錢可以在商店買導航、電動車、飛天跑車、無人機飛行系統。
 // 走路是第三人稱，開車是第一人稱駕駛座（含左右後照鏡、座椅調整、舒適設定）。
 import * as THREE from '../lib/three.module.min.js';
 import { World, hash2 } from './world.js';
@@ -158,7 +158,12 @@ function resize() {
 addEventListener('resize', resize);
 const fmtClock = (m) => { m = Math.floor(m); return String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
 const fmtDist = (d) => d >= 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m';
-const fmtMoney = (n) => (n < 0 ? '−' : '') + Math.abs(Math.round(n)).toLocaleString('zh-TW') + ' 元';
+// 金額：一萬以上用「萬」顯示（例：40 萬、2.5 萬、800 萬），小額用元
+const fmtMoney = (n) => {
+  const a = Math.abs(Math.round(n)), sg = n < 0 ? '−' : '';
+  if (a >= 10000) { const w = Math.round(a / 100) / 100; return sg + w.toLocaleString('zh-TW', { maximumFractionDigits: 2 }) + ' 萬'; }   // 例：39.97 萬
+  return sg + a.toLocaleString('zh-TW') + ' 元';
+};
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const districtName = (i) => meta.districts[i] ? meta.districts[i].name : '';
 let toastT = 0;
@@ -464,7 +469,7 @@ function arrive() {
       $('workCard').hidden = true; f.classList.remove('on');
       toast('18:00 下班了，走回車上開回家');
     }, 3200);
-  } else finishDay();
+  } else { econ.homeTrip(); finishDay(); }
 }
 
 function finishDay() {
@@ -483,7 +488,8 @@ function finishDay() {
     ['到家', fmtClock(G.clock), ''],
     ['今天開了', km.toFixed(1) + ' km', ''],
     ['擦撞', bumps + ' 次', bumps ? 'bad' : 'good'],
-    ['日薪', fmtMoney(r.pay) + (r.late ? `（遲到扣 ${fmtMoney(PAY.daily - r.pay)}）` : ''), 'good'],
+    ['上班這趟', fmtMoney(r.payAm) + (r.late ? `（遲到扣 ${fmtMoney(PAY.trip - r.payAm)}）` : ''), 'good'],
+    ['回家這趟', fmtMoney(r.payPm), 'good'],
     [c.spec.key === 'gas' ? '油錢' : '電費', '−' + fmtMoney(r.energy), ''],
     ['停車／充電', '−' + fmtMoney(r.parking + charge), ''],
   ];
@@ -528,7 +534,7 @@ function renderShop() {
     pick.appendChild(l);
   }
   pick.hidden = cars.length < 2;
-  $('shopNote').textContent = SAVED_MEASURED ? '價錢依「尖峰時段實測，每趟平均省下的時間」計算：省越多時間越貴（大約是 10 個上班日省下的遲到扣款）。' : '價錢原則：每趟平均省越多時間越貴。目前是暫定價，之後依尖峰時段實測省下的時間調整。';
+  $('shopNote').textContent = '價錢依「尖峰時段實測，每趟平均省下的時間」：省越多時間越貴，車和加裝功能分開比。車＝基本車價 200 萬＋每趟每省 1 分鐘加 30 萬；加裝功能＝每趟每省 1 分鐘 5 萬。準時上下班一天收入 40 萬。';
 }
 
 // ===================================================================== 導航
@@ -662,6 +668,7 @@ function walkFrame(dt) {
   traffic.update(dt, P.x, P.z, [{ x: P.x, z: P.z, y: P.y, r: 0.6 }, { x: car.x, z: car.z, y: car.y, r: 2.3 }]);
   traffic.events.length = 0;
   if (drones) drones.update(dt, P.x, P.z, null);
+  if (flight) flight.animate(dt);
   car.body.visible = true; car.sync();
   engine.update(dt, { v: 0, throttle: 0, brake: 0, cockpit: false });
   if (tunnelF > 0.001) tunnelLight(dt, null);
@@ -778,6 +785,7 @@ function driveFrame(dt) {
   lotT -= dt; if (lotT <= 0) { lotT = 0.2; c.onLot = parking.inLot(c.x, c.z) || !!parking.bayAt(c.x, c.z, c.psi, _err); }
   const obs = gatherObstacles(c.x, c.z, 14);
   if (flying) flight.update(dt, TIME.scale / 60, drones, statics);
+  if (flight) flight.animate(dt);
   else if (stunts) {
     const sk = G.seatAdj ? {} : { boost: input.has('ShiftLeft', 'ShiftRight'), jump: input.pressed('KeyF'), grip: input.pressed('KeyG'), flip: input.pressed('KeyT') };
     stunts.update(dt, ctl, sk, obs, traffic);
