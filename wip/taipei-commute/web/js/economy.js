@@ -109,6 +109,7 @@ export class Economy {
   constructor() { this.reset(); }
   reset() {
     this.money = 0; this.owned = new Set(); this.carKey = 'gas'; this.stuntFuel = 1; this.mode = this.mode || 'normal';
+    this.moves = 0;   // 每買一樣新系統或車子，可以換一次住址或工作（玩家訂的）
     this.totals = { days: 0, late: 0, km: 0, earned: 0, spent: 0 };
     this.day = null;   // 今天的帳
     this.tripPay = PAY.trip; this.home = { kind: '房租', perDay: 0 };   // 這份工作每趟收入、住的費用（startDay 前由 setLife 設定）
@@ -118,11 +119,12 @@ export class Economy {
     this.tripPay = work ? jobPay(work, workDistrict) : PAY.trip;
     this.home = home ? homeCost(home, homeDistrict) : { kind: '房租', perDay: 0 };
   }
-  toJSON() { return { money: this.money, owned: [...this.owned], carKey: this.carKey, stuntFuel: this.stuntFuel, totals: this.totals }; }
+  toJSON() { return { money: this.money, owned: [...this.owned], carKey: this.carKey, stuntFuel: this.stuntFuel, totals: this.totals, moves: this.moves }; }
   fromJSON(o) {
     this.reset(); if (!o) return;
     this.money = o.money || 0; this.owned = new Set(o.owned || []); this.carKey = o.carKey || 'gas';
     this.stuntFuel = typeof o.stuntFuel === 'number' ? o.stuntFuel : 1; this.totals = Object.assign(this.totals, o.totals || {});
+    this.moves = o.moves | 0;
   }
   has(key) { return this.owned.has(key); }
   /** 玩法：全城飛天跑車／全城無人機／路空總控一開始就有飛天跑車（和無人機系統），而且只能開它（世界上沒有別種車）。 */
@@ -139,7 +141,7 @@ export class Economy {
     const it0 = SHOP.find(s => s.key === key);
     if (it0 && it0.requires && !this.owned.has(it0.requires)) return { ok: false, msg: '要先有飛天跑車才能買無人機飛行系統' };
     if (this.money < p) return { ok: false, msg: `還差 ${(p - this.money).toLocaleString()} 元` };
-    this.money -= p; this.owned.add(key); this.totals.spent += p;
+    this.money -= p; this.owned.add(key); this.totals.spent += p; this.moves++;
     const item = SHOP.find(s => s.key === key);
     if (item && item.kind === 'car') this.carKey = item.car;
     if (key === 'roadster') this.stuntFuel = 1;   // 新車的空氣罐是滿的

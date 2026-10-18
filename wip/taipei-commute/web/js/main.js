@@ -159,7 +159,7 @@ music.onChange = musicBtn;
 const econ = new Economy();
 const G = {
   state: 'boot', cam: 'cockpit', phase: 'room', leg: 'am', parked: null, clock: TIME.startMin, dayN: 1,
-  cfg: { di: -1, home: null, work: null }, menuAngle: 0, menuCenter: { x: 0, z: 0 }, menuTarget: { x: 0, z: 0, r: 520, h: 300 },
+  cfg: { di: -1, home: null, work: null }, menuMode: 'new', menuAngle: 0, menuCenter: { x: 0, z: 0 }, menuTarget: { x: 0, z: 0, r: 520, h: 300 },
   homeCar: null, route: null, routePoly: null, routeIdx: 0,
   mode: (() => { const h = location.hash.match(/mode=(\w+)/); if (h && GAME_MODES[h[1]]) return h[1]; try { const m = localStorage.getItem('taipei-commute-mode'); if (m && GAME_MODES[m]) return m; } catch (err) { /* ignore */ } return 'normal'; })(),
 };
@@ -288,10 +288,19 @@ function buildMenu() {
   $('demoExit').onclick = () => endDemo();
   $('homeMore').onclick = () => { G.homePage = (G.homePage || 0) + 1; renderHomes(); };
   $('workMore').onclick = () => { G.workSeed = (G.workSeed || 0) + 1; renderWorks(); };
-  $('btnGo').onclick = () => newGame();
+  $('btnGo').onclick = () => { if (G.menuMode === 'work') finishMove('work'); else newGame(); };
   // 新的開始：一頁選區、一頁選住址、一頁選工作（薪水、房租都不會在這裡出現）
-  $('btnNew').onclick = () => { G.cfg = { di: -1, home: null, work: null }; for (const p of $('distMap').querySelectorAll('path')) p.classList.remove('on'); updateGo(); showPage('pgDist'); };
-  for (const b of document.querySelectorAll('#menuPanel .back')) b.onclick = () => showPage(b.dataset.to);
+  $('btnNew').onclick = () => { G.menuMode = 'new'; G.cfg = { di: -1, home: null, work: null }; markDistricts(); updateGo(); showPage('pgDist'); };
+  for (const b of document.querySelectorAll('#menuPanel .back')) b.onclick = () => {
+    if (b.dataset.to === 'pgMove') { closeMove(false); return; }   // 換住址或工作：回結算
+    // 換住址或工作：從第一頁返回 → 回到「要換什麼」
+    if (G.menuMode !== 'new' && (b.dataset.to === 'pgTitle' || (G.menuMode === 'work' && b.dataset.to === 'pgHome'))) { G.cfg = Object.assign({}, G.moveBak); G.menuMode = 'move'; showPage('pgMove'); return; }
+    showPage(b.dataset.to);
+  };
+  $('btnMove').onclick = () => openMove();
+  $('btnMoveHome').onclick = () => { G.menuMode = 'home'; G.cfg = Object.assign({}, G.moveBak); markDistricts(); $('btnHomeOk').hidden = true; showPage('pgDist'); };
+  $('btnMoveWork').onclick = () => { G.menuMode = 'work'; G.cfg = Object.assign({}, G.moveBak, { work: null }); G.workSeed = (G.workSeed || 0) + 1; renderWorks(); updateGo(); showPage('pgWork'); };
+  $('btnHomeOk').onclick = () => finishMove('home');
   $('btnAuto').onclick = () => { startAuto(); autoPick(); newGame(); };
   refreshContinue();
   $('btnNext').onclick = () => { $('summary').hidden = true; G.dayN++; startDay(); };
@@ -417,16 +426,23 @@ function refreshContinue() {
   } else b.hidden = true;
 }
 function pickDistrict(i) {
+  const path = $('distMap').querySelector(`path[data-i="${i}"]`); if (path && path.classList.contains('off')) return;   // 搬家：這一區沒有離公司合適距離的住址
   G.cfg.di = i; G.homePage = 0;
   for (const p of $('distMap').querySelectorAll('path')) p.classList.toggle('on', +p.dataset.i === i);
   const d = meta.districts[i];
   Object.assign(G.menuTarget, { x: d.c[0], z: d.c[1], r: 520, h: 300 });
-  G.cfg.home = null; G.cfg.work = null; updateGo();
+  G.cfg.home = null; if (G.menuMode !== 'home') G.cfg.work = null; updateGo();
+  $('btnHomeOk').hidden = G.menuMode !== 'home'; $('btnHomeOk').disabled = true;
   $('homeDist').textContent = d.name; renderHomes(); showPage('pgHome');
 }
 /** 選單換頁：標題 → 行政區 → 住址 → 工作。 */
 function showPage(id) {
   for (const pg of document.querySelectorAll('#menuPanel .page')) pg.hidden = pg.id !== id;
+  const mv = G.menuMode || 'new';
+  $('pgnoDist').textContent = mv === 'home' ? '搬家 1 / 2' : '1 / 3'; $('pgnoHome').textContent = mv === 'home' ? '搬家 2 / 2' : '2 / 3'; $('pgnoWork').textContent = mv === 'work' ? '換工作' : '3 / 3';
+  $('distTitle').textContent = mv === 'home' ? '要搬到哪一區？' : '你要住哪一區？';
+  $('btnGo').textContent = mv === 'work' ? '換這份工作' : '出發上班';
+  if (mv === 'work') document.querySelector('#pgWork .back').textContent = '← 不換了'; else { document.querySelector('#pgWork .back').textContent = '← 換住址'; }
   $('menuPanel').scrollTop = 0;
   const h = document.querySelector('#' + id + ' .pgtitle'); if (h) h.focus({ preventScroll: true });
   // 背景的鏡頭：標題、選區看整個台北；選住址看那一區；選工作看那個住址
@@ -436,18 +452,55 @@ function showPage(id) {
   else if (id === 'pgTitle' || id === 'pgDist') Object.assign(G.menuTarget, { x: c.x, z: c.z, r: 520, h: 300 });
 }
 function renderHomes() {
-  const list = meta.homes[G.cfg.di] || [], n = 6, page = (G.homePage || 0) % Math.max(1, Math.ceil(list.length / n));
+  const all = meta.homes[G.cfg.di] || [], list = G.menuMode === 'home' && G.cfg.work ? all.filter(h => inRange(h, G.cfg.work) && !sameSpot(h, G.moveBak.home)) : all;
+  const n = 6, page = (G.homePage || 0) % Math.max(1, Math.ceil(list.length / n));
   const box = $('homeOpts'); box.innerHTML = '';
   const dn = districtName(G.cfg.di);
   $('homeHint').textContent = list.some(h => !h.approx) ? '門牌取自開放地圖資料。' : '';
   for (const h of list.slice(page * n, page * n + n)) {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'opt' + (G.cfg.home === h ? ' on' : '');
     b.innerHTML = `<b>臺北市${dn}${h.a}</b><span class="sub">${h.road ? '門前道路：' + h.road : ''}${h.approx ? '（約略位置）' : ''}</span>`;
-    b.onclick = () => { G.cfg.home = h; G.cfg.work = null; renderHomes(); renderWorks(); updateGo(); showPage('pgWork'); };
+    b.onclick = () => {
+      G.cfg.home = h;
+      if (G.menuMode === 'home') { renderHomes(); $('btnHomeOk').disabled = false; return; }   // 搬家：選好按「搬到這裡」
+      G.cfg.work = null; renderHomes(); renderWorks(); updateGo(); showPage('pgWork');
+    };
     box.appendChild(b);
   }
 }
-function workCands(h) { return meta.works.filter(w => { const d = Math.hypot(w.x - h.x, w.z - h.z); return d >= WORK_DIST.min && d <= WORK_DIST.max; }); }
+const inRange = (a, b) => { const d = Math.hypot(a.x - b.x, a.z - b.z); return d >= WORK_DIST.min && d <= WORK_DIST.max; };
+const sameSpot = (a, b) => !!(a && b && Math.abs(a.x - b.x) < 0.5 && Math.abs(a.z - b.z) < 0.5);
+function workCands(h) { return meta.works.filter(w => inRange(w, h) && !(G.menuMode === 'work' && G.moveBak && sameSpot(w, G.moveBak.work))); }
+/** 地圖上的區：新的開始全部可以選；搬家時，沒有離公司合適距離住址的區變暗。 */
+function markDistricts() {
+  for (const p of $('distMap').querySelectorAll('path')) {
+    const i = +p.dataset.i; p.classList.remove('on');
+    p.classList.toggle('off', G.menuMode === 'home' && !(meta.homes[i] || []).some(h => inRange(h, G.cfg.work) && !sameSpot(h, G.moveBak.home)));
+  }
+}
+// ===================================================================== 換住址或工作（每買一樣新系統或車子，可以換一次；從結算畫面進來，明天起生效）
+function openMove() {
+  if (!(econ.moves > 0) || !G.cfg.home || !G.cfg.work) return;
+  G.moveBak = Object.assign({}, G.cfg); G.menuMode = 'move';
+  $('summary').hidden = true; $('menu').hidden = false; input.releaseLock();
+  $('moveLeft').textContent = `可以換 ${econ.moves} 次`;
+  $('moveNow').textContent = `現在住在${districtName(G.cfg.di)}${G.cfg.home.a}，在${G.cfg.work.n}上班。`;
+  showPage('pgMove');
+}
+function closeMove(done) {
+  if (!done && G.moveBak) G.cfg = G.moveBak;
+  G.menuMode = 'new'; G.moveBak = null;
+  $('menu').hidden = true; showPage('pgTitle'); $('summary').hidden = false; refreshMoveBtn();
+}
+function finishMove(kind) {
+  if (kind === 'home' && !G.cfg.home) return; if (kind === 'work' && !G.cfg.work) return;
+  econ.moves = Math.max(0, econ.moves - 1);
+  if (kind === 'home') G.homeCar = null;   // 搬家：車子明天停在新家附近的路邊
+  const msg = kind === 'home' ? `明天起住在${districtName(G.cfg.di)}${G.cfg.home.a}` : `明天起在${G.cfg.work.n}上班`;
+  save(); closeMove(true);
+  $('sumLead').textContent = `${fmtClock(G.clock)} 回到家。${msg}。`;
+}
+function refreshMoveBtn() { const b = $('btnMove'); if (b) { b.hidden = !(econ.moves > 0); b.textContent = `換住址或工作${econ.moves > 1 ? `（${econ.moves} 次）` : ''}`; } }
 function renderWorks() {
   const h = G.cfg.home; if (!h) return;
   const cands = workCands(h), seed = (G.workSeed || 0) * 7919 + Math.round(h.x);
@@ -705,7 +758,7 @@ function finishDay() {
   if (r.repair) rows.push(['修車', '−' + fmtMoney(r.repair), 'bad']);
   rows.push(['今天淨賺', fmtMoney(r.net), r.net >= 0 ? 'good' : 'bad'], ['存款', fmtMoney(r.money), '']);
   $('sumStats').innerHTML = rows.map(([k, v, cl]) => `<dt>${k}</dt><dd class="${cl}">${v}</dd>`).join('');
-  $('summary').hidden = false;
+  $('summary').hidden = false; refreshMoveBtn();
   save();
   if (AUTO) AUTO.done = true;
 }
@@ -717,7 +770,7 @@ function openShop() {
   G.shopFromSummary = !$('summary').hidden; if (G.shopFromSummary) $('summary').hidden = true;
   renderShop(); $('shop').hidden = false;
 }
-function closeShop() { $('shop').hidden = true; input.noLock = false; if (G.shopFromSummary) { G.shopFromSummary = false; $('summary').hidden = false; } }
+function closeShop() { $('shop').hidden = true; input.noLock = false; if (G.shopFromSummary) { G.shopFromSummary = false; $('summary').hidden = false; refreshMoveBtn(); } }
 function renderShop() {
   $('shopMoney').textContent = fmtMoney(econ.money);
   const box = $('shopList'); box.innerHTML = '';
@@ -731,7 +784,7 @@ function renderShop() {
     else if (!ready) { b.textContent = '製作中'; b.disabled = true; }
     else if (it.requires && !econ.has(it.requires)) { b.textContent = '要先有飛天跑車'; b.disabled = true; }
     else if (econ.money < p) { b.textContent = `還差 ${fmtMoney(p - econ.money)}`; b.disabled = true; }
-    else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(r.ok ? `${r.msg}：上路時會告訴你怎麼用` : r.msg, 2.8); save(); renderShop(); renderHelp(); }; }
+    else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(r.ok ? `${r.msg}：上路時會告訴你怎麼用。也多了一次換住址或工作的機會（在結算畫面）` : r.msg, 3.5); save(); renderShop(); renderHelp(); }; }
     d.appendChild(b); box.appendChild(d);
   }
   const cars = econ.cars(), names = { gas: '油車', ev: '電動車', roadster: '飛天跑車' };

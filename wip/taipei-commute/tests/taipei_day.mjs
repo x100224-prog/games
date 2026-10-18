@@ -86,9 +86,33 @@ await page.click('#btnSumShop'); await page.waitForTimeout(500);
 await shot('8_shop');
 const buyBtn = await page.$$('#shopList .buy'); await buyBtn[0].click(); await page.waitForTimeout(300);
 console.log('owned after buy', await ev(() => [...window.__tc.econ.owned]), 'money', await ev(() => window.__tc.econ.money));
-await page.click('#shopClose'); await page.click('#btnNext');
+await page.click('#shopClose');
+// 每買一樣：可以換一次住址或工作（結算畫面出現按鈕）
+const cfgNow = () => ev(() => { const G = window.__tc.G; return { home: G.cfg.home.a, di: G.cfg.di, work: G.cfg.work.n, moves: window.__tc.econ.moves, homeCar: !!G.homeCar, btn: !document.getElementById('btnMove').hidden && document.getElementById('btnMove').textContent, lead: document.getElementById('sumLead').textContent }; });
+console.log('after buy', JSON.stringify(await cfgNow()));
+await page.click('#btnMove'); console.log('move page', await pages(), await ev(() => document.getElementById('moveNow').textContent));
+await page.click('#pgMove .back'); console.log('cancel →', JSON.stringify(await cfgNow()), 'summary shown', await ev(() => !document.getElementById('summary').hidden));
+await page.click('#btnMove'); await page.click('#btnMoveWork');
+console.log('change work page', await pages(), await ev(() => [document.getElementById('btnGo').textContent, document.getElementById('btnGo').disabled, document.querySelector('#pgWork .pgno').textContent]));
+await page.click('#workOpts .opt'); await page.click('#btnGo');
+console.log('after work change', JSON.stringify(await cfgNow()), 'menu hidden', await ev(() => document.getElementById('menu').hidden));
+// 再買一樣 → 換住址
+await page.click('#btnSumShop'); await page.waitForTimeout(300);
+{ const bs = await page.$$('#shopList .buy:not([disabled])'); await bs[0].click(); await page.waitForTimeout(300); }
+await page.click('#shopClose');
+await page.click('#btnMove'); await page.click('#btnMoveHome');
+const offs = await ev(() => [...document.querySelectorAll('#distMap path')].map(p => p.classList.contains('off') ? 0 : 1));
+console.log('move home: districts open', offs.join(''), await ev(() => document.getElementById('distTitle').textContent));
+const di2 = offs.findIndex(v => v === 1);
+await page.click(`#distMap path[data-i="${di2}"]`);
+console.log('home page', await pages(), await ev(() => [document.getElementById('btnHomeOk').hidden, document.getElementById('btnHomeOk').disabled, document.querySelectorAll('#homeOpts .opt').length]));
+await page.click('#homeOpts .opt'); await page.click('#btnHomeOk');
+console.log('after move', JSON.stringify(await cfgNow()), 'dist to work m', await ev(() => { const G = window.__tc.G; return Math.round(Math.hypot(G.cfg.home.x - G.cfg.work.x, G.cfg.home.z - G.cfg.work.z)); }));
+console.log('saved cfg', await ev(() => { const v = JSON.parse(localStorage.getItem('taipei-commute-v2')); return [v.cfg.home.a, v.cfg.work.n, v.econ.moves].join(' / '); }));
+await page.click('#btnNext');
 await page.waitForFunction(() => window.__tc.G.state === 'room', null, { timeout: 200000 });
-console.log('day2 car placed at yesterday spot:', await ev(() => { const { car, G } = window.__tc; return { d: Math.hypot(car.x - G.homeCar.x, car.z - G.homeCar.z).toFixed(1) }; }));
+console.log('day 2 starts at new home: player→home m', await ev(() => { const { P, G } = window.__tc; return Math.round(Math.hypot(P.x - G.cfg.home.x, P.z - G.cfg.home.z)); }), 'car→home m', await ev(() => { const { car, G } = window.__tc; return Math.round(Math.hypot(car.x - G.cfg.home.x, car.z - G.cfg.home.z)); }));
+console.log('day2 car placed at yesterday spot:', await ev(() => { const { car, G } = window.__tc; return G.homeCar ? { d: Math.hypot(car.x - G.homeCar.x, car.z - G.homeCar.z).toFixed(1) } : '搬家了：車停在新家附近'; }));
 await ev(() => { const { P } = window.__tc; P.x = 1.2; P.z = -2.0; }); await page.waitForTimeout(400); await page.keyboard.press('KeyE');
 await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout: 60000 }); await page.waitForTimeout(800);
 await ev(() => { const { P, car } = window.__tc; P.x = car.x - Math.cos(car.psi) * 2; P.z = car.z + Math.sin(car.psi) * 2; });

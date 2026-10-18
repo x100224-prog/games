@@ -1,6 +1,7 @@
 # 台北上班路：進度（2026-10-17 晚上更新）
 
 ## 已完成
+- 2026-10-18：每買一樣新系統或車子，可以換一次住址或工作（econ.moves；結算畫面的「換住址或工作」→ #pgMove；搬家只列離公司 1.8～4.8 km 的住址，隔天生效、存款保留）。
 - 2026-10-18：開始時分三頁選行政區、住址、工作（web/game.html 的 #pgTitle #pgDist #pgHome #pgWork，main.js showPage）；薪水看工作地點、房租／房貸看住哪一區（economy.js 的 LIFE、jobPay、homeCost），選的時候看不到，打卡和結算時才知道；介面拿掉收入、價錢的說明。
 - 第三個新玩法「全城無人機・路空總控」（hybrid）：web/js/control.js（總控：降落時段排隊、Wardrop 式分配飛／開的比例、按 U 評估開 vs 飛、地面等待）、sky.js（天上的車跟路上的車互相交換）、traffic.js（takeForLift／laneAt／addAt）、drone.js（排好的降落時段、預估 vs 實際）、main.js（問總控、卡片、手機版精簡卡片）、demo.js（第 10 段示範）。
 - 實際跑完檢驗（tests/hybrid_test.mjs）：飛 預估 23／實際 21 分；8:10 出門先開再飛 預估 45／實際 41 分；近距離建議開車 預估 26／實際 20 分（build/hybrid_check.json）。
@@ -8,7 +9,6 @@
 - 示範配樂：原創曲「鉻色脈衝」（web/audio/cyber.mp3，music.js CYBER_LOOP）。
 
 ## 還沒做
-- 要不要做「搬家／換工作」（目前要知道薪水和房租後換地方，只能重新開始）——還沒問使用者。
 - 新玩法的完整一天（下班回家、商店）沒有完整測過。
 - 手機橫向飛行時，避撞面板（DAA）會壓到任務欄下緣（之前就有）。
 
