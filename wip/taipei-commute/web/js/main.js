@@ -289,6 +289,9 @@ function buildMenu() {
   $('homeMore').onclick = () => { G.homePage = (G.homePage || 0) + 1; renderHomes(); };
   $('workMore').onclick = () => { G.workSeed = (G.workSeed || 0) + 1; renderWorks(); };
   $('btnGo').onclick = () => newGame();
+  // 新的開始：一頁選區、一頁選住址、一頁選工作（薪水、房租都不會在這裡出現）
+  $('btnNew').onclick = () => { G.cfg = { di: -1, home: null, work: null }; for (const p of $('distMap').querySelectorAll('path')) p.classList.remove('on'); updateGo(); showPage('pgDist'); };
+  for (const b of document.querySelectorAll('#menuPanel .back')) b.onclick = () => showPage(b.dataset.to);
   $('btnAuto').onclick = () => { startAuto(); autoPick(); newGame(); };
   refreshContinue();
   $('btnNext').onclick = () => { $('summary').hidden = true; G.dayN++; startDay(); };
@@ -304,15 +307,11 @@ function renderModes() {
   for (const M of Object.values(GAME_MODES)) {
     const locked = M.key !== 'normal' && !open;
     const b = document.createElement('button'); b.type = 'button'; b.className = 'opt mode' + (G.mode === M.key ? ' on' : '') + (locked ? ' locked' : '');
-    b.innerHTML = `<b>${M.name}${locked ? '　（未解鎖）' : ''}</b><span class="sub">${locked ? '在一般模式買了飛天跑車和無人機飛行系統後解鎖。' : M.desc}</span>`;
+    b.innerHTML = `<b>${M.name}${locked ? '　（未解鎖）' : ''}</b><span class="sub">${locked ? '在一般模式玩到一定程度就會解鎖。' : M.desc}</span>`;
     if (locked) { b.disabled = true; box.appendChild(b); continue; }
     b.onclick = () => { G.mode = M.key; try { localStorage.setItem('taipei-commute-mode', M.key); } catch (err) { /* ignore */ } store.setMode(M.key); renderModes(); refreshContinue(); };
     box.appendChild(b);
   }
-  const t = $('carText'); if (t) t.textContent = G.mode === 'allfly' ? '這個世界每台車都是飛天跑車：你一開始就有一台（壓縮空氣滿罐可以飛越 8 次，遊戲設定）。可以再買導航、無人機飛行系統。'
-    : G.mode === 'alldrone' ? '這個世界每台車都進入無人機系統：你一開始就有飛天跑車和無人機飛行系統（按 U 升空）。天上的車只模擬你附近 1.3 公里內，數量跟尖峰時那一帶路上的車一樣多。'
-    : G.mode === 'hybrid' ? '每台車都有無人機系統，但路上也照樣有車在開：總控中心依「開車和飛哪個快」分配，飛的人越多，路上越空、目的地降落越要排隊。你一開始就有飛天跑車和無人機飛行系統，想飛時按 U 問總控。'
-    : '一開始開油車。存錢在商店買導航（約 55 萬）、電動車（約 206 萬）、飛天跑車（約 800 萬）；有了飛天跑車，才能再加裝無人機飛行系統（約 410 萬）。';
 }
 // ===================================================================== 看示範
 let demo = null;
@@ -377,8 +376,8 @@ function endDemo() {
   G.cam = 'cockpit'; G.cfg = { di: -1, home: null, work: null };
   econ.reset(); econ.applyMode(G.mode);
   toMenu(); applyMode(); renderModes();
-  for (const id of ['step2', 'step3']) $(id).hidden = true;
   for (const p of $('distMap').querySelectorAll('path')) p.classList.remove('on');
+  showPage('pgTitle');
   updateGo();
 }
 window.__tc.startDemo = startDemo; window.__tc.endDemo = endDemo;
@@ -422,18 +421,29 @@ function pickDistrict(i) {
   for (const p of $('distMap').querySelectorAll('path')) p.classList.toggle('on', +p.dataset.i === i);
   const d = meta.districts[i];
   Object.assign(G.menuTarget, { x: d.c[0], z: d.c[1], r: 520, h: 300 });
-  $('step2').hidden = false; renderHomes();
-  G.cfg.home = null; G.cfg.work = null; $('step3').hidden = true; updateGo();
+  G.cfg.home = null; G.cfg.work = null; updateGo();
+  $('homeDist').textContent = d.name; renderHomes(); showPage('pgHome');
+}
+/** 選單換頁：標題 → 行政區 → 住址 → 工作。 */
+function showPage(id) {
+  for (const pg of document.querySelectorAll('#menuPanel .page')) pg.hidden = pg.id !== id;
+  $('menuPanel').scrollTop = 0;
+  const h = document.querySelector('#' + id + ' .pgtitle'); if (h) h.focus({ preventScroll: true });
+  // 背景的鏡頭：標題、選區看整個台北；選住址看那一區；選工作看那個住址
+  const c = G.menuCenter, d = meta.districts[G.cfg.di], hm = G.cfg.home;
+  if (id === 'pgHome' && d) Object.assign(G.menuTarget, { x: d.c[0], z: d.c[1], r: 520, h: 300 });
+  else if (id === 'pgWork' && hm) Object.assign(G.menuTarget, { x: hm.x, z: hm.z, r: 170, h: 95 });
+  else if (id === 'pgTitle' || id === 'pgDist') Object.assign(G.menuTarget, { x: c.x, z: c.z, r: 520, h: 300 });
 }
 function renderHomes() {
   const list = meta.homes[G.cfg.di] || [], n = 6, page = (G.homePage || 0) % Math.max(1, Math.ceil(list.length / n));
   const box = $('homeOpts'); box.innerHTML = '';
   const dn = districtName(G.cfg.di);
-  $('homeHint').textContent = list.some(h => !h.approx) ? '門牌取自開放地圖資料' : '';
+  $('homeHint').textContent = list.some(h => !h.approx) ? '門牌取自開放地圖資料。' : '';
   for (const h of list.slice(page * n, page * n + n)) {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'opt' + (G.cfg.home === h ? ' on' : '');
     b.innerHTML = `<b>臺北市${dn}${h.a}</b><span class="sub">${h.road ? '門前道路：' + h.road : ''}${h.approx ? '（約略位置）' : ''}</span>`;
-    b.onclick = () => { G.cfg.home = h; renderHomes(); Object.assign(G.menuTarget, { x: h.x, z: h.z, r: 170, h: 95 }); $('step3').hidden = false; G.cfg.work = null; renderWorks(); updateGo(); };
+    b.onclick = () => { G.cfg.home = h; G.cfg.work = null; renderHomes(); renderWorks(); updateGo(); showPage('pgWork'); };
     box.appendChild(b);
   }
 }
@@ -524,7 +534,7 @@ function toMenu() {
   input.enabled = false; input.releaseLock(); engine.shutdown();
   G.state = 'menu'; $('hud').hidden = true; $('menu').hidden = false; $('touch').hidden = true;
   destBeacon.visible = carBeacon.visible = false; bayMarks.count = 0; routeLine.visible = false;
-  traffic.clear(); refreshContinue(); renderModes(); renderDemos(); $('tipCard').hidden = true;
+  traffic.clear(); refreshContinue(); renderModes(); renderDemos(); $('tipCard').hidden = true; showPage('pgTitle');
 }
 /** 公司附近的路邊停車：早上 110 m 內都停滿了，110～260 m 至少留 3 個空格（電動車可以停停車場的電動車格，比較近）。 */
 function workParking() {
@@ -549,6 +559,7 @@ function startDay() {
   $('loadSub').textContent = '道路、建物、招牌與停車格';
   G.focus = { x: h.x, z: h.z };
   parking.setDay(G.dayN); traffic.clear();
+  econ.setLife(G.cfg.home, districtName(G.cfg.di), G.cfg.work, G.cfg.work ? districtName(G.cfg.work.d) : '');   // 薪水、房租／房貸：選的時候看不到，領錢和結算時才知道
   econ.startDay();
   G.wait = {
     cond: () => world.readyAround(h.x, h.z, 320) && parking.readyAround(h.x, h.z, 210),
@@ -648,12 +659,12 @@ function arrive() {
   econ.addEnergy(c.spec, Math.max(0, G.legE0 - c.energy), true);     // 這一趟用掉的油或電
   if (G.leg === 'am') {
     const late = Math.max(0, G.clock - TIME.workMin);
-    econ.clockIn(late);
+    const payAm = econ.clockIn(late);
     if (G.parked.type === 'road') econ.addParking('road');
     if (G.parked.type === 'ev') { const need = c.spec.capacity - c.energy; econ.day.charge += need * PAY.bayKwh; c.energy = c.spec.capacity; }
     G.amClock = G.clock;
     G.state = 'work'; setPrompt(''); input.releaseLock();
-    const f = $('fade'); $('workText').textContent = late > 0.5 ? `${fmtClock(G.clock)} 打卡，遲到 ${Math.round(late)} 分鐘` : `${fmtClock(G.clock)} 準時打卡`;
+    const f = $('fade'); $('workText').textContent = (late > 0.5 ? `${fmtClock(G.clock)} 打卡，遲到 ${Math.round(late)} 分鐘` : `${fmtClock(G.clock)} 準時打卡`) + `　這趟 +${fmtMoney(payAm)}`;
     f.classList.add('on'); $('workCard').hidden = false;
     setTimeout(() => {
       // 下班：18:00 從公司門口出來，走回車上
@@ -683,8 +694,9 @@ function finishDay() {
     ['到家', fmtClock(G.clock), ''],
     ['今天開了', km.toFixed(1) + ' km', ''],
     ['擦撞', bumps + ' 次', bumps ? 'bad' : 'good'],
-    ['上班這趟', fmtMoney(r.payAm) + (r.late ? `（遲到扣 ${fmtMoney(PAY.trip - r.payAm)}）` : ''), 'good'],
+    ['上班這趟', fmtMoney(r.payAm) + (r.late ? `（遲到扣 ${fmtMoney(r.trip - r.payAm)}）` : ''), 'good'],
     ['回家這趟', fmtMoney(r.payPm), 'good'],
+    [r.housingKind, '−' + fmtMoney(r.housing), ''],
     [c.spec.electric ? '電費' : '油錢', '−' + fmtMoney(r.energy), ''],
     ['停車／充電', '−' + fmtMoney(r.parking + charge), ''],
   ];
@@ -731,7 +743,7 @@ function renderShop() {
     pick.appendChild(l);
   }
   pick.hidden = cars.length < 2;
-  $('shopNote').textContent = '價錢依「尖峰時段實測，每趟平均省下的時間」：省越多時間越貴，車和加裝功能分開比。車＝基本車價 200 萬＋每趟每省 1 分鐘加 30 萬；加裝功能＝每趟每省 1 分鐘 5 萬。準時上下班一天收入 40 萬。';
+  $('shopNote').textContent = '';
 }
 
 // ===================================================================== 導航

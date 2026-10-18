@@ -36,6 +36,13 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .sign .arrow { grid-row: 1 / span 2; grid-column: 2; align-self: center; font-size: 44px; line-height: 1; color: #fff; }
 .lede { margin: 0; color: var(--mute); font-size: 14px; }
 .step { display: flex; flex-direction: column; gap: 10px; }
+.page { display: flex; flex-direction: column; gap: 16px; }
+.page[hidden] { display: none; }
+.pghead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.back { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-weight: 700; font-size: 14px; }
+.pgno { font-family: var(--f-num); font-weight: 700; color: var(--mute); letter-spacing: .08em; }
+.pgtitle { margin: 0; font-size: 22px; font-weight: 900; outline: none; }
+.pgtitle small { font-size: 13px; font-weight: 400; color: var(--mute); margin-left: 6px; }
 .step h2 { margin: 0; font-size: 15px; font-weight: 700; display: flex; align-items: baseline; gap: 8px; }
 .step h2 small { font-weight: 400; color: var(--mute); font-size: 13px; }
 #distMap { width: 100%; height: auto; display: block; background: rgba(255, 255, 255, .03); border: 1px solid var(--line); border-radius: 8px; }
@@ -343,41 +350,50 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 
   <div id="menu">
     <div id="menuPanel">
-      <div class="sign">
-        <h1>台北上班路</h1>
-        <div class="en">TAIPEI COMMUTE</div>
-        <div class="arrow" aria-hidden="true">↑</div>
-      </div>
-      <p class="lede">住在台北，每天開車上下班。從房間出門、走到路邊找到你的車、坐進駕駛座，開過真實的台北街道，停好車走進公司打卡；下班再開回家。每趟收入 20 萬（上班、回家各一趟），上班遲到每分鐘扣 2,500 元。</p>
-      <button class="ghost" id="btnContinue" type="button" hidden></button>
-
-      <section class="step" id="demoStep">
-        <h2>看示範 <small>遊戲自己開給你看，看完可以直接接手</small></h2>
-        <div class="opts demos" id="demoOpts"></div>
+      <!-- 第一頁：標題、繼續、新的開始、玩法、看示範 -->
+      <section class="page" id="pgTitle">
+        <div class="sign">
+          <h1>台北上班路</h1>
+          <div class="en">TAIPEI COMMUTE</div>
+          <div class="arrow" aria-hidden="true">↑</div>
+        </div>
+        <p class="lede">住在台北，每天開車上班。</p>
+        <button class="ghost" id="btnContinue" type="button" hidden></button>
+        <button class="go" id="btnNew" type="button">搬來台北</button>
+        <section class="step" id="step0">
+          <h2>玩法 <small>各有自己的存檔</small></h2>
+          <div class="opts modes" id="modeOpts"></div>
+        </section>
+        <section class="step" id="demoStep">
+          <h2>看示範 <small>遊戲自己開給你看，看完可以直接接手</small></h2>
+          <div class="opts demos" id="demoOpts"></div>
+        </section>
+        <button class="ghost" id="btnAuto" type="button">自動示範（隨機選住址，看遊戲自己玩）</button>
+        <p class="fine">提醒：看別人開（包括自動示範）比自己開更容易頭暈；覺得不舒服就停下來休息。</p>
+        <p class="fine">人物：Quaternius（CC0）；配樂與引擎聲為本遊戲原創。地圖資料 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 貢獻者；地形資料：內政部 20 公尺網格數值地形模型（政府資料開放授權條款第 1 版）。</p>
       </section>
-      <section class="step" id="step0">
-        <h2>玩法 <small>三種世界，各有自己的存檔</small></h2>
-        <div class="opts modes" id="modeOpts"></div>
-      </section>
-      <section class="step" id="step1">
-        <h2>1　你住哪一區 <small>點地圖選擇</small></h2>
+      <!-- 第二頁：行政區 -->
+      <section class="page" id="pgDist" hidden>
+        <div class="pghead"><button class="back" type="button" data-to="pgTitle">← 返回</button><span class="pgno">1 / 3</span></div>
+        <h2 class="pgtitle" tabindex="-1">你要住哪一區？</h2>
         <svg id="distMap" role="group" aria-label="台北市行政區地圖"></svg>
       </section>
-      <section class="step" id="step2" hidden>
-        <h2>2　住址 <small id="homeHint"></small></h2>
+      <!-- 第三頁：住址 -->
+      <section class="page" id="pgHome" hidden>
+        <div class="pghead"><button class="back" type="button" data-to="pgDist">← 換一區</button><span class="pgno">2 / 3</span></div>
+        <h2 class="pgtitle" tabindex="-1">住在<span id="homeDist"></span>哪裡？</h2>
         <div class="opts" id="homeOpts"></div>
         <button class="link" id="homeMore" type="button">換一批住址</button>
+        <p class="fine" id="homeHint"></p>
       </section>
-      <section class="step" id="step3" hidden>
-        <h2>3　在哪裡上班 <small>每天 09:00 前打卡</small></h2>
+      <!-- 第四頁：工作地點 -->
+      <section class="page" id="pgWork" hidden>
+        <div class="pghead"><button class="back" type="button" data-to="pgHome">← 換住址</button><span class="pgno">3 / 3</span></div>
+        <h2 class="pgtitle" tabindex="-1">在哪裡上班？ <small>每天 09:00 前打卡</small></h2>
         <div class="opts" id="workOpts"></div>
         <button class="link" id="workMore" type="button">換一批工作</button>
+        <button class="go" id="btnGo" type="button" disabled>出發上班</button>
       </section>
-      <section class="step"><h2>開什麼車</h2><p class="lede" id="carText" style="font-size:13px">一開始開油車。存錢在商店買導航（約 55 萬）、電動車（約 206 萬）、飛天跑車（約 800 萬）；有了飛天跑車，才能再加裝無人機飛行系統（約 410 萬）。</p></section>
-      <button class="go" id="btnGo" type="button" disabled>出發上班</button>
-      <button class="ghost" id="btnAuto" type="button">自動示範（隨機選住址，看遊戲自己玩）</button>
-      <p class="fine">提醒：看別人開（包括自動示範）比自己開更容易頭暈；覺得不舒服就停下來休息。</p>
-      <p class="fine">剛搬來沒有錢租車位，車只能停路邊。人物：Quaternius（CC0）；配樂與引擎聲為本遊戲原創、即時合成。地圖資料 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 貢獻者；地形資料：內政部 20 公尺網格數值地形模型（政府資料開放授權條款第 1 版）。</p>
     </div>
   </div>
 

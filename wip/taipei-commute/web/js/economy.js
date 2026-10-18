@@ -1,11 +1,13 @@
 // 台北上班路 — 金錢、商店、存檔。
-// 收入：每趟（上班、回家）各 20 萬，上班遲到每分鐘扣錢。支出：油錢／電費、上班時的路邊停車費、壓縮空氣、無人機燃料、修車。
+// 收入：每趟（上班、回家）各領一次，多少看工作地點（見 LIFE），上班遲到每分鐘扣錢。
+// 支出：房租或房貸（看住在哪一區）、油錢／電費、上班時的路邊停車費、壓縮空氣、無人機燃料、修車。
 // 收入用「萬」計，是配合換車的價錢（幾百萬）：準時上下班約 20 天可以買飛天跑車（玩家訂的）。
+// 選住址和工作時看不到薪水和房租：上班打卡、晚上結算時才知道（玩家訂的）。
 // 商店的價錢原則（玩家訂的）：能讓你越快到達的東西越貴。實際價錢依「每趟平均省下的分鐘數」換算（見 PRICE_RULE），
 // 省下的分鐘數用自動測試在尖峰時段實際跑出來，數字放在 SAVED_MIN。
 
 export const PAY = {
-  trip: 200000,         // 每趟收入：準時到公司 20 萬、回到家 20 萬（一天 40 萬）
+  trip: 200000,         // 每趟收入的基準 20 萬，實際乘上工作地點的倍數（見 LIFE、jobPay）
   latePerMin: 2500,     // 上班遲到每分鐘扣（元），最多扣到這趟收入的一半
   gasPrice: 30,         // 汽油（元／公升）
   homeKwh: 4,           // 在家充電（元／度）
@@ -16,6 +18,38 @@ export const PAY = {
 
 // 飛天跑車的壓縮空氣罐（推進器、垂直升空、吸附風扇都靠它）。
 // ※ 以下全部是「遊戲設定」：Tesla 沒有公布空氣罐的容量、能跳幾次、怎麼補充，這裡的數字是遊戲自己訂的。
+// 住哪裡、在哪裡上班（遊戲設定，數字是遊戲自己訂的）：
+//  - 蛋黃區（大安、信義、中正、中山、松山）的工作薪水比較高，住在那裡的房租、房貸也比較高。
+//  - 其他區也零星有高薪的工作（約 12%），運氣好可能選到離家近、薪水又高的。
+//  - 真實的台北：2026 上半年獨立套房月租中位數全市約 1.5 萬，內湖 1.95 萬最高、大安和信義 1.8 萬（經濟日報，內政部租金補貼資料）；
+//    遊戲裡把差距放大，讓住哪裡更有感。
+export const LIFE = {
+  core: ['大安區', '信義區', '中正區', '中山區', '松山區'],
+  coreJob: [1.30, 1.55],       // 蛋黃區的工作：每趟收入 × 1.30～1.55
+  highJob: [1.35, 1.60],       // 其他區零星的高薪工作
+  highShare: 0.12,
+  job: [0.80, 1.02],           // 其他區一般的工作
+  rent: { core: [70000, 90000], semi: [55000, 70000], other: [35000, 50000] },   // 每天的房租（元）
+  semi: ['內湖區'],             // 內湖：房租接近蛋黃區（真實的租金也高），但工作不算蛋黃區
+  mortgageShare: 0.45, mortgageMult: 1.2,   // 約 45% 的住址是買的（房貸），每天比同一區的房租多 2 成
+};
+// 用座標算出固定的亂數（同一個地方每次都一樣，但看不出規則）
+const hash01 = (x, z, k) => { const v = Math.sin(Math.round(x) * 12.9898 + Math.round(z) * 78.233 + k * 37.719) * 43758.5453; return v - Math.floor(v); };
+const lerp = ([a, b], t) => a + (b - a) * t;
+/** 這個工作每趟收入多少（元）。district：工作所在的行政區名稱。 */
+export function jobPay(work, district) {
+  const r1 = hash01(work.x, work.z, 1), r2 = hash01(work.x, work.z, 2);
+  const m = LIFE.core.includes(district) ? lerp(LIFE.coreJob, r1) : r2 < LIFE.highShare ? lerp(LIFE.highJob, r1) : lerp(LIFE.job, r1);
+  return Math.round(PAY.trip * m / 1000) * 1000;
+}
+/** 這個住址每天的住的費用：{ kind: '房租'|'房貸', perDay }。district：住址所在的行政區名稱。 */
+export function homeCost(home, district) {
+  const r1 = hash01(home.x, home.z, 3), r2 = hash01(home.x, home.z, 4);
+  const R = LIFE.rent, base = lerp(LIFE.core.includes(district) ? R.core : LIFE.semi.includes(district) ? R.semi : R.other, r1);
+  const own = r2 < LIFE.mortgageShare;
+  return { kind: own ? '房貸' : '房租', perDay: Math.round(base * (own ? LIFE.mortgageMult : 1) / 1000) * 1000 };
+}
+
 export const AIR = {
   gameSetting: true,
   jumpsPerTank: 8,       // 滿罐可以垂直升空飛越 8 次（每次 1/8 罐，含落地前的反推）
@@ -62,13 +96,13 @@ const SAVE_KEY = 'taipei-commute-v2';
 // 三種玩法（世界設定不同），各自有自己的存檔
 export const GAME_MODES = {
   normal: { key: 'normal', name: '一般', save: SAVE_KEY, give: [], car: null,
-    desc: '大家開一般的車。你從油車開始，存錢買導航、電動車、飛天跑車、無人機飛行系統。' },
+    desc: '大家開一般的車。' },
   allfly: { key: 'allfly', name: '全城飛天跑車', save: SAVE_KEY + '-allfly', give: ['roadster'], car: 'roadster',
-    desc: '路上每一台車都是飛天跑車（你也是）。塞住就飛越車陣，大家搶落地的空位，常常有車落地壓到別台、撞成一團。你要怎麼準時到公司？' },
+    desc: '路上每一台車都是飛天跑車，你也是。' },
   alldrone: { key: 'alldrone', name: '全城無人機', save: SAVE_KEY + '-alldrone', give: ['roadster', 'drone'], car: 'roadster',
-    desc: '每一台車都進入無人機系統：路上幾乎沒有車，天上擠滿會飛的車（跟尖峰時路上的車一樣多）。你的飛天跑車也有無人機系統，要飛還是在空蕩蕩的路上開？' },
+    desc: '每一台車都進入無人機系統，天上擠滿會飛的車。' },
   hybrid: { key: 'hybrid', name: '全城無人機・路空總控', save: SAVE_KEY + '-hybrid', give: ['roadster', 'drone'], car: 'roadster',
-    desc: '全城無人機的另一個版本：每台車都有無人機系統，但路上照樣有車在開。想飛的時候按 U 問「路空總控中心」：它看全部車子的動向和目的地排隊降落的情況，算出繼續開和飛起來哪個先到，再核准或建議你繼續開。' },
+    desc: '每台車都有無人機系統，但路上照樣有車在開。想飛要先問路空總控中心。' },
 };
 
 export class Economy {
@@ -77,6 +111,12 @@ export class Economy {
     this.money = 0; this.owned = new Set(); this.carKey = 'gas'; this.stuntFuel = 1; this.mode = this.mode || 'normal';
     this.totals = { days: 0, late: 0, km: 0, earned: 0, spent: 0 };
     this.day = null;   // 今天的帳
+    this.tripPay = PAY.trip; this.home = { kind: '房租', perDay: 0 };   // 這份工作每趟收入、住的費用（startDay 前由 setLife 設定）
+  }
+  /** 依住址和工作設定薪水、住的費用（每天開始時呼叫；同一個住址、工作永遠一樣）。 */
+  setLife(home, homeDistrict, work, workDistrict) {
+    this.tripPay = work ? jobPay(work, workDistrict) : PAY.trip;
+    this.home = home ? homeCost(home, homeDistrict) : { kind: '房租', perDay: 0 };
   }
   toJSON() { return { money: this.money, owned: [...this.owned], carKey: this.carKey, stuntFuel: this.stuntFuel, totals: this.totals }; }
   fromJSON(o) {
@@ -115,10 +155,11 @@ export class Economy {
   /** 上班打卡。 */
   clockIn(lateMin) {
     const d = this.day; d.late = Math.max(0, Math.round(lateMin));
-    d.payAm = PAY.trip - Math.min(PAY.trip / 2, d.late * PAY.latePerMin); d.pay = d.payAm + d.payPm;
+    d.payAm = this.tripPay - Math.min(this.tripPay / 2, d.late * PAY.latePerMin); d.pay = d.payAm + d.payPm;
+    return d.payAm;
   }
   /** 回到家：回家這趟的收入。 */
-  homeTrip() { const d = this.day; d.payPm = PAY.trip; d.pay = d.payAm + d.payPm; }
+  homeTrip() { const d = this.day; d.payPm = this.tripPay; d.pay = d.payAm + d.payPm; }
   /** 開車用掉的能源（油車：公升；電動車：度）。 */
   addEnergy(spec, used, atHome = true) {
     if (used <= 0) return;
@@ -132,11 +173,11 @@ export class Economy {
   addRepair(cost) { this.day.repair = (this.day.repair || 0) + cost; }
   /** 一天結束：結算，回傳明細。 */
   endDay(km) {
-    const d = this.day, spend = Math.round(d.energy + d.parking + d.charge + d.stunt + d.drone + (d.repair || 0));
+    const d = this.day, housing = this.home.perDay, spend = Math.round(housing + d.energy + d.parking + d.charge + d.stunt + d.drone + (d.repair || 0));
     const net = Math.round(d.pay) - spend;
     this.money += net; this.totals.days++; this.totals.km += km; if (d.late) this.totals.late++;
     this.totals.earned += Math.round(d.pay); this.totals.spent += spend;
-    return { pay: Math.round(d.pay), payAm: Math.round(d.payAm), payPm: Math.round(d.payPm), late: d.late, energy: Math.round(d.energy), parking: Math.round(d.parking), stunt: Math.round(d.stunt), drone: Math.round(d.drone), repair: Math.round(d.repair || 0), spend, net, money: this.money };
+    return { pay: Math.round(d.pay), payAm: Math.round(d.payAm), payPm: Math.round(d.payPm), trip: this.tripPay, housing, housingKind: this.home.kind, late: d.late, energy: Math.round(d.energy), parking: Math.round(d.parking), stunt: Math.round(d.stunt), drone: Math.round(d.drone), repair: Math.round(d.repair || 0), spend, net, money: this.money };
   }
 }
 

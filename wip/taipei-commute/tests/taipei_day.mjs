@@ -11,11 +11,20 @@ await page.evaluate(() => { try { localStorage.clear(); } catch (e) {} });
 await page.reload();
 await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'menu', null, { timeout: 120000 });
 await ev(() => { window.__tc.noRender = true; });
-// 選大安區第一個住址、第一個工作
-await page.click('#distMap path[data-i="0"]');
-await page.click('#homeOpts .opt');
-await page.click('#workOpts .opt');
-console.log('picked', await ev(() => ({ home: window.__tc.G.cfg.home.a, work: window.__tc.G.cfg.work.n })));
+// 選單分頁：標題 → 行政區 → 住址 → 工作（選的時候看不到薪水、房租）
+const DI = process.argv[2] || '6';
+const pages = () => ev(() => [...document.querySelectorAll('#menuPanel .page')].filter(p => !p.hidden).map(p => p.id).join(','));
+console.log('page at start', await pages(), '| lede:', await ev(() => document.querySelector('#pgTitle .lede').textContent));
+await page.click('#btnNew'); console.log('after 搬來台北', await pages());
+await page.click('#pgDist .back'); console.log('back', await pages()); await page.click('#btnNew');
+await page.click(`#distMap path[data-i="${DI}"]`); console.log('after district', await pages(), await ev(() => document.querySelector('#pgHome .pgtitle').textContent));
+await page.click('#homeOpts .opt'); console.log('after home', await pages(), 'go disabled', await ev(() => document.getElementById('btnGo').disabled));
+const menuText = await ev(() => document.getElementById('menuPanel').innerText);
+console.log('money words in menu:', /萬|元|薪|房租|房貸|收入/.test(menuText) ? menuText.match(/.{0,12}(萬|元|薪|房租|房貸|收入).{0,12}/g) : 'none');
+await page.click('#pgWork .back'); console.log('back to', await pages()); await page.click('#homeOpts .opt');
+await page.click('#workOpts .opt'); console.log('go disabled after work', await ev(() => document.getElementById('btnGo').disabled));
+await ev(() => { window.__tc.noRender = false; }); await page.waitForTimeout(1500); await page.screenshot({ path: 'shots/td_0_menu_work.png' }); await ev(() => { window.__tc.noRender = true; });
+console.log('picked', await ev(() => ({ home: window.__tc.G.cfg.home.a, work: window.__tc.G.cfg.work.n, workDistrict: window.__tc.meta.districts[window.__tc.G.cfg.work.d].name })));
 await page.click('#btnGo');
 await page.waitForFunction(() => window.__tc.G.state === 'room', null, { timeout: 200000 });
 await shot('1_room');
@@ -47,6 +56,7 @@ await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout
 await page.waitForTimeout(1000);
 await ev(() => { const { P, G } = window.__tc; P.x = G.cfg.work.x + 1; P.z = G.cfg.work.z; });
 await page.waitForFunction(() => window.__tc.G.state === 'work', null, { timeout: 60000 });
+console.log('clock-in card:', await ev(() => document.getElementById('workText').textContent));
 await ev(() => { window.__tc.noRender = false; }); await page.waitForTimeout(1200); await page.screenshot({ path: 'shots/td_5_work.png' }); await ev(() => { window.__tc.noRender = true; });
 await page.waitForFunction(() => window.__tc.G.state === 'walk' && window.__tc.G.leg === 'pm', null, { timeout: 60000 });
 await page.waitForTimeout(1500);
