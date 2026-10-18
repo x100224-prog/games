@@ -42,6 +42,9 @@ export function jobPay(work, district) {
   const m = LIFE.core.includes(district) ? lerp(LIFE.coreJob, r1) : r2 < LIFE.highShare ? lerp(LIFE.highJob, r1) : lerp(LIFE.job, r1);
   return Math.round(PAY.trip * m / 1000) * 1000;
 }
+/** 住處地下停車位的價錢（遊戲設定）：跟房價一樣看住哪一區，蛋黃區最貴。 */
+export const GARAGE = { core: 2800000, semi: 2200000, other: 1600000 };
+export function garagePrice(district) { return LIFE.core.includes(district) ? GARAGE.core : LIFE.semi.includes(district) ? GARAGE.semi : GARAGE.other; }
 /** 這個住址每天的住的費用：{ kind: '房租'|'房貸', perDay }。district：住址所在的行政區名稱。 */
 export function homeCost(home, district) {
   const r1 = hash01(home.x, home.z, 3), r2 = hash01(home.x, home.z, 4);
@@ -85,6 +88,7 @@ export const SHOP = [
   { key: 'ev', name: '電動車', kind: 'car', car: 'ev', desc: '可以停停車場裡的電動車專用格（停的時候順便充電，很少被占滿），電費比油錢便宜很多。' },
   { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車（也是電動車：可以停電動車專用格、停的時候順便充電、在家充電，電費比油錢便宜）＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；每晚在家補滿（3,000 元／罐）、停電動車充電格補（8,000 元／罐）、開車時每公里慢慢補 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
   { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', requires: 'roadster', desc: '加裝在飛天跑車上（要先有飛天跑車，開飛天跑車時才能用）：塞車時按 U，車身伸出四組折疊旋翼（像多旋翼無人機），整台車升空，自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。降落後旋翼收回，還是你的車。燃料費每分鐘 2,500 元，飛越久越貴。' },
+  { key: 'garage', name: '住處地下停車位', kind: 'home', desc: '家樓下地下停車場自己的車位：回家開到家門口的停車場入口（地圖和路上都有 P 標記）停下來就停好了，早上直接從車位出發，不用在附近找路邊停車格。搬家時車位跟著換到新家。' },
 ];
 export function priceOf(key) {
   const m = SAVED_MIN[key] || 0, r = PRICE_RULE, it = SHOP.find(s => s.key === key);
@@ -116,7 +120,7 @@ export class Economy {
   }
   /** 依住址和工作設定薪水、住的費用（每天開始時呼叫；同一個住址、工作永遠一樣）。 */
   setLife(home, homeDistrict, work, workDistrict) {
-    this.tripPay = work ? jobPay(work, workDistrict) : PAY.trip;
+    this.tripPay = work ? jobPay(work, workDistrict) : PAY.trip; this.garageCost = garagePrice(homeDistrict);
     this.home = home ? homeCost(home, homeDistrict) : { kind: '房租', perDay: 0 };
   }
   toJSON() { return { money: this.money, owned: [...this.owned], carKey: this.carKey, stuntFuel: this.stuntFuel, totals: this.totals, moves: this.moves }; }
@@ -135,13 +139,16 @@ export class Economy {
   }
   /** 擁有的車（油車一開始就有）。 */
   cars() { const M = GAME_MODES[this.mode]; if (M && M.car) return [M.car]; return ['gas', ...SHOP.filter(s => s.kind === 'car' && this.owned.has(s.key)).map(s => s.car)]; }
+  /** 商店裡的價錢（地下停車位看住哪一區）。 */
+  price(key) { return key === 'garage' ? (this.garageCost || GARAGE.other) : priceOf(key); }
   buy(key) {
-    const p = priceOf(key);
+    const p = this.price(key);
     if (this.owned.has(key)) return { ok: false, msg: '已經有了' };
     const it0 = SHOP.find(s => s.key === key);
     if (it0 && it0.requires && !this.owned.has(it0.requires)) return { ok: false, msg: '要先有飛天跑車才能買無人機飛行系統' };
     if (this.money < p) return { ok: false, msg: `還差 ${(p - this.money).toLocaleString()} 元` };
-    this.money -= p; this.owned.add(key); this.totals.spent += p; this.moves++;
+    this.money -= p; this.owned.add(key); this.totals.spent += p;
+    if (it0 && (it0.kind === 'car' || it0.kind === 'upgrade')) this.moves++;   // 買新系統或車子：可以換一次住址或工作（停車位不算）
     const item = SHOP.find(s => s.key === key);
     if (item && item.kind === 'car') this.carKey = item.car;
     if (key === 'roadster') this.stuntFuel = 1;   // 新車的空氣罐是滿的
