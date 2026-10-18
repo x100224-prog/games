@@ -17,6 +17,8 @@ import { Nav, polyProgress, nextTurn } from './nav.js';
 import { Stunts } from './stunts.js';
 import { DroneTraffic, DroneFlight, DRONE, overheadAt } from './drone.js';
 import { Control } from './control.js';
+import { CityMap } from './citymap.js';
+import { edgePoint } from './world.js';
 import { DenseSky, SKY } from './sky.js';
 import { DemoRunner, DEMOS } from './demo.js';
 import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES } from './economy.js';
@@ -24,7 +26,7 @@ import { VIEW, TIME, PARK, WORK_DIST, RUSH, FEATURES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 // 目前已經做好、可以買的項目（其他的會顯示「製作中」）
-const READY = { nav: true, ev: true, roadster: true, drone: true };
+const READY = { nav: true, ev: true, roadster: true, drone: true, garage: true };
 
 // ===================================================================== 場景與光線
 const canvas = $('view');
@@ -445,6 +447,7 @@ function endDemo() {
   updateGo();
 }
 window.__tc.startDemo = startDemo; window.__tc.endDemo = endDemo;
+window.__tc.startDayForTest = () => startDay();   // 測試用：直接開始下一天
 /** 依玩法設定世界：路上車流、別人的飛天跑車、天上的無人機。 */
 function applyMode() {
   const m = G.mode;
@@ -673,11 +676,14 @@ function startDay() {
     cond: () => world.readyAround(h.x, h.z, 320) && parking.readyAround(h.x, h.z, 210),
     then: () => {
       parking.setDay(G.dayN); workParking();
-      let bay = null;
-      if (G.homeCar) { const err = {}; bay = parking.bayAt(G.homeCar.x, G.homeCar.z, G.homeCar.psi, err); if (bay) { bay.reserved = true; bay.occupied = false; } }
+      let bay = null; const gs = garageSpot(); G.atGarage = !!gs;
+      garageMark.visible = !!gs; if (gs) { garageMark.position.set(gs.x, gs.y, gs.z); garageMark.rotation.y = gs.psi; parking.forBaysNear(gs.x, gs.z, 9, (b) => { b.reserved = true; b.occupied = false; }); }
+      if (gs) { /* 有地下停車位：車子從自己的車位出發 */ }
+      else if (G.homeCar) { const err = {}; bay = parking.bayAt(G.homeCar.x, G.homeCar.z, G.homeCar.psi, err); if (bay) { bay.reserved = true; bay.occupied = false; } }
       if (!bay) bay = parking.pickHomeBay(h.x, h.z, G.dayN);
       if (stunts) stunts.reset();
-      if (bay) { car.place(bay.x, bay.z, bay.psi, bay.y); G.homeBay = bay; }
+      if (gs) { car.place(gs.x, gs.z, gs.psi, gs.y); G.homeBay = null; }
+      else if (bay) { car.place(bay.x, bay.z, bay.psi, bay.y); G.homeBay = bay; }
       else { const o = {}; world.nearestEdge(h.x, h.z, 120, e => e.cls >= 4 && !e.bridge, o); const x = o.x ?? h.rx, z = o.z ?? h.rz; car.place(x, z, 0, world.groundAt(x, z)); G.homeBay = null; }
       // 電動車晚上在家充飽；油車沿用昨天剩的油，低於兩成就順路加滿（錢算在油錢裡）
       const sp = car.spec;
@@ -711,7 +717,7 @@ function leaveRoom() {
     G.stats.leave = G.clock;
     camera.near = 0.15; camera.updateProjectionMatrix();
     traffic.update(0.016, P.x, P.z, [], true);
-    toast(`車停在${G.homeBay && G.homeBay.edge.name ? G.homeBay.edge.name + '的' : ''}路邊，跟著藍色光柱走過去`);
+    toast(G.atGarage ? '車在家樓下的地下停車位（家門口紫色的 P），跟著藍色光柱走過去' : `車停在${G.homeBay && G.homeBay.edge.name ? G.homeBay.edge.name + '的' : ''}路邊，跟著藍色光柱走過去`);
   });
 }
 
@@ -732,6 +738,8 @@ function enterCar() {
 const _err = { along: 0, lat: 0, ang: 0 };
 function bayAllowed(b) { return b.type === 'road' || (b.type === 'ev' && !!car.spec.electric); }   // 電動車（含飛天跑車）可以停電動車格
 function parkingCheck() {
+  const gs = G.leg === 'pm' ? garageSpot() : null;
+  if (gs && Math.hypot(car.x - gs.x, car.z - gs.z) < 7) return { bay: gs, ok: true, msg: '停進自己的地下停車位' };
   const b = parking.bayAt(car.x, car.z, car.psi, _err);
   if (!b) return { bay: null, ok: false, msg: '' };
   if (!bayAllowed(b)) return { bay: b, ok: false, msg: b.type === 'ev' ? '這是電動車專用格，油車不能停' : '停車場車位要月租或計時付費（之後開放）' };
@@ -756,7 +764,7 @@ function exitCar() {
     G.state = 'walk'; camera.near = 0.15; camera.updateProjectionMatrix();
     routeLine.visible = false;
     const where = G.leg === 'am' ? '公司' : '家', go = G.leg === 'am' ? '走去公司打卡' : '走回家';
-    toast(G.parked.legal ? (chk.bay.type === 'ev' ? `停進電動車格（會順便充電），${go}` : `停好了！${go}`)
+    toast(G.parked.legal ? (chk.bay.type === 'ev' ? `停進電動車格（會順便充電），${go}` : chk.bay.type === 'garage' ? `停進自己的地下停車位，${go}` : `停好了！${go}`)
       : chk.ok ? `停好了，但離${where}太遠（要 450 m 內）` : chk.msg ? '沒停好：' + chk.msg : '這裡不是停車格');
   });
 }
@@ -830,7 +838,7 @@ function renderShop() {
   $('shopMoney').textContent = fmtMoney(econ.money);
   const box = $('shopList'); box.innerHTML = '';
   for (const it of SHOP) {
-    const p = priceOf(it.key), owned = econ.has(it.key), ready = READY[it.key];
+    const p = econ.price(it.key), owned = econ.has(it.key), ready = READY[it.key];
     const d = document.createElement('div'); d.className = 'item' + (owned ? ' owned' : '');
     const evNote = it.key === 'ev' && !owned && econ.has('roadster') ? '<p class="saved">你的飛天跑車也是電動車，已經可以停電動車專用格了</p>' : '';
     d.innerHTML = `<div class="ihead"><b>${it.name}</b><span class="price">${owned ? '已擁有' : fmtMoney(p)}</span></div><p>${touchify(it.desc)}</p>${SAVED_NOTE[it.key] ? `<p class="saved">${SAVED_NOTE[it.key]}</p>` : ''}${evNote}`;
@@ -839,7 +847,7 @@ function renderShop() {
     else if (!ready) { b.textContent = '製作中'; b.disabled = true; }
     else if (it.requires && !econ.has(it.requires)) { b.textContent = '要先有飛天跑車'; b.disabled = true; }
     else if (econ.money < p) { b.textContent = `還差 ${fmtMoney(p - econ.money)}`; b.disabled = true; }
-    else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(r.ok ? `${r.msg}：上路時會告訴你怎麼用。也多了一次換住址或工作的機會（在結算畫面）` : r.msg, 3.5); save(); renderShop(); renderHelp(); }; }
+    else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(!r.ok ? r.msg : it.kind === 'home' ? `${r.msg}：明天起車子停在家樓下，回家開到家門口紫色的 P 就停好了` : `${r.msg}：上路時會告訴你怎麼用。也多了一次換住址或工作的機會（在結算畫面）`, 3.5); save(); renderShop(); renderHelp(); }; }
     d.appendChild(b); box.appendChild(d);
   }
   const cars = econ.cars(), names = { gas: '油車', ev: '電動車', roadster: '飛天跑車' };
@@ -1445,52 +1453,59 @@ function drawMini() {
   g.fillStyle = 'rgba(255,255,255,.75)'; g.font = '700 20px "Barlow Semi Condensed", sans-serif'; g.textAlign = 'center';
   g.fillText('N', R + Math.sin(head) * (R - 16), R - Math.cos(head) * (R - 16) + 7);
 }
-let mapT = 0, mapBase = null;
+let mapT = 0, cityMap = null;
 function toggleBigMap(force) {
   const el = $('bigmap'), show = force !== undefined ? force : el.hidden;
   el.hidden = !show; if (!show) return;
   input.releaseLock();
-  const cv = $('bigCv'), dpr = Math.min(2, window.devicePixelRatio || 1);
-  cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr;
-  mapBase = null; mapT = 0; drawMap();
+  if (!cityMap) {
+    cityMap = new CityMap($('bigCv'), meta); cityMap.onChange = () => drawMap();
+    $('mapIn').onclick = () => { cityMap.zoomBy(1.6); drawMap(); }; $('mapOut').onclick = () => { cityMap.zoomBy(1 / 1.6); drawMap(); };
+    $('mapAll').onclick = () => { cityMap.fitAll(); drawMap(); }; $('mapMe').onclick = () => { const m = mapMe(); cityMap.cx = m.x; cityMap.cz = m.z; if (cityMap.s < 0.2) cityMap.s = 0.35; drawMap(); };
+    window.__tc.cityMap = cityMap;
+  }
+  cityMap.setNav(nav); cityMap.loadLabels();
+  requestAnimationFrame(() => { cityMap.resize(mapMe()); mapT = 0; drawMap(); });
   if (G.state === 'drive' && Math.abs(car.v) > 1) toast('看地圖時車子還在開！', 2);
 }
-/** 全市地圖：行政區＋道路（第一次畫好存起來），每 0.25 秒更新你的位置。 */
+const mapMe = () => { const inCar = G.state === 'drive'; return G.state === 'room' && G.cfg.home ? { x: G.cfg.home.x, z: G.cfg.home.z, hd: 0 } : { x: inCar ? car.x : P.x, z: inCar ? car.z : P.z, hd: inCar ? car.psi : P.yaw }; };
+/** 全市地圖：可以放大縮小、拖曳；有路名、停車場、你的車停在哪裡。每 0.25 秒更新你的位置。 */
 function drawMap() {
-  const cv = $('bigCv'), dpr = Math.min(2, window.devicePixelRatio || 1), [x0, z0, x1, z1] = meta.bounds;
-  const sc = Math.min(cv.width / (x1 - x0), cv.height / (z1 - z0)) * 0.94;
-  const ox = (cv.width - (x1 - x0) * sc) / 2 - x0 * sc, oz = (cv.height - (z1 - z0) * sc) / 2 - z0 * sc;
-  const X = (x) => x * sc + ox, Z = (z) => z * sc + oz;
-  if (!mapBase || mapBase.width !== cv.width || mapBase.height !== cv.height || (!mapBase.roads && nav)) {
-    const b = document.createElement('canvas'); b.width = cv.width; b.height = cv.height; const g = b.getContext('2d');
-    g.fillStyle = '#0d1115'; g.fillRect(0, 0, b.width, b.height);
-    meta.districts.forEach((d, i) => {
-      g.beginPath();
-      for (const r of d.poly) { for (let k = 0; k < r.length; k += 2) k ? g.lineTo(X(r[k]), Z(r[k + 1])) : g.moveTo(X(r[k]), Z(r[k + 1])); g.closePath(); }
-      g.fillStyle = i === G.cfg.di ? '#1d4a3c' : '#1c232b'; g.fill(); g.strokeStyle = '#3a4652'; g.lineWidth = 2 * dpr; g.stroke();
-    });
-    if (nav) {
-      // 道路：大馬路粗、巷道細
-      for (const [cmax, col, w] of [[6, 'rgba(150,165,178,.28)', 0.6], [4, 'rgba(190,200,210,.55)', 1.1], [2, 'rgba(235,225,190,.85)', 1.8]]) {
-        g.strokeStyle = col; g.lineWidth = w * dpr; g.beginPath();
-        for (let k = 0; k < nav.E; k++) { const c = nav.ecls[k]; if (c > cmax || (cmax === 4 && c <= 2) || (cmax === 6 && c <= 4)) continue; const a = nav.ea[k], e = nav.eb[k]; g.moveTo(X(nav.nx[a]), Z(nav.nz[a])); g.lineTo(X(nav.nx[e]), Z(nav.nz[e])); }
-        g.stroke();
-      }
-    }
-    meta.districts.forEach((d) => { g.fillStyle = '#c3ccd4'; g.font = `700 ${13 * dpr}px "Noto Sans TC", sans-serif`; g.textAlign = 'center'; g.strokeStyle = 'rgba(13,17,21,.85)'; g.lineWidth = 4 * dpr; g.strokeText(d.name, X(d.c[0]), Z(d.c[1])); g.fillText(d.name, X(d.c[0]), Z(d.c[1])); });
-    b.roads = !!nav; mapBase = b;
-  }
-  const g = cv.getContext('2d');
-  g.drawImage(mapBase, 0, 0);
-  if (econ.has('nav') && G.routePoly) { const r = G.routePoly; g.strokeStyle = 'rgba(80,170,255,0.95)'; g.lineWidth = 3 * dpr; g.beginPath(); g.moveTo(X(r[0]), Z(r[1])); for (let i = 2; i < r.length; i += 2) g.lineTo(X(r[i]), Z(r[i + 1])); g.stroke(); }
-  const dot = (x, z, col, r) => { g.fillStyle = col; g.beginPath(); g.arc(X(x), Z(z), r * dpr, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#0d1115'; g.lineWidth = 2 * dpr; g.stroke(); };
-  if (G.cfg.home) dot(G.cfg.home.x, G.cfg.home.z, '#4fd08c', 7);
-  if (G.cfg.work) dot(G.cfg.work.x, G.cfg.work.z, '#f5c518', 8);
-  const inCar = G.state === 'drive', px = inCar ? car.x : P.x, pz = inCar ? car.z : P.z, hd = inCar ? car.psi : P.yaw;
-  if (G.state !== 'room') { g.save(); g.translate(X(px), Z(pz)); g.rotate(-hd); g.fillStyle = '#fff'; g.strokeStyle = '#0d1115'; g.lineWidth = 2 * dpr; g.beginPath(); g.moveTo(0, -13 * dpr); g.lineTo(9 * dpr, 10 * dpr); g.lineTo(0, 5 * dpr); g.lineTo(-9 * dpr, 10 * dpr); g.closePath(); g.fill(); g.stroke(); g.restore(); }
-  if (inCar) { g.fillStyle = Math.abs(car.v) > 1 ? '#ff6b5b' : '#9aa6b0'; g.font = `700 ${15 * dpr}px "Noto Sans TC", sans-serif`; g.textAlign = 'left'; g.fillText(Math.abs(car.v) > 1 ? `車子還在開：${Math.round(car.kmh)} km/h` : '車子停著', 14 * dpr, cv.height - 14 * dpr); }
+  if (!cityMap || $('bigmap').hidden) return;
+  const inCar = G.state === 'drive', moving = inCar && Math.abs(car.v) > 1;
+  cityMap.draw({
+    me: G.state === 'room' ? null : mapMe(), car: car ? { x: car.x, z: car.z } : null, carParked: !!car && !inCar,
+    home: G.cfg.home, work: G.cfg.work, garage: econ.has('garage') ? garageSpot() : null,
+    route: econ.has('nav') && G.routePoly ? G.routePoly : null, districtIndex: G.cfg.di,
+    status: inCar ? (moving ? `車子還在開：${Math.round(car.kmh)} km/h` : '車子停著') : '', statusColor: moving ? '#ff6b5b' : '#9aa6b0',
+  });
 }
-
+// ===================================================================== 住處地下停車位：家門口的停車場入口（路邊，紫色的格子＋P 牌子）
+const garageMark = (() => {
+  const g = new THREE.Group();
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x8b6cff, transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false }));
+  pad.position.y = 0.07; pad.renderOrder = 3; g.add(pad);
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 128; const c = cv.getContext('2d');
+  c.fillStyle = '#5b3fd6'; c.fillRect(0, 0, 128, 128); c.fillStyle = '#fff'; c.font = '900 96px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('P', 64, 70);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, toneMapped: false }));
+  sign.position.set(1.9, 2.7, 0); g.add(sign);
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.7, 8), new THREE.MeshLambertMaterial({ color: 0x9aa3ab })); post.position.set(1.9, 1.35, 0); g.add(post);
+  g.visible = false; scene.add(g); return g;
+})();
+/** 家門口地下停車場入口的位置（買了停車位才有）：離家最近的路，靠家那一邊的路邊，車頭順著靠右行駛的方向。 */
+function garageSpot() {
+  const h = G.cfg.home; if (!h || !econ.has('garage') || !world) return null;
+  if (G.garage && G.garage.hx === h.x && G.garage.hz === h.z) return G.garage;
+  const o = {}, e = world.nearestEdge(h.x, h.z, 150, (ed) => ed.cls >= 3 && ed.cls <= 6 && !ed.bridge && !ed.tunnel && ed.len > 16, o);
+  if (!e) return null;
+  const sMid = Math.max(e.trimA + 4, Math.min(e.len - e.trimB - 4, o.s)), p = edgePoint(e, sMid, {});
+  let nx = -p.dz, nz = p.dx, fx = p.dx, fz = p.dz;
+  if ((h.x - p.x) * nx + (h.z - p.z) * nz < 0) { nx = -nx; nz = -nz; fx = -fx; fz = -fz; }   // 家在路的哪一邊：那一邊當作車子的右手邊
+  const off = Math.max(0, e.hw - 1.3), x = p.x + nx * off, z = p.z + nz * off;
+  G.garage = { x, z, y: p.y, psi: Math.atan2(-fx, -fz), hx: h.x, hz: h.z, type: 'garage', edge: e };
+  return G.garage;
+}
 // ===================================================================== 自動示範（選單按鈕或 F8）
 let AUTO = location.hash.includes('autotest') ? { t: 0 } : null;
 function startAuto() { if (!AUTO) AUTO = { t: 0 }; autoSay('啟動'); }
