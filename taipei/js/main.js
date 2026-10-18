@@ -21,7 +21,7 @@ import { CityMap } from './citymap.js';
 import { edgePoint } from './world.js';
 import { DenseSky, SKY } from './sky.js';
 import { DemoRunner, DEMOS } from './demo.js';
-import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES } from './economy.js';
+import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES, lotRate } from './economy.js';
 import { VIEW, TIME, PARK, WORK_DIST, RUSH, FEATURES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
@@ -448,6 +448,7 @@ function endDemo() {
 }
 window.__tc.startDemo = startDemo; window.__tc.endDemo = endDemo;
 window.__tc.startDayForTest = () => startDay();   // 測試用：直接開始下一天
+window.__tc.bayMarks = bayMarks;
 /** 依玩法設定世界：路上車流、別人的飛天跑車、天上的無人機。 */
 function applyMode() {
   const m = G.mode;
@@ -717,7 +718,10 @@ function leaveRoom() {
     G.stats.leave = G.clock;
     camera.near = 0.15; camera.updateProjectionMatrix();
     traffic.update(0.016, P.x, P.z, [], true);
-    toast(G.atGarage ? '車在家樓下的地下停車位（家門口紫色的 P），跟著藍色光柱走過去' : `車停在${G.homeBay && G.homeBay.edge.name ? G.homeBay.edge.name + '的' : ''}路邊，跟著藍色光柱走過去`);
+    const hb = G.homeBay;
+    toast(G.atGarage ? '車在家樓下的地下停車位（家門口紫色的 P），跟著藍色光柱走過去'
+      : hb && !hb.edge ? '車停在附近的停車場，跟著藍色光柱走過去'
+      : `車停在${hb && hb.edge.name ? hb.edge.name + '的' : ''}路邊，跟著藍色光柱走過去`);
   });
 }
 
@@ -736,24 +740,34 @@ function enterCar() {
 }
 
 const _err = { along: 0, lat: 0, ang: 0 };
-function bayAllowed(b) { return b.type === 'road' || (b.type === 'ev' && !!car.spec.electric); }   // 電動車（含飛天跑車）可以停電動車格
+function bayAllowed(b) { return b.type === 'road' || (b.type === 'ev' && !!car.spec.electric); }   // 電動車（含飛天跑車）可以停電動車格（示範自動停車只用這兩種）
+/** 停車場計時：這格每小時多少錢、停到什麼時候（早上停到 18:00 下班，晚上停到隔天 7:30 出門）。 */
+function lotInfo(b) {
+  if (!b.rate) b.rate = lotRate(world.districtAt(b.x, b.z) || '');
+  const hrs = G.leg === 'am' ? (TIME.homeMin - G.clock) / 60 : (24 * 60 + TIME.startMin - G.clock) / 60;
+  return { rate: b.rate, fee: Math.ceil(Math.max(0, hrs) - 1e-6) * b.rate };
+}
+/** 玩家自己可以停的格子：路邊格、電動車格（電動車），停車場格（付得起停車費）。 */
+function canPark(b) { return bayAllowed(b) || (b.type === 'lot' && econ.money >= lotInfo(b).fee); }
 function parkingCheck() {
   const gs = G.leg === 'pm' ? garageSpot() : null;
   if (gs && Math.hypot(car.x - gs.x, car.z - gs.z) < 7) return { bay: gs, ok: true, msg: '停進自己的地下停車位' };
   const b = parking.bayAt(car.x, car.z, car.psi, _err);
   if (!b) return { bay: null, ok: false, msg: '' };
-  if (!bayAllowed(b)) return { bay: b, ok: false, msg: b.type === 'ev' ? '這是電動車專用格，油車不能停' : '停車場車位要月租或計時付費（之後開放）' };
+  if (b.type === 'ev' && !car.spec.electric) return { bay: b, ok: false, msg: '這是電動車專用格，油車不能停' };
+  const lot = b.type === 'lot' ? lotInfo(b) : null;
+  if (lot && econ.money < lot.fee) return { bay: b, ok: false, msg: `停車場每小時 ${lot.rate} 元，身上的錢不夠付（先找路邊停車格）` };
   if (Math.abs(_err.ang) > PARK.angTol) return { bay: b, ok: false, msg: '車身要擺正' };
   if (Math.abs(_err.lat) > PARK.latTol) return { bay: b, ok: false, msg: '壓到格線了，往格子中間一點' };
   if (Math.abs(_err.along) > PARK.posTol) return { bay: b, ok: false, msg: _err.along > 0 ? '再往後一點' : '再往前一點' };
-  return { bay: b, ok: true, msg: '已停妥' };
+  return { bay: b, ok: true, msg: lot ? `停車場 每小時 ${lot.rate} 元` : '已停妥', rate: lot && lot.rate };
 }
 function exitCar() {
   if (flight && flight.active) { toast('飛行中不能下車', 1.6); return; }
   if (stunts && stunts.busy) { toast(stunts.mode === 'roof' ? '屋頂上不能下車，先開下去' : '特技中不能下車', 1.6); return; }
   if (Math.abs(car.v) > 0.4) { toast('先停下來才能下車', 1.6); return; }
   const chk = parkingCheck(), near = dist(car, dest()) < 450;
-  G.parked = { legal: chk.ok && near, ok: chk.ok, bay: chk.bay, type: chk.bay ? chk.bay.type : null };
+  G.parked = { legal: chk.ok && near, ok: chk.ok, bay: chk.bay, type: chk.bay ? chk.bay.type : null, rate: chk.rate || 0, t: G.clock };
   if (chk.bay) { chk.bay.reserved = true; chk.bay.occupied = false; }   // 自己的車停在這格（之後重新佈置車格也不會被別台車占走）
   G.phase = 'toDest'; engine.shutdown(); engine.stunt(0, 0);
   fadeThen(() => {
@@ -764,7 +778,7 @@ function exitCar() {
     G.state = 'walk'; camera.near = 0.15; camera.updateProjectionMatrix();
     routeLine.visible = false;
     const where = G.leg === 'am' ? '公司' : '家', go = G.leg === 'am' ? '走去公司打卡' : '走回家';
-    toast(G.parked.legal ? (chk.bay.type === 'ev' ? `停進電動車格（會順便充電），${go}` : chk.bay.type === 'garage' ? `停進自己的地下停車位，${go}` : `停好了！${go}`)
+    toast(G.parked.legal ? (chk.bay.type === 'ev' ? `停進電動車格（會順便充電），${go}` : chk.bay.type === 'garage' ? `停進自己的地下停車位，${go}` : chk.bay.type === 'lot' ? `停進停車場（每小時 ${chk.rate} 元），${go}` : `停好了！${go}`)
       : chk.ok ? `停好了，但離${where}太遠（要 450 m 內）` : chk.msg ? '沒停好：' + chk.msg : '這裡不是停車格');
   });
 }
@@ -777,6 +791,7 @@ function arrive() {
     const late = Math.max(0, G.clock - TIME.workMin);
     const payAm = econ.clockIn(late);
     if (G.parked.type === 'road') econ.addParking('road');
+    if (G.parked.type === 'lot') econ.addLot((TIME.homeMin - G.parked.t) / 60, G.parked.rate);   // 停車場：停到 18:00 下班
     if (G.parked.type === 'ev') { const need = c.spec.capacity - c.energy; econ.day.charge += need * PAY.bayKwh; c.energy = c.spec.capacity; }
     G.amClock = G.clock;
     G.state = 'work'; setPrompt(''); input.releaseLock();
@@ -791,7 +806,10 @@ function arrive() {
       $('workCard').hidden = true; f.classList.remove('on');
       toast('18:00 下班了，走回車上開回家');
     }, 3200);
-  } else { econ.homeTrip(); finishDay(); }
+  } else {
+    if (G.parked.type === 'lot') econ.addLot((24 * 60 + TIME.startMin - G.parked.t) / 60, G.parked.rate);   // 停車場過夜：停到隔天 7:30 出門
+    econ.homeTrip(); finishDay();
+  }
 }
 
 function finishDay() {
@@ -1257,15 +1275,15 @@ function driveFrame(dt) {
   destBeacon.visible = true; destBeacon.position.set(d.x, world.groundAt(d.x, d.z), d.z); carBeacon.visible = false;
   markT -= dt;
   if (markT <= 0) {
-    markT = 0.4; let n = 0;
+    markT = 0.4; let n = 0; G.markLot = 0;
     if (dDest < 420) {
       const list = [];
-      parking.forBaysNear(c.x, c.z, 120, (b, d2) => { if (!b.occupied && !b.reserved && bayAllowed(b) && dist(b, d) < 450) { b._d2 = d2; list.push(b); } });
+      parking.forBaysNear(c.x, c.z, 120, (b, d2) => { if (!b.occupied && !b.reserved && canPark(b) && dist(b, d) < 450) { b._d2 = d2; list.push(b); } });
       list.sort((a, b) => a._d2 - b._d2);
       const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
       for (const b of list.slice(0, 48)) {
         e.set(0, b.psi, 0); q.setFromEuler(e); v.set(b.x, b.y + 0.24, b.z); sc.set(b.wid - 0.3, 1, b.len - 0.3); m.compose(v, q, sc);
-        bayMarks.setMatrixAt(n, m); bayMarks.setColorAt(n, b.type === 'ev' ? new THREE.Color(0x3fe08f) : new THREE.Color(0xf5c518)); n++;
+        bayMarks.setMatrixAt(n, m); bayMarks.setColorAt(n, b.type === 'ev' ? new THREE.Color(0x3fe08f) : b.type === 'lot' ? new THREE.Color(0x4aa8ff) : new THREE.Color(0xf5c518)); n++; if (b.type === 'lot') G.markLot++;
       }
     }
     bayMarks.count = n; bayMarks.instanceMatrix.needsUpdate = true; if (bayMarks.instanceColor) bayMarks.instanceColor.needsUpdate = true;
@@ -1273,7 +1291,7 @@ function driveFrame(dt) {
   let pr = '', cls = '';
   if (Math.abs(c.v) < 1.2) {
     const chk = dDest < 450 ? parkingCheck() : { bay: null };
-    if (chk.bay) { if (chk.ok) { pr = '已停妥　<kbd>E</kbd> 下車'; cls = 'good'; } else { pr = chk.msg; cls = 'warn'; } }
+    if (chk.bay) { if (chk.ok) { pr = (chk.rate ? `已停妥（停車場每小時 ${chk.rate} 元）` : '已停妥') + '　<kbd>E</kbd> 下車'; cls = 'good'; } else { pr = chk.msg; cls = 'warn'; } }
     else if (Math.abs(c.v) < 0.3) pr = '<kbd>E</kbd> 下車';
   }
   if ((stunts && stunts.busy) || flying) { pr = ''; cls = ''; }
@@ -1364,7 +1382,7 @@ function hud(dt) {
       t = flight.phase === 'hover' && flight.slotHold ? '排隊等降落時段' : flight.phase === 'hover' && flight.blocked ? '下方有車，在空中等待降落' : { lift: '無人機升空中', cruise: `無人機飛往 ${G.leg === 'am' ? d.n : '家'}`, approach: '接近降落點', hover: '對準降落點', descend: '降落中' }[flight.phase] || '無人機飛行';
       sub = `高度 ${Math.round(car.y - world.groundAt(car.x, car.z, car.y - 50))} m・${Math.round(car.v * 3.6)} km/h・剩 ${fmtDist(dist(car, flight.spot))}・燃料費 ${Math.round(flight.costSum)} 元`;
       if (flight.slotHold && flight.plan && ctl) { const left = flight.plan.slotAt - ctl.t; sub = `前面還有 ${Math.max(1, Math.ceil(left * flight.plan.area.mu))} 台・約 ${Math.max(1, Math.round(gmin(left)))} 分鐘（${clockAfter(left)} 輪到你）・燃料費 ${Math.round(flight.costSum)} 元`; }
-    } else if (dd < 420) { t = G.leg === 'am' ? '在公司附近找車位' : '在家附近找車位'; sub = car.spec.electric ? '黃色：路邊空格　綠色：電動車格' : '黃色標示的是空的路邊車格'; }
+    } else if (dd < 420) { t = G.leg === 'am' ? '在公司附近找車位' : '在家附近找車位'; sub = (car.spec.electric || G.markLot) ? '黃色：路邊空格' + (car.spec.electric ? '　綠色：電動車格' : '') + (G.markLot ? '　藍色：停車場' : '') : '黃色標示的是空的路邊車格'; }
     else { t = G.leg === 'am' ? `開車到 ${d.n}` : '開車回家'; sub = `直線 ${fmtDist(dd)}${econ.has('nav') ? '・跟著藍色導航線' : ''}`; }
     if (!(flight && flight.active) && G.mode === 'hybrid' && ctl) {
       if (G.ctlHold && G.ctlHold.departAt !== undefined) sub = `總控：約 ${clockAfter(G.ctlHold.departAt - ctl.t)} 起飛（降落時段 ${clockAfter(G.ctlHold.plan.slotAt - ctl.t)}）・現在就飛按 U`;

@@ -45,6 +45,10 @@ export function jobPay(work, district) {
 /** 住處地下停車位的價錢（遊戲設定）：跟房價一樣看住哪一區，蛋黃區最貴。 */
 export const GARAGE = { core: 2800000, semi: 2200000, other: 1600000 };
 export function garagePrice(district) { return LIFE.core.includes(district) ? GARAGE.core : LIFE.semi.includes(district) ? GARAGE.semi : GARAGE.other; }
+// 停車場計時收費（元／小時）。真實的臺北市公有停車場小型車每小時 10～60 元（信義區的公有停車場 50～60 元；TVBS 汽車報導），
+// 遊戲用：蛋黃區 60、內湖 50、其他區 40。身上的錢不夠付就不能停（一開始沒錢只能停路邊）。
+export const LOT_RATE = { core: 60, semi: 50, other: 40 };
+export function lotRate(district) { return LIFE.core.includes(district) ? LOT_RATE.core : LIFE.semi.includes(district) ? LOT_RATE.semi : LOT_RATE.other; }
 /** 這個住址每天的住的費用：{ kind: '房租'|'房貸', perDay }。district：住址所在的行政區名稱。 */
 export function homeCost(home, district) {
   const r1 = hash01(home.x, home.z, 3), r2 = hash01(home.x, home.z, 4);
@@ -178,6 +182,8 @@ export class Economy {
   addParking(type) {
     if (type === 'road') this.day.parking += PAY.roadParkHr * PAY.workHours;
   }
+  /** 停車場計時：停了幾小時（不足一小時算一小時）× 每小時費率。 */
+  addLot(hours, rate) { const fee = Math.ceil(Math.max(0, hours) - 1e-6) * rate; this.day.parking += fee; return fee; }
   addDrone(cost) { this.day.drone += cost; }
   addRepair(cost) { this.day.repair = (this.day.repair || 0) + cost; }
   /** 一天結束：結算，回傳明細。 */
