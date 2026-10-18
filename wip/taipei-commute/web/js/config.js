@@ -48,7 +48,7 @@ export const CARS = {
   roadster: {
     key: 'roadster', name: '飛天跑車', model: 'roadster', electric: true,   // 飛天跑車也是電動車：可停電動車專用格、充電、算電費
     color: 0xc4161c, maxSpeed: 200 / 3.6, accel: 8.5, cockpitLift: -0.14,
-    cabin: { z: 0.4, pillarTop: 1.5, roofY: 1.52, linerZ: 0.45, linerD: 1.3, mirrorY: 1.42 }, seat: { tilt: 8 },   // 車頂調高一點、視線微微往上：畫面以擋風玻璃為主
+    cabin: { z: 0.4, pillarTop: 1.64, roofY: 1.66, linerZ: 0.45, linerD: 1.3, mirrorY: 1.54 }, seat: { tilt: 5 },   // 車頂調高一點、視線微微往上：畫面以擋風玻璃為主
     energyName: '電量', unit: 'kWh', capacity: 200, perKm: 0.15,
     stunt: true,
   },

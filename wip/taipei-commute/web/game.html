@@ -22,7 +22,10 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--asphalt); color: var(--ink); font-family: var(--f-ui); font-size: 15px; line-height: 1.5; overflow: hidden; -webkit-user-select: none; user-select: none; }
-#app { position: relative; width: 100%; height: 100%; overflow: hidden; }
+#app { position: relative; width: 100%; height: 100%; overflow: hidden; container: app / size; }   /* 依遊戲畫面的大小排版（畫面轉 90 度時也對） */
+/* 手機橫向玩（鎖不了方向時）：整個遊戲轉 90 度，寬高對調 */
+html.rot90 #app { position: fixed; top: 0; left: 0; width: 100vh; height: 100vw; transform-origin: 0 0; transform: translate(100vw, 0) rotate(90deg); }
+@supports (height: 100dvh) { html.rot90 #app { width: 100dvh; height: 100dvw; transform: translate(100dvw, 0) rotate(90deg); } }
 #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
 button { font: inherit; color: inherit; cursor: pointer; }
 button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
@@ -65,7 +68,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #demoSpeed { position: absolute; left: 50%; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 30; background: var(--signal, #f5c518); color: #1d1700; border-radius: 6px; padding: 3px 10px; font-weight: 900; font-size: 14px; pointer-events: none; }
 #demoExit { pointer-events: auto; position: absolute; left: calc(16px + env(safe-area-inset-left, 0px)); top: calc(132px + env(safe-area-inset-top, 0px)); z-index: 31; background: rgba(10, 13, 16, .86); color: #fff; border: 1px solid rgba(255, 255, 255, .3); border-radius: 8px; padding: 9px 14px; font-weight: 700; font-size: 14px; cursor: pointer; }
 #demoExit:hover { background: rgba(40, 46, 52, .92); }
-@media (max-width: 700px) { #demoCap { font-size: 15px; bottom: calc(190px + env(safe-area-inset-bottom, 0px)); } #demoSpeed { bottom: calc(240px + env(safe-area-inset-bottom, 0px)); } #demoExit { top: calc(150px + env(safe-area-inset-top, 0px)); } }
+@container app (max-width: 700px) { #demoCap { font-size: 15px; bottom: calc(190px + env(safe-area-inset-bottom, 0px)); } #demoSpeed { bottom: calc(240px + env(safe-area-inset-bottom, 0px)); } #demoExit { top: calc(150px + env(safe-area-inset-top, 0px)); } }
 .opt.mode { grid-template-columns: 1fr; }
 .opt.mode .sub { line-height: 1.5; }
 .opt.mode.locked { opacity: .55; cursor: not-allowed; }
@@ -107,6 +110,9 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #help kbd { font-family: var(--f-num); color: var(--ink); font-weight: 700; }
 #help { max-width: min(460px, calc(100% - 220px)); max-height: calc(100% - 230px); overflow: hidden; box-sizing: border-box; }
 .touch #help { display: none; }
+/* 電腦才有的按鍵說明：手機看不到；手機才有的說明：電腦看不到 */
+.coarse .k-desk { display: none !important; }
+body:not(.coarse) .k-touch { display: none !important; }
 #help .more { grid-column: 1 / -1; font-size: 12px; opacity: .85; }
 #tipCard { pointer-events: auto; position: absolute; left: 50%; top: calc(150px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 35; width: min(480px, calc(100% - 32px)); box-sizing: border-box; background: rgba(10, 13, 16, .94); border: 1px solid var(--signal, #f5c518); border-radius: 10px; padding: 14px 16px; display: grid; gap: 8px; color: #e8eef0; }
 #tipCard h3 { margin: 0; font-size: 17px; color: var(--signal, #f5c518); }
@@ -115,6 +121,10 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #tipOk { justify-self: end; background: var(--signal, #f5c518); color: #1d1700; border: 0; border-radius: 6px; padding: 7px 16px; font-weight: 900; cursor: pointer; }
 /* 路空總控：按 U 時的評估卡（右上，不擋擋風玻璃中間） */
 #ctlCard { position: absolute; right: 16px; top: calc(244px + env(safe-area-inset-top, 0px)); z-index: 34; width: min(410px, calc(100% - 32px)); box-sizing: border-box; background: rgba(10, 13, 16, .9); border: 1px solid rgba(111, 211, 255, .55); border-radius: 10px; padding: 10px 13px; display: grid; gap: 6px; color: #e8eef0; pointer-events: none; }
+/* 螢幕直的時候：車內中控螢幕的畫面貼在右下（車內那塊在視野外） */
+#navMini { position: absolute; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: min(46%, 240px); height: auto; aspect-ratio: 16 / 10; border-radius: 8px; border: 1px solid rgba(255, 255, 255, .25); box-shadow: 0 4px 14px rgba(0, 0, 0, .45); pointer-events: none; }
+.touch #navMini { top: calc(236px + env(safe-area-inset-top, 0px)); bottom: auto; }   /* 手機直拿：放在「⋯」下面，不蓋到下面的按鈕 */
+.touch #navMini.wide { top: calc(12px + env(safe-area-inset-top, 0px)); width: 150px; }   /* 手機橫的：右上角（「⋯」右邊） */
 #ctlCard h3 { margin: 0; font-size: 14px; color: #6fd3ff; letter-spacing: .04em; }
 #ctlRows { display: grid; gap: 5px; }
 #ctlRows .row { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 2px 9px; padding: 5px 8px; border-radius: 7px; background: rgba(255, 255, 255, .05); }
@@ -132,9 +142,9 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .touch #ctlRows .row { grid-template-columns: auto auto; justify-content: start; }
 .touch #ctlRows span, .touch #ctlNote { display: none; }
 .touch #ctlVerdict { font-size: 12.5px; }
-@media (max-height: 500px) { .touch #ctlCard { top: calc(12px + env(safe-area-inset-top, 0px)); left: 16px; right: auto; width: min(380px, 46%); } }
-@media (max-height: 640px) { #ctlCard { top: calc(10px + env(safe-area-inset-top, 0px)); right: 16px; width: min(400px, 46%); padding: 7px 10px; gap: 4px; } #ctlRows span { font-size: 11px; } #ctlNote { display: none; } #ctlRows em { font-size: 15px; } }
-@media (max-width: 700px) { #ctlCard { left: 16px; right: 16px; width: auto; top: calc(186px + env(safe-area-inset-top, 0px)); padding: 8px 10px; } #ctlRows span { font-size: 11px; } #ctlNote { display: none; } }
+@container app (max-height: 500px) { .touch #ctlCard { top: calc(12px + env(safe-area-inset-top, 0px)); left: 16px; right: auto; width: min(380px, 46%); } }
+@container app (max-height: 640px) { #ctlCard { top: calc(10px + env(safe-area-inset-top, 0px)); right: 16px; width: min(400px, 46%); padding: 7px 10px; gap: 4px; } #ctlRows span { font-size: 11px; } #ctlNote { display: none; } #ctlRows em { font-size: 15px; } }
+@container app (max-width: 700px) { #ctlCard { left: 16px; right: 16px; width: auto; top: calc(186px + env(safe-area-inset-top, 0px)); padding: 8px 10px; } #ctlRows span { font-size: 11px; } #ctlNote { display: none; } }
 #osm { position: absolute; right: 8px; bottom: 2px; font-size: 10px; color: rgba(255, 255, 255, .55); pointer-events: auto; }
 #osm a { color: inherit; }
 
@@ -183,7 +193,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .touch #speedo { right: auto; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
 .touch #prompt { bottom: calc(200px + env(safe-area-inset-bottom, 0px)); white-space: normal; text-align: center; border-radius: 14px; }
 
-@media (max-width: 560px) {
+@container app (max-width: 560px) {
   #mini { width: 112px; height: 112px; }
   #task { max-width: calc(100% - 152px); }
   #clock { font-size: 20px; }
@@ -239,7 +249,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #stunt small { color: var(--mute); }
 /* 手機：壓縮空氣改顯示在速度表裡（畫面下方已經很擠） */
 .touch #stunt { display: none !important; }
-@media (max-width: 560px) {
+@container app (max-width: 560px) {
   .touch #place { max-width: calc(100% - 236px); }
   .touch #speedo { left: 142px; transform: none; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
   .touch #prompt { bottom: calc(300px + env(safe-area-inset-bottom, 0px)); }
@@ -247,7 +257,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   .touch #btnBoost { bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
 }
 /* 手機橫向（矮螢幕）：後照鏡列移到搖桿上方；特技按鈕排在煞車左邊兩列；避撞面板放在上方任務欄右邊 */
-@media (max-height: 500px) {
+@container app (max-height: 500px) {
   .touch #btnMirL, .touch #btnMirR, .touch #btnSeat, .touch #btnCenter { bottom: calc(190px + env(safe-area-inset-bottom, 0px)); }
   .touch #btnBoost { right: 170px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
   .touch #btnDrone { right: 236px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
@@ -264,9 +274,9 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #btnDrone { right: 170px; bottom: calc(136px + env(safe-area-inset-bottom, 0px)); background: rgba(245, 197, 24, .25); }
 #daa { position: absolute; right: 16px; top: calc(250px + env(safe-area-inset-top, 0px)); width: 176px; height: 184px; pointer-events: none; }
 .touch #daa { top: auto; right: auto; left: 16px; bottom: calc(190px + env(safe-area-inset-bottom, 0px)); width: 132px; height: 138px; }
-@media (max-height: 500px) { .touch #daa { left: 150px; bottom: calc(74px + env(safe-area-inset-bottom, 0px)); width: 104px; height: 108px; } }   /* 手機橫向：放在搖桿右邊，不壓到任務欄 */
+@container app (max-height: 500px) { .touch #daa { left: 150px; bottom: calc(74px + env(safe-area-inset-bottom, 0px)); width: 104px; height: 108px; } }   /* 手機橫向：放在搖桿右邊，不壓到任務欄 */
 .touch #seat { top: 12px; bottom: auto; transform: none; max-height: calc(100% - 24px); }
-@media (max-height: 500px) {
+@container app (max-height: 500px) {
   .touch #btnMore { top: calc(12px + env(safe-area-inset-top, 0px)); right: 180px; }
   .touch #moreMenu { top: calc(64px + env(safe-area-inset-top, 0px)); right: 180px; max-height: calc(100% - 80px); overflow-y: auto; }
   .touch #btnMusic { top: calc(16px + env(safe-area-inset-top, 0px)); right: 292px; }
@@ -312,9 +322,10 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     <button id="btnMusic" type="button" aria-pressed="true">♪ 音樂 開</button>
     <button id="btnSfx" type="button" aria-pressed="true">引擎聲 開</button>
     <div id="help"></div>
-    <div id="tipCard" hidden><h3 id="tipTitle"></h3><div id="tipRows"></div><button id="tipOk" type="button">知道了（Enter）</button></div>
+    <div id="tipCard" hidden><h3 id="tipTitle"></h3><div id="tipRows"></div><button id="tipOk" type="button">知道了<span class="k-desk">（Enter）</span></button></div>
     <div id="ctlCard" hidden aria-live="polite"><h3>路空總控中心</h3><div id="ctlRows"></div><p id="ctlVerdict"></p><small id="ctlNote"></small></div>
     <div id="place"><span id="placeRoad"></span><small id="placeDist"></small></div>
+    <canvas id="navMini" width="320" height="200" hidden aria-hidden="true"></canvas>
     <div id="speedo" hidden><b id="spd">0</b><span>km/h</span><i id="energy"></i></div>
     <canvas id="daa" width="220" height="230" hidden aria-label="無人機避撞面板"></canvas>
     <div id="stunt" hidden><span class="lab">壓縮空氣</span><span class="bar"><i id="stuntBar"></i></span><b id="stuntPct">100%</b><em id="stuntFill"></em><small id="stuntMode"></small><span class="gs" title="空氣罐容量、可飛幾次、補充方式與價錢都是遊戲設定，Tesla 沒有公布這些數字">遊戲設定</span></div>
@@ -322,7 +333,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     <div id="toast" hidden></div>
     <div id="demoCap" hidden></div>
     <div id="demoSpeed" hidden></div>
-    <button id="demoExit" type="button" hidden>結束示範（Esc）</button>
+    <button id="demoExit" type="button" hidden>結束示範<span class="k-desk">（Esc）</span></button>
   </div>
 
   <div id="touch" hidden>
@@ -338,6 +349,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
       <button type="button" data-act="mirror" id="moreMirror">後照鏡按鈕：關</button>
       <button type="button" data-act="music" id="moreMusic">配樂</button>
       <button type="button" data-act="sfx" id="moreSfx">引擎聲</button>
+      <button type="button" data-act="land" id="moreLand" hidden>橫向玩</button>
     </div>
     <button class="mbtn" id="btnMirL" type="button" hidden>◀ 左鏡</button>
     <button class="mbtn" id="btnMirR" type="button" hidden>右鏡 ▶</button>
@@ -361,6 +373,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
         <p class="lede">住在台北，每天開車上班。</p>
         <button class="ghost" id="btnContinue" type="button" hidden></button>
         <button class="go" id="btnNew" type="button">搬來台北</button>
+        <button class="ghost k-touch" id="btnLand" type="button" hidden>橫向玩</button>
         <section class="step" id="step0">
           <h2>玩法 <small>各有自己的存檔</small></h2>
           <div class="opts modes" id="modeOpts"></div>
@@ -408,7 +421,7 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   </div>
 
   <div id="bigmap" hidden>
-    <header><span>臺北市　<small style="color:var(--mute);font-weight:400">黃色：公司　綠色：住家　白色箭頭：你　看地圖時遊戲不會暫停</small></span><button class="ghost" id="bigClose" type="button">回到駕駛畫面 (M)</button></header>
+    <header><span>臺北市　<small style="color:var(--mute);font-weight:400">黃色：公司　綠色：住家　白色箭頭：你　看地圖時遊戲不會暫停</small></span><button class="ghost" id="bigClose" type="button">回到駕駛畫面<span class="k-desk"> (M)</span></button></header>
     <canvas id="bigCv"></canvas>
   </div>
 
@@ -418,11 +431,12 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     <label>座椅前後 <b id="seatFv">0</b><input id="seatF" type="range" min="-15" max="15" step="1" value="0"></label>
     <label>視野寬窄 <b id="seatVv">46°</b><input id="seatV" type="range" min="20" max="80" step="1" value="46"></label>
     <label>視線上下 <b id="seatTv">往上 12°</b><input id="seatT" type="range" min="-10" max="20" step="1" value="12"></label>
-    <p>可以先轉動視角看看前擋風、左右後照鏡的位置。開車時畫面以前擋風玻璃為主，滑鼠往左右轉就看得到後照鏡；按住 Z／X 直接看左／右後照鏡。停車時按 V 可以再調。</p>
+    <p class="k-desk">可以先轉動視角看看前擋風、左右後照鏡的位置。開車時畫面以前擋風玻璃為主，滑鼠往左右轉就看得到後照鏡；按住 Z／X 直接看左／右後照鏡。停車時按 V 可以再調。</p>
+    <p class="k-touch">手指在畫面上左右滑可以轉頭看後照鏡。停車時在右上角「⋯」按「座椅」可以再調。</p>
     <details id="comfort">
       <summary>舒適設定（容易頭暈看這裡）</summary>
       <label class="ck"><input id="cfAuto" type="checkbox"> 視線自動轉回正前方</label>
-      <p>建議關閉：畫面自己轉動容易頭暈。關閉時，視線轉開後按 R（手機按「回正」）轉回來。</p>
+      <p>建議關閉：畫面自己轉動容易頭暈。關閉時，視線轉開後<span class="k-desk">按 R</span><span class="k-touch">按「回正」</span>轉回來。</p>
       <label class="ck"><input id="cfPitch" type="checkbox"> 鏡頭跟著車身上下坡前後傾</label>
       <p>建議關閉（鎖定地平線，賽車遊戲的「Lock to horizon」）。</p>
       <div class="q"><span>畫質</span><label><input type="radio" name="cfQ" value="high"> 高畫質</label><label><input type="radio" name="cfQ" value="smooth"> 順暢優先</label></div>

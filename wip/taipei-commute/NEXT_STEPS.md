@@ -1,6 +1,7 @@
 # 台北上班路：進度（2026-10-17 晚上更新）
 
 ## 已完成
+- 2026-10-18 晚：駕駛座以擋風玻璃為主（不畫方向盤、儀表台／車門／引擎蓋放低、A 柱細、座椅預設 tilt 5、seatKey taipei-seat3-；量測 tests/cockpit_frame.mjs：電腦 80～82%、手機直 86～91%、手機橫 83～85%）；手機直拿中控螢幕改貼在畫面上（#navMini）；手機不顯示電腦按鍵（main.js touchify、.k-desk/.k-touch、input.coarse）；手機「橫向玩」（全螢幕＋鎖方向，不行就 html.rot90 轉 90 度，排版改用 @container app）。
 - 2026-10-18：每買一樣新系統或車子，可以換一次住址或工作（econ.moves；結算畫面的「換住址或工作」→ #pgMove；搬家只列離公司 1.8～4.8 km 的住址，隔天生效、存款保留）。
 - 2026-10-18：開始時分三頁選行政區、住址、工作（web/game.html 的 #pgTitle #pgDist #pgHome #pgWork，main.js showPage）；薪水看工作地點、房租／房貸看住哪一區（economy.js 的 LIFE、jobPay、homeCost），選的時候看不到，打卡和結算時才知道；介面拿掉收入、價錢的說明。
 - 第三個新玩法「全城無人機・路空總控」（hybrid）：web/js/control.js（總控：降落時段排隊、Wardrop 式分配飛／開的比例、按 U 評估開 vs 飛、地面等待）、sky.js（天上的車跟路上的車互相交換）、traffic.js（takeForLift／laneAt／addAt）、drone.js（排好的降落時段、預估 vs 實際）、main.js（問總控、卡片、手機版精簡卡片）、demo.js（第 10 段示範）。

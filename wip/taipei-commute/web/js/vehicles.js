@@ -470,19 +470,19 @@ export class Cockpit {
     this.root = new THREE.Group(); this.scene.add(this.root);
     const dy = spec.cockpitLift || 0;                    // 高頂車（布丁狗）坐得比較高
     // 車艙形狀（跑車：駕駛坐得比較後面、車頂比較低、前擋比較斜）
-    const CB = Object.assign({ z: 0, pillarTop: 1.58, roofY: 1.6, linerZ: 0.52, linerD: 1.9, mirrorY: 1.47 }, spec.cabin || {});
+    const CB = Object.assign({ z: 0, pillarTop: 1.7, roofY: 1.72, linerZ: 0.52, linerD: 1.9, mirrorY: 1.6 }, spec.cabin || {});   // 前擋上緣拉高：開車畫面以擋風玻璃為主
     const dark = new THREE.MeshLambertMaterial({ color: 0x33363c }), mid = new THREE.MeshLambertMaterial({ color: 0x4a4e56 });
     const soft = new THREE.MeshLambertMaterial({ color: 0x5b5f68 }), liner = new THREE.MeshLambertMaterial({ color: 0xb8bbbf }), paintM = new THREE.MeshLambertMaterial({ color: spec.color });
     const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); this.root.add(m); return m; };
     // 引擎蓋
     const hood = new THREE.BoxGeometry(1.72, 0.1, 1.5); taper(0.94, 0.95)(hood.attributes.position); hood.computeVertexNormals();
-    add(hood, paintM, 0, 0.9, -1.72, 0.035);
+    const hoodM = add(hood, paintM, 0, 0.9, -1.72, 0.035);
     // 儀表台（深灰上飾板＋黑色下半部，參考使用者給的內裝照片的配置）
     const dashTop = new THREE.MeshLambertMaterial({ color: 0x45484e }), dashLow = new THREE.MeshLambertMaterial({ color: 0x2a2d31 });
     const gloss = new THREE.MeshLambertMaterial({ color: 0x15171a }), red = new THREE.MeshLambertMaterial({ color: 0xb3262b });
     const rbx = (w, h, d, r) => new RoundedBoxGeometry(w, h, d, 2, r);
     add(rbx(1.76, 0.3, 0.62, 0.06), dashLow, 0, 0.84, -0.8);
-    add(rbx(1.76, 0.1, 0.56, 0.05), dashTop, 0, 1.02, -0.86, 0.1);
+    add(rbx(1.76, 0.1, 0.56, 0.05), dashTop, 0, 0.98, -0.86, -0.02);   // 遠端壓低：前擋下緣不被儀表台擋掉
     // 儀表拿掉了（會擋擋風玻璃）：車速、電量／油量改顯示在右邊的中控螢幕
     add(rbx(1.0, 0.03, 0.04, 0.01), dashTop, 0.28, 0.96, -0.5);                       // 副駕前橫飾條
     add(rbx(0.62, 0.16, 0.03, 0.03), dashLow, 0.5, 0.82, -0.49);                      // 置物箱
@@ -506,9 +506,9 @@ export class Cockpit {
       add(new THREE.BoxGeometry(0.02, 0.22, 0.7), new THREE.MeshLambertMaterial({ color: 0x5d6168 }), s * 0.815, 0.82, -0.05);   // 門板布面
       add(new THREE.BoxGeometry(0.06, 0.06, 2.4), dark, s * 0.86, 1.03, 0.3);
       // A 柱：從儀表台角落斜向後上方接到車頂
-      const a0 = new THREE.Vector3(s * 0.84, 1.0, -1.0), a1 = new THREE.Vector3(s * 0.71, CB.pillarTop, -0.38);
+      const a0 = new THREE.Vector3(s * 0.92, 0.78, -1.0), a1 = new THREE.Vector3(s * 0.86, CB.pillarTop, -0.38);   // 往外一點、下端跟儀表台一起放低：少擋前擋
       const dir = a1.clone().sub(a0), len = dir.length();
-      const pil = add(new THREE.BoxGeometry(0.055, len, 0.07), dark, (a0.x + a1.x) / 2, (a0.y + a1.y) / 2, (a0.z + a1.z) / 2);
+      const pil = add(new THREE.BoxGeometry(0.03, len, 0.04), dark, (a0.x + a1.x) / 2, (a0.y + a1.y) / 2, (a0.z + a1.z) / 2);
       pil.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
       add(new THREE.BoxGeometry(0.07, CB.roofY - 1.04, 0.09), dark, s * 0.84, (CB.roofY + 1.02) / 2, 0.62);        // B 柱
       // 左右後照鏡：鏡面朝向駕駛的眼睛，鏡中是即時畫面
@@ -540,22 +540,31 @@ export class Cockpit {
     const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 16), mid); hub.rotation.x = Math.PI / 2; this.wheel.add(hub);
     this.wheelPivot = new THREE.Group(); this.wheelPivot.position.set(-0.38, 0.87, -0.46); this.wheelPivot.scale.setScalar(0.9); this.wheelPivot.rotation.x = -0.36; this.wheelPivot.add(this.wheel);   // 方向盤小一點、低一點：畫面以擋風玻璃為主
     this.root.add(this.wheelPivot);
+    this.wheelPivot.visible = false;   // 不畫方向盤：開車時視線在擋風玻璃，不在方向盤（玩家訂的）
     // 儀表（畫在 canvas 上）
     this.dashCv = document.createElement('canvas'); this.dashCv.width = 384; this.dashCv.height = 128;
     this.dashTex = new THREE.CanvasTexture(this.dashCv); this.dashTex.colorSpace = THREE.SRGBColorSpace;
     // 中控螢幕
     this.navCv = document.createElement('canvas'); this.navCv.width = 320; this.navCv.height = 200;
     this.navTex = new THREE.CanvasTexture(this.navCv); this.navTex.colorSpace = THREE.SRGBColorSpace;
-    add(new RoundedBoxGeometry(0.32, 0.19, 0.025, 2, 0.01), new THREE.MeshLambertMaterial({ color: 0x111215 }), 0, 1.17, -0.6, -0.12, -0.05);   // 浮動式中控螢幕
-    add(new THREE.PlaneGeometry(0.3, 0.1875), new THREE.MeshBasicMaterial({ map: this.navTex }), 0.0, 1.171, -0.586, -0.12, -0.05);
-    add(new THREE.BoxGeometry(0.06, 0.06, 0.04), new THREE.MeshLambertMaterial({ color: 0x15171a }), 0, 1.08, -0.62);
+    const navSet = new Set([
+      add(new RoundedBoxGeometry(0.32, 0.19, 0.025, 2, 0.01), new THREE.MeshLambertMaterial({ color: 0x111215 }), 0, 1.17, -0.6, -0.12, -0.05),   // 浮動式中控螢幕
+      add(new THREE.PlaneGeometry(0.3, 0.1875), new THREE.MeshBasicMaterial({ map: this.navTex }), 0.0, 1.171, -0.586, -0.12, -0.05),
+      add(new THREE.BoxGeometry(0.06, 0.06, 0.04), new THREE.MeshLambertMaterial({ color: 0x15171a }), 0, 1.08, -0.62)]);
     // 車內後照鏡
     this.mirrorRT = new THREE.WebGLRenderTarget(384, 112);
-    add(new THREE.BoxGeometry(0.27, 0.085, 0.02), dark, 0.02, CB.mirrorY, -0.47);
-    const mg = new THREE.PlaneGeometry(0.25, 0.07);
+    add(new THREE.BoxGeometry(0.2, 0.06, 0.02), dark, 0.02, CB.mirrorY, -0.47);
+    const mg = new THREE.PlaneGeometry(0.185, 0.05);
     const uv = mg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
     add(mg, new THREE.MeshBasicMaterial({ map: this.mirrorRT.texture }), 0.02, CB.mirrorY, -0.458, 0, -0.1);
     this.mirrorCam = new THREE.PerspectiveCamera(26, 384 / 112, 1.2, 260);
+    // 開車畫面以擋風玻璃為主（玩家訂的）：儀表台、車門、引擎蓋都放低，從駕駛座看前擋下緣只剩一小條儀表台；
+    // 中控螢幕放低到畫面右下角。方向盤不畫。（車內看不到外觀，放低不影響車外看到的車）
+    for (const m of [...this.root.children]) {
+      if (m === hoodM) m.position.y -= 0.44;
+      else if (navSet.has(m)) m.position.y -= 0.11;
+      else if (m.isMesh && m.position.y < 1.12 && m.position.z < 0.62) m.position.y -= 0.22;
+    }
     this.lookYaw = 0; this.lookPitch = 0; this._idle = 0; this._t = 0;
     this.autoCenter = false; this.followPitch = false; this._center = false;
     this.root.position.y = dy; this.eye.y += dy; this.root.position.z = CB.z; this.eye.z += CB.z;

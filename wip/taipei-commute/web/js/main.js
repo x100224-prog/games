@@ -129,16 +129,46 @@ for (const [id, code] of [['btnMirL', 'KeyZ'], ['btnMirR', 'KeyX']]) {
   el.addEventListener('touchstart', (e) => { input.keys.add(code); e.preventDefault(); }, { passive: false });
   for (const ev of ['touchend', 'touchcancel']) el.addEventListener(ev, (e) => { input.keys.delete(code); e.preventDefault(); }, { passive: false });
 }
+// 手機橫向玩：瀏覽器允許的話進全螢幕、把方向鎖成橫的（Android Chrome）；鎖不了（iPhone、在 App 裡面看）就把整個畫面轉 90 度
+const landOn = () => document.documentElement.classList.contains('rot90') || !!(document.fullscreenElement && screen.orientation && /landscape/.test(screen.orientation.type));
+function landBtns() {
+  const portrait = innerHeight > innerWidth, on = landOn();
+  for (const id of ['moreLand', 'btnLand']) { const b = $(id); if (!b) continue; b.textContent = on ? '回到直向' : '橫向玩'; b.hidden = !on && !portrait; }
+}
+async function setLandscape(on) {
+  const root = document.documentElement;
+  if (on) {
+    try { if (root.requestFullscreen && !document.fullscreenElement) await root.requestFullscreen({ navigationUI: 'hide' }); } catch (err) { /* 不能全螢幕 */ }
+    let locked = false;
+    try { if (screen.orientation && screen.orientation.lock) { await screen.orientation.lock('landscape'); locked = true; } } catch (err) { /* 不能鎖方向 */ }
+    // 鎖了方向也要等一下看看真的轉過來沒（有些瀏覽器說好卻沒轉）；還是直的就把整個畫面轉 90 度
+    if (locked) await new Promise(r => setTimeout(r, 700));
+    if (innerHeight > innerWidth) { root.classList.add('rot90'); input.rot = 90; landBtns(); toast('畫面轉成橫的了：把手機往左轉來玩', 3); }
+  } else {
+    root.classList.remove('rot90'); input.rot = 0; landBtns();
+    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (err) { /* ignore */ }
+    try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (err) { /* ignore */ }
+  }
+  requestAnimationFrame(() => { resize(); landBtns(); });
+}
+addEventListener('resize', () => {
+  // 轉成橫的之後，手機自己也轉成橫的了：不用再轉 90 度
+  if (document.documentElement.classList.contains('rot90') && innerWidth > innerHeight) { document.documentElement.classList.remove('rot90'); input.rot = 0; requestAnimationFrame(resize); }
+  landBtns();
+});
+document.addEventListener('fullscreenchange', () => landBtns());
 // 手機：不常用的功能收在「⋯」選單裡
 let mirrorBtns = false;   // 手機：後照鏡按鈕要不要顯示（在「⋯」裡切換）
 if ($('btnMore')) {
-  const tog = (e) => { e.preventDefault(); $('moreMenu').hidden = !$('moreMenu').hidden; };
+  let togT = 0;   // 手指點一下會先有 touchstart、有時還會再補一個 click：只算一次
+  const tog = (e) => { const now = performance.now(); if (e.type === 'click' && now - togT < 700) return; togT = now; e.preventDefault(); $('moreMenu').hidden = !$('moreMenu').hidden; };
   $('btnMore').addEventListener('touchstart', tog, { passive: false }); $('btnMore').addEventListener('click', tog);
   for (const b of $('moreMenu').querySelectorAll('button')) b.addEventListener('click', () => {
     const a = b.dataset.act;
     if (a === 'mirror') { mirrorBtns = !mirrorBtns; b.textContent = `後照鏡按鈕：${mirrorBtns ? '開' : '關'}`; }
     else if (a === 'music') $('btnMusic').click();
     else if (a === 'sfx') $('btnSfx').click();
+    else if (a === 'land') setLandscape(!landOn());
     else { input.hit.add(a); if (a === 'KeyV' && car && Math.abs(car.v) > 0.3) toast('停下來才能調座椅', 1.5); }
     $('moreMenu').hidden = true;
   });
@@ -201,7 +231,30 @@ const fmtMoney = (n) => {
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const districtName = (i) => meta.districts[i] ? meta.districts[i].name : '';
 let toastT = 0;
-function toast(msg, sec = 3) { const t = $('toast'); t.textContent = msg; t.hidden = false; toastT = uiTime + sec; placeToast(); }
+function toast(msg, sec = 3) { const t = $('toast'); t.textContent = touchify(msg); t.hidden = false; toastT = uiTime + sec; placeToast(); }
+/** 手機玩的時候看不到電腦才有的按鍵說明：「按 F」→「按「飛越」」、拿掉（Enter）（Esc）等。電腦版原樣。 */
+const TOUCH_KEY = { Shift: '推進', F: '飛越', G: '吸附', T: '翻轉', R: '回正', E: '動作' };
+function touchKey(k) {
+  if (k === 'U') return G.mode === 'hybrid' ? '問總控' : '無人機';
+  if (k === '再按 U') return G.mode === 'hybrid' ? '現在飛' : '無人機';
+  if (k === 'C') return '⋯ 視角';
+  return TOUCH_KEY[k] || k;
+}
+function touchify(t) {
+  if (!t || !input || !(input.touch || input.coarse)) return t;
+  return String(t)
+    .replace(/（手機[：:][^）]*）/g, '')
+    .replace(/[（(](?:或 ?)?(?:Enter|Esc|M)[）)]/g, '')
+    .replace(/<kbd>E<\/kbd>\s*/g, '')
+    .replace(/10 秒內再按(?:一次)? ?U/g, () => G.mode === 'hybrid' ? '10 秒內按「現在飛」' : '10 秒內再按「無人機」')
+    .replace(/再按(?:一次)? ?U\s?/g, () => `再按「${touchKey('U')}」`)
+    .replace(/按住 Z／X[^，。；）]*/g, '用「⋯」裡的後照鏡按鈕看後照鏡')
+    .replace(/按 ?C(?![A-Za-z])/g, '在「⋯」按「視角」').replace(/按 ?M(?![A-Za-z])/g, '在「⋯」按「地圖」').replace(/按 ?V(?![A-Za-z])/g, '在「⋯」按「座椅」')
+    .replace(/按 ?(Shift|F|G|T|U|R|E)(?![A-Za-z])\s?/g, (m, k) => `按「${touchKey(k)}」`)
+    .replace(/[（(](Shift|F|G|T|U)[）)]/g, (m, k) => `（按「${touchKey(k)}」）`)
+    .replace(/^(Shift|[FGTU])：/, (m, k) => `${touchKey(k)}：`)
+    .replace(/按「([^」]+)」\1/g, '按「$1」');   // 「按「飛越」飛越」→「按「飛越」」
+}
 /** 總控卡片開著時，提示訊息如果跟卡片重疊，就移到卡片下面。 */
 function placeToast() {
   const t = $('toast'), c = $('ctlCard'); t.style.top = '';
@@ -209,7 +262,7 @@ function placeToast() {
   const a = c.getBoundingClientRect(), b = t.getBoundingClientRect();
   if (a.right > b.left && b.right > a.left && a.bottom > b.top && b.bottom > a.top) t.style.top = Math.round(a.bottom + 8) + 'px';
 }
-function setPrompt(html, cls = '') { const p = $('prompt'); if (!html) { p.hidden = true; return; } if (p._h !== html) { p.innerHTML = html; p._h = html; } p.className = cls; p.hidden = false; }
+function setPrompt(html, cls = '') { const p = $('prompt'); if (!html) { p.hidden = true; return; } html = touchify(html); if (!html) { p.hidden = true; return; } if (p._h !== html) { p.innerHTML = html; p._h = html; } p.className = cls; p.hidden = false; }
 function fadeThen(fn, hold = 60) { const f = $('fade'); f.classList.add('on'); setTimeout(() => { fn(); setTimeout(() => f.classList.remove('on'), hold); }, 360); }
 const dest = () => G.leg === 'am' ? G.cfg.work : G.cfg.home;
 const destName = () => G.leg === 'am' ? G.cfg.work.n : '家';
@@ -298,6 +351,8 @@ function buildMenu() {
     showPage(b.dataset.to);
   };
   $('btnMove').onclick = () => openMove();
+  if ($('btnLand')) $('btnLand').onclick = () => setLandscape(!landOn());
+  landBtns();
   $('btnMoveHome').onclick = () => { G.menuMode = 'home'; G.cfg = Object.assign({}, G.moveBak); markDistricts(); $('btnHomeOk').hidden = true; showPage('pgDist'); };
   $('btnMoveWork').onclick = () => { G.menuMode = 'work'; G.cfg = Object.assign({}, G.moveBak, { work: null }); G.workSeed = (G.workSeed || 0) + 1; renderWorks(); updateGo(); showPage('pgWork'); };
   $('btnHomeOk').onclick = () => finishMove('home');
@@ -330,7 +385,7 @@ function renderDemos() {
   for (const D of DEMOS) {
     if (D.mode && !open) continue;   // 新玩法的示範：解鎖後才出現
     const b = document.createElement('button'); b.type = 'button'; b.className = 'opt demo';
-    b.innerHTML = `<b>${D.name}</b><span class="sub">${D.sub}</span>`;
+    b.innerHTML = `<b>${D.name}</b><span class="sub">${touchify(D.sub)}</span>`;
     b.onclick = () => startDemo(D.key);
     box.appendChild(b);
   }
@@ -359,7 +414,7 @@ function startDemo(key) {
   startDay();
 }
 const demoUi = {
-  cap(t) { const c = $('demoCap'); c.textContent = t || ''; c.hidden = !t; },
+  cap(t) { const c = $('demoCap'); c.textContent = touchify(t) || ''; c.hidden = !t; },
   speed(n) { const b = $('demoSpeed'); b.textContent = `快轉 ×${n}`; b.hidden = n <= 1; },
   done(ok) { demoUi.cap(ok ? '示範結束：可以直接接手開（W A S D），或按「結束示範」回選單' : '示範中斷了：可以自己開，或按「結束示範」回選單'); demo = null; },
 };
@@ -541,7 +596,7 @@ const featureOn = (k) => k === 'ctl' ? G.mode === 'hybrid' && econ.has('drone') 
 function renderHelp() {
   const rows = [...HELP_BASE];
   for (const k of FEATURES_ORDER()) if (featureOn(k)) rows.push(...FEATURE_HELP[k].rows);
-  $('help').innerHTML = rows.map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('') +
+  $('help').innerHTML = rows.map(([k, v]) => `<kbd>${k}</kbd><span>${v.replace(/（手機[：:][^）]*）/g, '')}</span>`).join('') +
     '<kbd>H</kbd><span>收起／打開這張說明</span><span class="more">其他：C 車外視角・Z／X 後照鏡・V 調座椅・N／B 配樂／引擎聲</span>';
 }
 const TIP_KEY = 'taipei-commute-tips';
@@ -553,7 +608,7 @@ function showTips() {
   if (!k) { $('tipCard').hidden = true; return; }
   const F = FEATURE_HELP[k];
   $('tipTitle').textContent = `新功能：${F.title}`;
-  $('tipRows').innerHTML = F.rows.map(([a, b]) => `<kbd>${a}</kbd><span>${b}</span>`).join('');
+  $('tipRows').innerHTML = F.rows.map(([a, b]) => `<kbd>${input.coarse ? touchKey(a) : a}</kbd><span>${input.coarse ? touchify(b) : b.replace(/（手機[：:][^）]*）/g, '')}</span>`).join('');
   $('tipCard').hidden = false; $('help').hidden = true; input.releaseLock();   // 說明卡出現時先收起按鍵說明，一次只看一樣
   $('tipOk').onclick = () => { seen.push(k); try { localStorage.setItem(TIP_KEY, JSON.stringify(seen)); } catch (err) { /* ignore */ } showTips(); };
 }
@@ -778,7 +833,7 @@ function renderShop() {
     const p = priceOf(it.key), owned = econ.has(it.key), ready = READY[it.key];
     const d = document.createElement('div'); d.className = 'item' + (owned ? ' owned' : '');
     const evNote = it.key === 'ev' && !owned && econ.has('roadster') ? '<p class="saved">你的飛天跑車也是電動車，已經可以停電動車專用格了</p>' : '';
-    d.innerHTML = `<div class="ihead"><b>${it.name}</b><span class="price">${owned ? '已擁有' : fmtMoney(p)}</span></div><p>${it.desc}</p>${SAVED_NOTE[it.key] ? `<p class="saved">${SAVED_NOTE[it.key]}</p>` : ''}${evNote}`;
+    d.innerHTML = `<div class="ihead"><b>${it.name}</b><span class="price">${owned ? '已擁有' : fmtMoney(p)}</span></div><p>${touchify(it.desc)}</p>${SAVED_NOTE[it.key] ? `<p class="saved">${SAVED_NOTE[it.key]}</p>` : ''}${evNote}`;
     const b = document.createElement('button'); b.type = 'button'; b.className = 'buy';
     if (owned) { b.textContent = '已擁有'; b.disabled = true; }
     else if (!ready) { b.textContent = '製作中'; b.disabled = true; }
@@ -891,7 +946,7 @@ function showCtlCard(ev) {
       : `建議繼續開：兩個差不多快（飛只差 ${m(Math.abs(r.sec - a.sec))} 分），開車省燃料費。還是要飛：10 秒內再按 U`;
   }
   $('ctlRows').innerHTML = rows.join('');
-  $('ctlVerdict').textContent = v; $('ctlVerdict').className = ev.fly ? 'ok' : 'no';
+  $('ctlVerdict').textContent = touchify(v); $('ctlVerdict').className = ev.fly ? 'ok' : 'no';
   $('ctlNote').textContent = `總控即時掌握：路上 ${r ? r.live.n : 0} 台、天上 ${a.skyN.toLocaleString()} 架（你附近要穿過的高度層）・全市 ${Math.round(ev.p * 100)}% 的車在飛・目的地附近 ${a.spots} 個降落點`;
   c.hidden = false; G.ctlCardT = uiTime + (ev.fly && !ev.holdGround ? 9 : 14); placeToast();
 }
@@ -1049,8 +1104,8 @@ function walkFrame(dt) {
 }
 
 // ===================================================================== 駕駛座調整、舒適設定
-const SEAT_DEF = { h: 0, f: 0, fov: 46, tilt: 10 };
-const seatKey = () => 'taipei-seat2-' + (car ? car.spec.key : 'gas');   // 2：駕駛座預設改成以擋風玻璃為主（舊的座椅設定不沿用）
+const SEAT_DEF = { h: 0, f: 0, fov: 46, tilt: 5 };   // 視線微微往上：地平線在畫面中間偏下，擋風玻璃占大部分
+const seatKey = () => 'taipei-seat3-' + (car ? car.spec.key : 'gas');   // 3：擋風玻璃占大部分畫面、不畫方向盤（舊的座椅設定不沿用）
 let seat = Object.assign({}, SEAT_DEF);
 const seatDef = () => Object.assign({}, SEAT_DEF, (car && car.spec.seat) || {});   // 跑車坐得低、車頂低：預設視線不往上抬
 function loadSeat() { try { seat = Object.assign(seatDef(), JSON.parse(localStorage.getItem(seatKey()) || '{}')); } catch (err) { seat = seatDef(); } }
@@ -1085,7 +1140,7 @@ for (const r of document.querySelectorAll('input[name=cfQ]')) r.addEventListener
 $('cfCalc').onclick = () => {
   comfort.inch = Math.max(5, Math.min(100, +$('cfInch').value || 14)); comfort.cm = Math.max(20, Math.min(400, +$('cfCm').value || 55));
   const ar = (screen.width || 16) / (screen.height || 10), diag = comfort.inch * 2.54, h = diag / Math.sqrt(1 + ar * ar);
-  let v = 2 * Math.atan(h / 2 / comfort.cm) * 180 / Math.PI; if (camera.aspect < 1) v -= 26;
+  let v = 2 * Math.atan(h / 2 / comfort.cm) * 180 / Math.PI;
   seat.fov = Math.round(Math.max(20, Math.min(80, v))); applySeat(); applyComfort();
   $('cfCalcOut').textContent = `依你的螢幕算出 ${Math.round(2 * Math.atan(h / 2 / comfort.cm) * 180 / Math.PI)}°，已套用到「視野寬窄」`;
 };
@@ -1114,7 +1169,7 @@ function glance(dt) {
   const L = input.has('KeyZ'), R = input.has('KeyX'), k = Math.min(1, dt * 10);
   if (L || R) {
     const ty = L ? 0.56 : -0.94;
-    cockpit.lookYaw += (ty - cockpit.lookYaw) * k; cockpit.lookPitch += (-0.1 - (cockpit.basePitch || 0) - cockpit.lookPitch) * k; cockpit._idle = 0; G.glance = true;
+    cockpit.lookYaw += (ty - cockpit.lookYaw) * k; cockpit.lookPitch += (-0.26 - (cockpit.basePitch || 0) - cockpit.lookPitch) * k;   // 後照鏡跟著儀表台放低了：視線往下多一點 cockpit._idle = 0; G.glance = true;
   } else if (G.glance) {
     cockpit.lookYaw -= cockpit.lookYaw * k; cockpit.lookPitch -= cockpit.lookPitch * k;
     if (Math.abs(cockpit.lookYaw) < 0.01) { cockpit.lookYaw = 0; cockpit.lookPitch = 0; G.glance = false; }
@@ -1143,7 +1198,7 @@ function driveFrame(dt) {
     camera.near = ext || G.cam !== 'cockpit' ? 0.3 : 0.8; camera.updateProjectionMatrix();
   }
   G.camMode = ext ? (flying ? 'drone' : 'stunt') : G.cam;
-  const fov = G.camMode === 'cockpit' ? seat.fov + (camera.aspect < 1 ? 26 : 0) : (camera.aspect < 1 ? 76 : 62);
+  const fov = G.camMode === 'cockpit' ? seat.fov : (camera.aspect < 1 ? 76 : 62);   // 駕駛座：直的螢幕也用同樣的上下視角，擋風玻璃照樣占大部分
   if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
   if (G.seatAdj && input.pressed('Enter')) closeSeat();
   else if (!$('tipCard').hidden && input.pressed('Enter')) $('tipOk').click();   // 新功能說明卡：Enter 關掉
@@ -1227,6 +1282,12 @@ function driveFrame(dt) {
       cockpit.drawNav(info);
     }
   }
+  // 螢幕直的（手機直拿）：左右看得比較窄，車內的中控螢幕在視野外面 → 把同一個畫面貼在畫面右下角
+  // 手機橫的：車內的中控螢幕會被右下的按鈕擋住 → 也貼一份在右上角
+  const mini = $('navMini'), wantMini = G.camMode === 'cockpit' && (camera.aspect < 0.9 || input.touch) && !G.seatAdj;
+  if (mini.hidden === wantMini) mini.hidden = !wantMini;
+  mini.classList.toggle('wide', camera.aspect >= 0.9);
+  if (wantMini && frameN % 4 === 0) mini.getContext('2d').drawImage(cockpit.navCv, 0, 0);
 }
 
 // ===================================================================== 壓縮空氣的白霧
@@ -1279,6 +1340,7 @@ function setSun(leg) {
 // ===================================================================== HUD、小地圖、全市地圖
 let miniT = 0, placeT = 0;
 function hud(dt) {
+  if (G.state !== 'drive') $('navMini').hidden = true;
   const ck = $('clock');
   $('dayChip').textContent = `第 ${G.dayN} 天`;
   ck.textContent = fmtClock(G.clock); ck.classList.toggle('late', G.leg === 'am' && G.clock > TIME.workMin);
@@ -1304,7 +1366,7 @@ function hud(dt) {
     if (G.parked && G.parked.legal) { t = G.leg === 'am' ? `走進 ${d.n}` : '走回家'; sub = fmtDist(dist(P, d)); }
     else { t = '車沒停好'; sub = '回到車上（藍色光柱）重新停進車格'; }
   }
-  $('taskText').textContent = t; $('taskSub').textContent = sub;
+  $('taskText').textContent = t; $('taskSub').textContent = touchify(sub);
   const sb = $('stunt'), showS = !!(G.state === 'drive' && stunts);
   if (sb.hidden === showS) sb.hidden = !showS;
   if (showS) {
@@ -1692,7 +1754,7 @@ function frame(dt) {
       if (dbt.textContent !== lb) dbt.textContent = lb;
     }
     for (const id of ['btnMirL', 'btnMirR']) { const el = $(id), on = drv && mirrorBtns; if (el && el.hidden === on) el.hidden = !on; }
-    const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : 'E') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : 'E') : st === 'room' ? '出門' : 'E';
+    const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : '動作') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : '動作') : st === 'room' ? '出門' : '動作';
     if (act && act.textContent !== lab) act.textContent = lab;
     const bc = $('btnCenter'), showC = !!(drv && cockpit && (Math.abs(cockpit.lookYaw) > 0.05 || Math.abs(cockpit.lookPitch) > 0.05) && !G.glance);
     if (bc && bc.hidden === showC) bc.hidden = !showC;
