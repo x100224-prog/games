@@ -1,0 +1,81 @@
+// 停車場計時收費：沒錢不能停（只能停路邊）、有錢可以自己選停車場的格子（藍色標示）、打卡和回家時算停車費、隔天車子在停車場出發。
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+const errs = []; page.on('pageerror', e => errs.push('PAGEERR ' + e.message + ' ' + (e.stack || '').split('\n')[1]));
+const ev = (f, a) => page.evaluate(f, a), wait = (ms) => page.waitForTimeout(ms);
+page.setDefaultTimeout(300000);
+const WI = +(process.env.WI || 0);
+const boot = async () => { await page.goto('about:blank'); await page.goto('http://localhost:8768/index.html#lowq'); await page.waitForFunction(() => window.__tc && window.__tc.G.state === 'menu' && window.__tc.drones, null, { timeout: 200000 }); };
+await boot();
+await ev((WI) => { localStorage.clear(); localStorage.setItem('taipei-commute-tips', '["nav","ev","roadster","drone","ctl"]'); const m = window.__tc.meta, di = 6, home = m.homes[di][0];
+  const ws = m.works.filter(w => { const d = Math.hypot(w.x - home.x, w.z - home.z); return d > 3000 && d < 4800; }); const work = ws[WI % ws.length];
+  localStorage.setItem('taipei-commute-v2', JSON.stringify({ v: 2, cfg: { di, home, work }, day: 2, econ: { money: 0, owned: [], carKey: 'gas' } })); }, WI);
+await boot();
+await ev(() => { window.__tc.noRender = true; }); await page.click('#btnContinue');
+await page.waitForFunction(() => window.__tc.G.state === 'room', null, { timeout: 200000 });
+await ev(() => { const { P } = window.__tc; P.x = 1.2; P.z = -2.0; }); await wait(400); await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout: 60000 }); await wait(800);
+await ev(() => { const { P, car } = window.__tc; P.x = car.x - Math.cos(car.psi) * 2; P.z = car.z + Math.sin(car.psi) * 2; }); await wait(600); await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'drive', null, { timeout: 60000 }); await wait(1000);
+await ev(() => { if (window.__tc.G.seatAdj) document.getElementById('seatGo').click(); }); await wait(500);
+await ev(() => { const { car, G } = window.__tc; car.place(G.cfg.work.x, G.cfg.work.z, 0, 0); car.v = 0; });
+await page.waitForFunction(() => { const { parking, car } = window.__tc; return parking.readyAround(car.x, car.z, 300); }, null, { timeout: 200000 });
+await wait(3000);
+const pickLot = (near) => ev((near) => { const { parking, G } = window.__tc, c = near === 'home' ? G.cfg.home : G.cfg.work; let best = null;
+  parking.forBaysNear(c.x, c.z, 440, (b, d2) => { if (b.type === 'lot' && !b.occupied && !b.reserved && (!best || d2 < best.d2)) best = { b, d2 }; });
+  if (!best) return null; const b = best.b; window.__tc._lot = b; return { id: b.id, d: Math.round(Math.sqrt(best.d2)), x: b.x, z: b.z }; }, near);
+const lot = await pickLot('work');
+console.log('nearest free lot bay to work:', JSON.stringify(lot));
+// 停車場附近 20 m：數一下標示的顏色（藍＝停車場格）
+const markCount = () => ev(() => { const { bayMarks } = window.__tc; let lot = 0, road = 0, evb = 0; const c = { r: 0, g: 0, b: 0 };
+  for (let i = 0; i < bayMarks.count; i++) { const col = { r: bayMarks.instanceColor.array[i * 3], g: bayMarks.instanceColor.array[i * 3 + 1], b: bayMarks.instanceColor.array[i * 3 + 2] }; if (col.b > 0.5 && col.r < 0.5) lot++; else if (col.g > 0.7 && col.r < 0.5) evb++; else road++; } return { total: bayMarks.count, lot, road, ev: evb }; });
+await ev(() => { const { car } = window.__tc, b = window.__tc._lot; car.place(b.x + 12, b.z + 12, 0, b.y); car.v = 0; }); await wait(1200);
+console.log('money 0 → marks near lot:', JSON.stringify(await markCount()));
+await ev(() => { const { car } = window.__tc, b = window.__tc._lot; car.place(b.x, b.z, b.psi, b.y); car.v = 0; }); await wait(1200);
+console.log('money 0 → in lot bay prompt:', await ev(() => document.getElementById('prompt').innerText));
+await ev(() => { window.__tc.econ.money = 300000; }); await wait(1200);
+console.log('money 300000 → in lot bay prompt:', await ev(() => document.getElementById('prompt').innerText));
+await ev(() => { const { car } = window.__tc, b = window.__tc._lot; car.place(b.x + 12, b.z + 12, 0, b.y); car.v = 0; }); await wait(1200);
+console.log('money 300000 → marks near lot:', JSON.stringify(await markCount()));
+await ev(() => { const { car, world, parking } = window.__tc, b = window.__tc._lot, fx = -Math.sin(b.psi), fz = -Math.cos(b.psi), out = {};
+  for (const sg of [1, -1]) { const x = b.x + fx * sg * (b.len / 2 + 3.2), z = b.z + fz * sg * (b.len / 2 + 3.2); if (!parking.bayAt(x, z, 0, out) && !world.collide({ x, z }, 0.8)) {
+    const x2 = x - Math.cos(b.psi) * 9, z2 = z + Math.sin(b.psi) * 9; car.place(x2, z2, b.psi - Math.PI / 2, b.y); car.v = 0; return; } } });
+await ev(() => { window.__tc.noRender = false; }); await wait(3000);
+console.log('task panel:', await ev(() => document.getElementById('task') ? document.getElementById('task').innerText.replace(/\n/g, ' | ') : ''));
+await page.screenshot({ path: 'shots/lot_0_marks.png' });
+await ev(() => { window.__tc.G.cam = 'chase'; }); await wait(1500); await page.screenshot({ path: 'shots/lot_1_chase.png' }); await ev(() => { window.__tc.G.cam = 'cockpit'; });
+await ev(() => { window.__tc.noRender = true; });
+await ev(() => { const { car } = window.__tc, b = window.__tc._lot; car.place(b.x, b.z, b.psi, b.y); car.v = 0; }); await wait(1200);
+const clock0 = await ev(() => window.__tc.G.clock);
+await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout: 60000 }); await wait(800);
+console.log('parked:', JSON.stringify(await ev(() => ({ ...window.__tc.G.parked, bay: undefined, toast: document.getElementById('toast').textContent }))), 'at', Math.floor(clock0 / 60) + ':' + String(Math.floor(clock0 % 60)).padStart(2, '0'));
+await ev(() => { const { P, G } = window.__tc; P.x = G.cfg.work.x + 1; P.z = G.cfg.work.z; });
+await page.waitForFunction(() => window.__tc.G.state === 'work' || window.__tc.G.leg === 'pm', null, { timeout: 90000 });
+console.log('clock-in: day.parking =', await ev(() => window.__tc.econ.day.parking), '| work text:', await ev(() => document.getElementById('workText').textContent));
+await page.waitForFunction(() => window.__tc.G.state === 'walk' && window.__tc.G.leg === 'pm', null, { timeout: 90000 }); await wait(1500);
+// 下班：走回停車場的車 → 開回家 → 停家附近的停車場（過夜）
+await ev(() => { const { P, car } = window.__tc; P.x = car.x - Math.cos(car.psi) * 2; P.z = car.z + Math.sin(car.psi) * 2; }); await wait(600); await page.keyboard.press('KeyE');
+await page.waitForFunction(() => window.__tc.G.state === 'drive', null, { timeout: 60000 }); await wait(1000);
+await ev(() => { const { car, G } = window.__tc; car.place(G.cfg.home.x, G.cfg.home.z, 0, 0); car.v = 0; });
+await page.waitForFunction(() => { const { parking, car } = window.__tc; return parking.readyAround(car.x, car.z, 300); }, null, { timeout: 200000 }); await wait(2500);
+const hlot = await pickLot('home');
+console.log('nearest free lot bay to home:', JSON.stringify(hlot));
+if (hlot) {
+  await ev(() => { const { car } = window.__tc, b = window.__tc._lot; car.place(b.x, b.z, b.psi, b.y); car.v = 0; }); await wait(1200);
+  console.log('home lot prompt:', await ev(() => document.getElementById('prompt').innerText), '| clock', await ev(() => Math.round(window.__tc.G.clock)));
+  await page.keyboard.press('KeyE'); await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout: 60000 }); await wait(600);
+  await ev(() => { const { P, G } = window.__tc; P.x = G.cfg.home.x + 1; P.z = G.cfg.home.z; });
+  await page.waitForFunction(() => window.__tc.G.state === 'summary', null, { timeout: 60000 });
+  console.log('summary:', await ev(() => document.getElementById('sumStats').innerText.replace(/\n/g, ' ')));
+  // 隔天：車子在停車場出發
+  await ev(() => { const G = window.__tc.G; document.getElementById('summary').hidden = true; G.dayN++; window.__tc.startDayForTest(); });
+  await page.waitForFunction(() => window.__tc.G.state === 'room', null, { timeout: 200000 });
+  console.log('next morning car→lot bay', await ev(() => { const { car } = window.__tc, b = window.__tc._lot; return Math.round(Math.hypot(car.x - b.x, car.z - b.z) * 10) / 10; }), 'm');
+  await ev(() => { const { P } = window.__tc; P.x = 1.2; P.z = -2.0; }); await wait(400); await page.keyboard.press('KeyE');
+  await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout: 60000 }); await wait(1000);
+  console.log('toast leaving home:', await ev(() => document.getElementById('toast').textContent));
+}
+console.log(errs.slice(0, 6).join('\n') || 'no page errors');
+await browser.close();

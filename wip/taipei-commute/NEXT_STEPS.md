@@ -1,6 +1,7 @@
 # 台北上班路：進度（2026-10-18 深夜更新）
 
 ## 已完成
+- 2026-10-18 23 點（線上 main a8093f2、artifact v11）：停車場開放計時收費（economy.js LOT_RATE：蛋黃區每小時 60、內湖 50、其他 40，遊戲設定；真實臺北市公有停車場 10～60 元）。身上的錢夠付才能停（一開始沒錢只能停路邊），可以自己選的停車場格子用藍色標示；早上算到 18:00、晚上過夜算到隔天 7:30（main.js lotInfo、canPark）。示範的自動停車仍只用路邊格／電動車格（bayAllowed）。早上公司 110 m 內路邊格全滿的設定沒改。測試 tests/lot_test.mjs、tests/park_probe.mjs。
 - 2026-10-18 深夜（線上 main 80ae632、artifact v10）：全螢幕地圖改成 web/js/citymap.js（滾輪／兩指／＋－縮放、拖曳、「我」「全市」；路名依道路等級和縮放顯示，資料 web/data/maplabels.json 由 tools/build_maplabels.py 產生；放大後顯示停車場 P；標出家、公司、你的車停在這裡、地下停車位）。商店新增「住處地下停車位」（economy.js GARAGE：大安等蛋黃區 280 萬、內湖 220 萬、其他 160 萬，遊戲設定；不算換住址的次數）：早上車子在家門口的車位（main.js garageSpot、G.atGarage），晚上開到紫色 P 7 公尺內就算停好。測試 tests/map_test.mjs。
 - 2026-10-18 晚：駕駛座以擋風玻璃為主（不畫方向盤、儀表台／車門／引擎蓋放低、A 柱細、座椅預設 tilt 5、seatKey taipei-seat3-；量測 tests/cockpit_frame.mjs：電腦 80～82%、手機直 86～91%、手機橫 83～85%）；手機直拿中控螢幕改貼在畫面上（#navMini）；手機不顯示電腦按鍵（main.js touchify、.k-desk/.k-touch、input.coarse）；手機「橫向玩」（全螢幕＋鎖方向，不行就 html.rot90 轉 90 度，排版改用 @container app）。
 - 2026-10-18：每買一樣新系統或車子，可以換一次住址或工作（econ.moves；結算畫面的「換住址或工作」→ #pgMove；搬家只列離公司 1.8～4.8 km 的住址，隔天生效、存款保留）。
