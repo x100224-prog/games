@@ -679,6 +679,13 @@ function heroPlay(name,fade=.3){const a=HERO.act[name];if(!a||heroAnim===a)retur
 const _q=new T.Quaternion(),_e=new T.Euler();
 function boneOff(n,x,y,z){const b=HERO.bones[n];if(!b)return;_e.set(x,y,z,'XYZ');b.quaternion.copy(HERO.rest[n]).multiply(_q.setFromEuler(_e));}
 /* 癱坐姿勢（直接轉骨頭）；lookUp=抬頭給特寫，wipe=右手拿衛生紙擦鼻子的程度 0～1 */
+/* 站著被蟒蛇纏住：雙手被壓在身體兩側、腿併攏，頭往後仰、喘不過氣時一陣陣掙扎 */
+function poseBound(t,j){
+  if(!HERO.ok)return;BONES.forEach(n=>boneOff(n,0,0,0));
+  const st=Math.sin(t*15)*.07*j,sway=.04*Math.sin(t*1.3);
+  boneOff('Hips',0,sway,0);boneOff('Chest',-.08,0,0);boneOff('Neck',-.22,0,0);boneOff('Head',-.38+st,.15*Math.sin(t*1.9),st*.6);
+  boneOff('UpperArm.L',0,0,-.06+st*.4);boneOff('UpperArm.R',0,0,.06-st*.4);boneOff('LowerArm.L',0,0,-.1);boneOff('LowerArm.R',0,0,.1);
+  boneOff('UpperLeg.L',0,0,.04);boneOff('UpperLeg.R',0,0,-.04);}
 function poseSit(t,lookUp,wipe){
   if(!HERO.ok)return;
   boneOff('Hips',0,0,0);
@@ -760,6 +767,28 @@ const handTissue=mesh(TGEOS[0],tissueM,0,0,0,.5);handTissue.visible=false;scene.
 const dripM=phys({color:0xc9d98a,roughness:.04,clearcoat:1,transparent:true,opacity:.72,envMapIntensity:1.6,emissive:0x2c3810});
 const faceLight=new T.PointLight(0xffe2c0,0,1.6,2);scene.add(faceLight);
 const drips=[0,1].map(()=>{const d=mesh(new T.SphereGeometry(.0085,14,10),dripM,0,0,0,.95);d.visible=false;scene.add(d);return d;});
+/* 從鼻子滴到地上的那一大滴鼻涕、地上那一灘（之後鼓起來變成鼻涕蟲）、鼻涕蟲爬過留下的黏液 */
+const ND=12,NP=40,NM=44;
+const dropMs=[...Array(ND)].map(()=>{const d=mesh(new T.SphereGeometry(.016,14,10),dripM,0,0,0,.95);d.visible=false;d.userData={on:false};scene.add(d);return d;});
+const puddleM=phys({color:0xc9d98a,roughness:.03,clearcoat:1,transparent:true,opacity:.82,envMapIntensity:1.6,emissive:0x2c3810});
+const puddleGeo=new T.SphereGeometry(1,20,10,0,Math.PI*2,0,Math.PI/2);
+const puddles=[...Array(NP)].map(()=>{const m=mesh(puddleGeo,puddleM,0,0,0,.9);m.visible=false;m.userData={t:0,born:false};scene.add(m);return m;});
+/* 小鼻涕蟲：每一滴鼻涕落地後變成一隻，大約 14 公分長；黃綠色帶深色斑點，跟白色衛生紙分得出來 */
+function slugTexS(){if(slugTexS.t)return slugTexS.t;return slugTexS.t=ctex(128,128,x=>{x.fillStyle='#9ab040';x.fillRect(0,0,128,128);
+  for(let i=0;i<140;i++){x.fillStyle=`rgba(${rnd(30,60)|0},${rnd(45,70)|0},${rnd(5,20)|0},${rnd(.3,.7)})`;x.beginPath();x.ellipse(rnd(0,128),rnd(0,128),rnd(1.5,5),rnd(1,2.5),rnd(0,3),0,7);x.fill();}},[1,2]);}
+const miniM=phys({map:slugTexS(),color:0x86a032,roughness:.12,clearcoat:1,clearcoatRoughness:.08,emissive:0x0e1604,envMapIntensity:1.1});
+const miniMantleM=phys({map:slugTexS(),color:0x6c8424,roughness:.15,clearcoat:1,emissive:0x0a1004});
+const miniEyeM=std({color:0x15180c,roughness:.3});
+const miniBodyG=new T.SphereGeometry(1,18,10),miniTentG=new T.CylinderGeometry(.0013,.0019,1,6),miniTipG=new T.SphereGeometry(.0032,8,6);
+function makeMini(){const g=new T.Group();
+  const body=new T.Mesh(miniBodyG,miniM);body.scale.set(.015,.0095,.046);body.position.y=.0095;g.add(body);
+  const mant=new T.Mesh(miniBodyG,miniMantleM);mant.scale.set(.0125,.008,.017);mant.position.set(0,.016,.006);g.add(mant);
+  const tents=[-1,1].map(sd=>{const tg=new T.Group();tg.position.set(sd*.005,.013,.04);tg.rotation.set(-1.0,0,sd*.3);g.add(tg);
+    const st=new T.Mesh(miniTentG,miniM);st.scale.y=.018;st.position.y=.009;tg.add(st);const tip=new T.Mesh(miniTipG,miniEyeM);tip.position.y=.018;tg.add(tip);return tg;});
+  g.visible=false;g.userData={body,tents,th:0,sp:0,ph:rnd(0,6),age:0,turn:0};g.userData.heat=.5;scene.add(g);return g;}
+const minis=[...Array(NM)].map(makeMini);
+const SN={next:0,cnt:0,mi:0};
+
 
 /* =========================================================
    8. 揚塵粒子
@@ -991,6 +1020,23 @@ const SFX={
     const ns=ctx.createBufferSource();ns.buffer=A.noise;const nf=ctx.createBiquadFilter();nf.type='bandpass';nf.frequency.value=1500;nf.Q.value=.8;const ng=ctx.createGain();ng.gain.value=.25;ns.connect(nf);nf.connect(ng);ng.connect(out);
     out.connect(A.master);o.start(t);lfo.start(t);ns.start(t);[o,lfo,ns].forEach(n=>n.stop(t+2));},
   // 變成鼻涕蟲：濕黏的「咕啾」聲＋低沉往下滑的「咕嚕」＋大量濕劈啪
+  // 黏稠鼻涕被拉長、快斷掉的「滋──」：細細的濕噪音，音高往上拉
+  // 一股濃煙從鍋子竄起來：低沉漸強的「呼──」
+  smokeRise(){nb({type:'lowpass',f:220,f2:900,a:1.4,d:1.6,v:.5});nb({type:'bandpass',f:500,f2:1400,q:.8,a:1.2,d:1.4,v:.18,at:.3});tn({type:'sawtooth',f:55,f2:42,a:1.2,d:2,v:.08,filt:300});},
+  // 蟒蛇勒緊：低低的擠壓悶響＋衣服摩擦
+  squeeze(){tn({f:70,f2:48,a:.08,d:.7,v:.45,filt:260});nb({type:'bandpass',f:380,q:2,a:.1,d:.5,v:.22});crackle(.05,.5,10,.12,800,2600);},
+  // 喘不過氣：喉嚨被勒住時吸氣的尖細哮鳴＋聲門卡住的「呃、呃」
+  choke(){nb({type:'bandpass',f:1250,f2:1750,q:9,a:.12,d:.55,v:.32});nb({type:'bandpass',f:2600,q:6,a:.1,d:.45,v:.12});
+    for(let i=0;i<3;i++)tn({type:'sawtooth',f:rnd(95,120),f2:rnd(80,95),a:.01,d:.09,v:.22,filt:620,ft:'bandpass',q:4,at:.62+i*.16});},
+  // 一滴鼻涕落在木地板：短而濕的「啪」
+  drip(){tn({f:rnd(260,340),f2:rnd(110,150),a:.001,d:.06,v:.18,filt:900});nb({type:'bandpass',f:rnd(1400,2200),q:2,a:.001,d:.05,v:.14});},
+  // 小蟲冒出來：細小的濕「啵」
+  blip(){tn({f:rnd(500,700),f2:rnd(900,1300),a:.004,d:.07,v:.09});crackle(0,.08,4,.07,1500,4000);},
+  stretch(){nb({type:'bandpass',f:700,f2:2200,q:5,a:.08,d:.45,v:.22});crackle(.05,.4,9,.1,1500,4200);},
+  // 一大坨鼻涕摔在木地板上：短促低頻「啪」＋濕濕的散開聲
+  splat(){tn({f:170,f2:55,a:.002,d:.14,v:.55,filt:700});nb({type:'lowpass',f:900,a:.002,d:.12,v:.5});nb({type:'bandpass',f:1600,q:1.2,a:.003,d:.2,v:.22,at:.01});crackle(.01,.22,16,.22,900,3800);},
+  // 地上那灘鼻涕在鼓動：低低的冒泡咕嚕
+  ooze(){for(let i=0;i<5;i++)nb({type:'bandpass',f:rnd(180,320),f2:rnd(380,620),q:7,a:.03,d:rnd(.12,.22),v:.32,at:i*.17});crackle(0,.9,14,.12,500,2200);},
   squelch(){if(!A.ctx)return;for(let i=0;i<4;i++){nb({type:'bandpass',f:rnd(250,450),f2:rnd(900,1500),q:3,a:.02,d:rnd(.18,.3),v:.5,at:i*.22});}
     tn({f:140,f2:45,a:.02,d:1.2,v:.6});crackle(0,1.0,40,.25,500,3000);nb({type:'lowpass',f:300,a:.05,d:.8,v:.4,at:.1});},
   // 鼻涕蟲立起來：濕濕的嘶聲
@@ -1635,6 +1681,73 @@ function animSlug(t){
   S.drops.forEach(d=>{const ph=(t*.6+d.userData.ph)%1,r=slugBend(SL.H*.4,d.userData.z,S.rear);d.position.set(d.userData.x,r[0]-ph*Math.max(.05,r[0]),r[1]);d.scale.set(1,1+ph*2,1);});}
 
 const LUNG=makeLung(),VIRUS=makeVirus();scene.add(LUNG.g,VIRUS.g);
+
+/* =========================================================
+   濃煙大蟒蛇（廚房）
+   身體沿著「蛇頭走過的路徑」排列：蛇頭繞著主角轉幾圈，身體就自然一圈圈纏上去
+   ========================================================= */
+const smokeTex=ctex(256,256,x=>{x.fillStyle='#d8d6d2';x.fillRect(0,0,256,256);
+  for(let i=0;i<420;i++){const v=rnd(140,250)|0;x.fillStyle=`rgba(${v},${v-4},${v-8},${rnd(.08,.3)})`;x.beginPath();x.ellipse(rnd(0,256),rnd(0,256),rnd(6,30),rnd(3,12),rnd(0,3),0,7);x.fill();}
+  // 隱約的鱗片紋
+  x.strokeStyle='rgba(90,88,84,.18)';x.lineWidth=2;for(let r=0;r<12;r++)for(let c=0;c<12;c++){const cx=c*22+(r%2)*11,cy=r*22;x.beginPath();x.arc(cx,cy,12,.2,Math.PI-.2);x.stroke();}},[4,1]);
+const puffTex=ctex(64,64,(x,w,h)=>{const g=x.createRadialGradient(32,32,2,32,32,31);g.addColorStop(0,'rgba(255,255,255,.85)');g.addColorStop(.5,'rgba(255,255,255,.35)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,64,64);});
+const PY={N:320,R:14,L:5,r:.078};
+function makePython(){
+  const g=new T.Group();g.visible=false;scene.add(g);
+  const N=PY.N,R=PY.R,pos=new Float32Array((N+1)*(R+1)*3),uv=new Float32Array((N+1)*(R+1)*2),idx=[];
+  for(let i=0;i<=N;i++)for(let j=0;j<=R;j++){const k=i*(R+1)+j;uv[k*2]=j/R;uv[k*2+1]=i/N*30;
+    if(i<N&&j<R){const a=k,b=k+R+1;idx.push(a,b,a+1,b,b+1,a+1);}}
+  const geo=new T.BufferGeometry();geo.setAttribute('position',new T.BufferAttribute(pos,3));geo.setAttribute('uv',new T.BufferAttribute(uv,2));geo.setIndex(idx);
+  const mat=std({map:smokeTex,color:0xd2d0cc,roughness:1,transparent:true,opacity:.86,emissive:0x2e2d2b,side:T.DoubleSide});
+  const body=new T.Mesh(geo,mat);body.frustumCulled=false;body.userData.heat=.2;g.add(body);
+  const head=new T.Group();g.add(head);
+  const hm=std({map:smokeTex,color:0xc8c5c0,roughness:1,transparent:true,opacity:.95,emissive:0x2a2927});
+  const skull=new T.Mesh(new T.SphereGeometry(1,24,16),hm);skull.scale.set(.07,.05,.12);skull.position.z=.06;head.add(skull);
+  const jaw=new T.Mesh(new T.SphereGeometry(1,20,12),hm);jaw.scale.set(.058,.027,.105);jaw.position.set(0,-.03,.05);head.add(jaw);
+  const em=new T.MeshBasicMaterial({color:0xff7a28});
+  const eyes=[-1,1].map(sd=>{const e=new T.Mesh(new T.SphereGeometry(.014,12,8),em);e.scale.set(1,.7,1.2);e.position.set(sd*.062,.022,.12);head.add(e);return e;});
+  const tm=std({color:0x4a1010,roughness:.6});const tongue=new T.Group();tongue.position.set(0,-.015,.2);head.add(tongue);
+  const tl=new T.Mesh(new T.CylinderGeometry(.004,.005,.09,6),tm);tl.rotation.x=Math.PI/2;tl.position.z=.045;tongue.add(tl);
+  [-1,1].forEach(sd=>{const f=new T.Mesh(new T.CylinderGeometry(.002,.004,.04,5),tm);f.rotation.set(Math.PI/2,0,sd*.5);f.position.set(sd*.008,0,.1);tongue.add(f);});
+  const glow=new T.PointLight(0xff6a20,0,1.2,2);glow.position.set(0,.03,.14);head.add(glow);
+  // 煙霧：從身體一直冒出來的煙團
+  const puffs=[];for(let i=0;i<170;i++){const m=new T.Sprite(new T.SpriteMaterial({map:puffTex,color:0x55524e,transparent:true,depthWrite:false,opacity:0,fog:false}));m.visible=false;m.userData={life:0,max:1,vx:0,vy:0,vz:0,s0:.1};scene.add(m);puffs.push(m);}
+  return {g,geo,pos,mat,hm,body,head,eyes,tongue,glow,puffs,trail:[],op:0,pp:0};}
+const PYT=makePython();
+function pyPuff(x,y,z,sz,dark){const P=PYT.puffs[PYT.pp=(PYT.pp+1)%PYT.puffs.length],u=P.userData;
+  P.visible=true;P.position.set(x,y,z);u.life=0;u.max=rnd(1.0,1.9);u.vx=rnd(-.08,.08);u.vy=dark?rnd(.35,.6):rnd(.08,.2);u.vz=rnd(-.08,.08);u.s0=sz;u.o=dark?1:.8;P.material.color.setHex(dark?(Math.random()<.5?0x34322f:0x4a4744):0x5e5b57);}
+function pyPuffs(dt){PYT.puffs.forEach(P=>{if(!P.visible)return;const u=P.userData;u.life+=dt;const k=u.life/u.max;if(k>=1){P.visible=false;return;}
+  P.position.x+=u.vx*dt;P.position.y+=u.vy*dt;P.position.z+=u.vz*dt;P.scale.setScalar(u.s0*(1+k*2.2));P.material.opacity=Math.min(1,u.o*Math.min(1,k*5)*(1-k*k)*1.25)*PYT.op;});}
+function pyHide(){PYT.eyes.forEach(e=>e.visible=true);PYT.g.visible=false;PYT.glow.intensity=0;PYT.trail.length=0;PYT.puffs.forEach(P=>P.visible=false);}
+/* 蛇頭往前走：記錄路徑點 */
+function pyPush(p){const tr=PYT.trail,l=tr[tr.length-1];if(!l||l.distanceToSquared(p)>.00008){tr.push(p.clone());if(tr.length>700)tr.shift();}}
+const _pa=new T.Vector3(),_pb=new T.Vector3(),_pn=new T.Vector3(),_pbn=new T.Vector3(),_pt=new T.Vector3(),_up=new T.Vector3(0,1,0);
+const PSP=[...Array(PY.N+1)].map(()=>new T.Vector3());
+function pyBuild(t){const tr=PYT.trail;if(tr.length<2)return;
+  // 沿路徑從蛇頭往回量長度，取出每一圈的中心點
+  let seg=tr.length-1,acc=0;
+  for(let i=0;i<=PY.N;i++){const want=i/PY.N*PY.L;
+    while(seg>0){const d=tr[seg].distanceTo(tr[seg-1]);if(acc+d>=want){PSP[i].copy(tr[seg]).lerp(tr[seg-1],(want-acc)/d);break;}acc+=d;seg--;}
+    if(seg<=0)PSP[i].copy(tr[0]);}
+  const a=PYT.pos,R=PY.R;_pn.set(1,0,0);
+  for(let i=0;i<=PY.N;i++){const u=i/PY.N;
+    _pt.copy(PSP[Math.max(0,i-1)]).sub(PSP[Math.min(PY.N,i+1)]);if(_pt.lengthSq()<1e-10)_pt.set(0,1,0);_pt.normalize();
+    // 平行移動的法向量，避免身體扭轉
+    _pn.addScaledVector(_pt,-_pn.dot(_pt));if(_pn.lengthSq()<1e-6){if(Math.abs(_pt.y)<.9)_pn.copy(_up);else _pn.set(1,0,0);_pn.addScaledVector(_pt,-_pn.dot(_pt));}_pn.normalize();
+    _pbn.crossVectors(_pt,_pn);
+    let r=PY.r*(.62+.38*ease(clamp(u/.05,0,1)))*(1-.9*ease(clamp((u-.72)/.28,0,1)));
+    r*=1+.1*Math.sin(u*46-t*5);
+    for(let j=0;j<=R;j++){const an=j/R*Math.PI*2,w=1+.08*Math.sin(j*2.7+t*3.3+u*21),k=(i*(R+1)+j)*3;
+      const cx=Math.cos(an)*r*w,sy=Math.sin(an)*r*w*.86;
+      a[k]=PSP[i].x+_pn.x*cx+_pbn.x*sy;a[k+1]=PSP[i].y+_pn.y*cx+_pbn.y*sy;a[k+2]=PSP[i].z+_pn.z*cx+_pbn.z*sy;}}
+  PYT.geo.attributes.position.needsUpdate=true;PYT.geo.computeVertexNormals();PYT.geo.computeBoundingSphere();
+  // 蛇頭：放在路徑最前端，朝前進方向
+  PYT.head.position.copy(PSP[0]);_pa.copy(PSP[0]).sub(PSP[3]);if(_pa.lengthSq()>1e-8){_pa.normalize().add(PSP[0]);PYT.head.lookAt(_pa);}
+  PYT.tongue.scale.z=Math.max(0,Math.sin(t*9))**3*1.2+.01;PYT.tongue.rotation.y=.25*Math.sin(t*31);
+  PYT.mat.opacity=.84*PYT.op;PYT.hm.opacity=.95*PYT.op;PYT.mat.map.offset.y=-t*.08;}
+/* 讓身體沿著一條指定路線（從尾巴到頭）排好，用在坐下來被纏住的那段 */
+function pySetPath(pts){PYT.trail.length=0;for(let i=0;i<pts.length-1;i++){const d=pts[i].distanceTo(pts[i+1]),n=Math.max(1,Math.ceil(d/.012));
+  for(let k=0;k<n;k++)PYT.trail.push(pts[i].clone().lerp(pts[i+1],k/n));}PYT.trail.push(pts[pts.length-1].clone());}
 function animLung(t,sp){const b=1+.07*Math.sin(t*sp*.5);LUNG.lobes.forEach(L=>L.scale.set(b,b,b));LUNG.tents.forEach(T_=>T_.segs.forEach((s,k)=>{s.rotation.x=Math.sin(t*sp*.4+T_.ph+k*.7)*.35;s.rotation.y=Math.cos(t*sp*.3+T_.ph+k)*.3;}));}
 function animVirus(t,sp){VIRUS.g.rotation.y+=.01*sp;VIRUS.spikes.forEach((s,i)=>{const k=1+.25*Math.sin(t*sp*.6+i);s.scale.set(1,k,1);});}
 
@@ -1676,11 +1789,11 @@ function updateBelly(){
    ========================================================= */
 const STAGE_INFO={
   bed:{clock:7*60+12,day:'第一天・早晨',fail:'鼻涕流個不停……你變成了一隻跟人一樣大的鼻涕蟲。',retry:'再醒來一次'},
-  kitchen:{clock:7*60+30,day:'第一天・早餐',fail:'你坐在廚房地上咳個不停，油煙還沒散。',retry:'重新挑戰：做早餐'},
+  kitchen:{clock:7*60+30,day:'第一天・早餐',fail:'鍋子冒出的油煙變成一條蛇，把你整個人纏住，喘不過氣。',retry:'重新挑戰：做早餐'},
   temple:{clock:8*60+5,day:'第一天・廟宇',fail:'你胖到走不動，脂肪細胞怪物壓在你身旁，香煙還在繚繞。',retry:'重新挑戰：香油錢'},
   school:{clock:8*60+40,day:'第一天・學校',fail:'快篩兩條線。你確診了。',retry:'重新挑戰：數學課'}};
 let REC=[],fadeV=0,lastFail=false;
-function hideAllProps(){HERO.root.visible=false;[MITE.g,LUNG.g,VIRUS.g,FAT.g,SLUG.g,SLUG.trail,swab,rtest,handTissue].forEach(o=>o.visible=false);drips.forEach(d=>d.visible=false);faceLight.intensity=0;
+function hideAllProps(){pyHide();snotHide();HERO.root.visible=false;[MITE.g,LUNG.g,VIRUS.g,FAT.g,SLUG.g,SLUG.trail,swab,rtest,handTissue].forEach(o=>o.visible=false);drips.forEach(d=>d.visible=false);faceLight.intensity=0;
   while(tissues.children.length)tissues.remove(tissues.children[0]);setFat(0);if(HERO.ok){HERO.mixer.stopAllAction();heroAnim=null;BONES.forEach(n=>{if(HERO.bones[n])HERO.bones[n].quaternion.copy(HERO.rest[n]);});}}
 function showStage(n){room.visible=n==='bed';BED_LIGHTS.forEach(l=>l.visible=n==='bed');KIT.visible=n==='kitchen';TEM.visible=n==='temple';SCH.visible=n==='school';}
 function commonReset(n){
@@ -2013,7 +2126,7 @@ const SIT={x:-.25,z:-1.0};
 const H3={base:new T.Vector3(),look:new T.Vector3()};
 const FAILCFG={
   bed:{mon:'mite',focus:[-1.25,-1.4],sit:[-.25,-1.0,Math.PI/2],repCam:[.95,1.8,.25,-1.05,.45,-1.4]},
-  kitchen:{mon:'lung',focus:[KX-.15,-1.5],sit:[KX+.75,.1,-Math.PI/2],repCam:[KX+1.35,1.95,1.1,KX-.15,.95,-1.4]},
+  kitchen:{mon:'smoke',focus:[KX-.15,-1.5],sit:[KX+.75,.1,-Math.PI/2],repCam:[KX+1.35,1.95,1.1,KX-.15,.95,-1.4]},
   temple:{mon:'fat',focus:[TX,-.5],sit:null,repCam:[TX+.8,3.7,6.2,TX,.5,-.3]},
   school:{mon:'virus',focus:[RX,.5],sit:[RX-1.2,-2.4,0],repCam:[RX+3.6,2.6,3.2,RX-.2,.9,-.8]}};
 function monObj(){const F=FAILCFG[stage];return F.mon==='mite'?MITE.g:F.mon==='lung'?LUNG.g:F.mon==='virus'?VIRUS.g:F.mon==='fat'?FAT.g:null;}
@@ -2030,6 +2143,7 @@ function startHorror(){
   if(HERO.ok){HERO.mixer.stopAllAction();heroAnim=null;if(stage==='temple'){heroPlay('Walk',0);heroAnim.timeScale=.3;setFat(1);}else heroPlay('Idle',0);}
   const bx=F.focus[0],bz=F.focus[1],dx=player.x-bx,dz=player.z-bz,dl=Math.hypot(dx,dz)||1;
   H3.base.set(player.x+dx/dl*1.7-dz/dl*.7,1.8,player.z+dz/dl*1.7+dx/dl*.7);
+  if(stage==='kitchen')H3.base.set(player.x+dx/dl*1.2+dz/dl*1.3,1.7,player.z+dz/dl*1.2-dx/dl*1.3);   // 廚房：鏡頭偏到旁邊，看得到鍋子冒煙
   H3.base.x=clamp(H3.base.x,BOUNDS[0]+.15,BOUNDS[1]-.15);H3.base.z=clamp(H3.base.z,BOUNDS[2]+.15,BOUNDS[3]-.15);
   H3.look.set((player.x+bx)/2,.85,(player.z+bz)/2);}
 function lookAtSmooth(target,k){const m=new T.Matrix4().lookAt(camera.position,target,camera.up);const qt=new T.Quaternion().setFromRotationMatrix(m);camera.quaternion.slerp(qt,k);}
@@ -2039,6 +2153,83 @@ function placeDrips(t){if(!HERO.ok||!HERO.bones.Head)return;
     tmpV.copy(HERO.nose).add(new T.Vector3((i?.016:-.016)/HERO.S,0,0));HERO.bones.Head.localToWorld(tmpV);
     const G=1+clamp((t-11.9)/1.3,0,1)*2.6;d.position.copy(tmpV);d.position.y-=(ph*.045+.014)*G;d.scale.set(G*.8+.2,(1.5+ph*3.6)*G,.85*G);});}
 let sitPos=new T.Vector3(),sitRot=0,coughJ=0,coughNext=0;
+/* ---- 廚房：濃煙→大蟒蛇纏住主角 ---- */
+const PYA={a0:0,c:new T.Vector3(),p1:new T.Vector3(),m:new T.Vector3(),c0:new T.Vector3()};
+function heroBone(n,out,fb){if(HERO.ok&&HERO.bones[n])HERO.bones[n].getWorldPosition(out);else out.copy(fb);return out;}
+function pyShed(dt,rate){let n=rate*dt;while(n>0){if(Math.random()<n){const i=(Math.random()*PY.N*.85)|0;pyPuff(PSP[i].x+rnd(-.05,.05),PSP[i].y,PSP[i].z+rnd(-.05,.05),rnd(.14,.26),false);}n-=1;}}
+function pyPhaseA(t,dt){
+  if(!PYT.g.visible){pyHide();PYT.g.visible=true;PYT.op=0;PY.L=6.5;PYT.trail.push(new T.Vector3(STOVE.x,STOVE.y-.02,STOVE.z));SFX.smokeRise();}
+  PYT.op=1;PYT.mat.opacity=0;const form=clamp((t-1.0)/1.2,0,1);   // 先只有鍋子冒煙，1 秒後煙裡慢慢凝成蛇身
+  for(let n=0;n<(t<1.6?3:1);n++)if(t<3.2&&Math.random()<dt*34)pyPuff(STOVE.x+rnd(-.12,.12),STOVE.y+rnd(0,.4),STOVE.z+rnd(-.12,.12),rnd(.4,.65),true);   // 鍋子冒出的濃煙
+  heroBone('Chest',PYA.c,tmpV2.set(HERO.root.position.x,1.3,HERO.root.position.z));
+  const hp=tmpV;
+  if(t<.5)hp.set(STOVE.x,STOVE.y+.02,STOVE.z);
+  else if(t<2.3){const p=(t-.5)/1.8,e=ease(p);hp.set(STOVE.x+.13*Math.sin(p*9)*e,STOVE.y+.02+1.05*e,STOVE.z+.09*Math.cos(p*7)*e);PYA.p1.copy(hp);}
+  else if(t<3.3){if(t-dt<2.3){PYA.a0=Math.atan2(PYA.p1.z-PYA.c.z,PYA.p1.x-PYA.c.x);}
+    const p=ease((t-2.3)/1),q=1-p;PYA.c0.set(PYA.c.x+Math.cos(PYA.a0)*.24,PYA.c.y+.18,PYA.c.z+Math.sin(PYA.a0)*.24);
+    PYA.m.copy(PYA.p1).lerp(PYA.c0,.5);PYA.m.y+=.45;
+    hp.set(q*q*PYA.p1.x+2*q*p*PYA.m.x+p*p*PYA.c0.x,q*q*PYA.p1.y+2*q*p*PYA.m.y+p*p*PYA.c0.y,q*q*PYA.p1.z+2*q*p*PYA.m.z+p*p*PYA.c0.z);}
+  else{const p=clamp((t-3.3)/1.4,0,1),a=PYA.a0+p*5*Math.PI*2,y=lerp(PYA.c.y+.18,.1,p);   // 從胸口一圈圈往下纏到腳踝
+    const rr=bodyRad(y,PYA.c.y);hp.set(PYA.c.x+Math.cos(a)*rr,y,PYA.c.z+Math.sin(a)*rr);}
+  pyPush(hp);pyBuild(t);PYT.mat.opacity=.86*form;PYT.hm.opacity=.95*form;PYT.eyes.forEach(e=>e.visible=form>.6);pyShed(dt,40*form);pyPuffs(dt);PYT.glow.intensity=form*.7;
+  if(t-dt<3.3&&t>=3.3){SFX.hiss();if(HERO.ok)heroPlay('HitRecieve',.15);}
+  if(t-dt<4.1&&t>=4.1)SFX.squeeze();}
+/* 纏繞半徑：腿併攏比較細、腰臀粗一點、胸口連手臂一起包住 */
+function bodyRad(y,chestY){const k=y/Math.max(.8,chestY);return k<.38?.13:k<.62?lerp(.13,.19,(k-.38)/.24):k<.8?.19:.23;}
+const PB=[...Array(220)].map(()=>new T.Vector3()),_ab=new T.Vector3(),_ch=new T.Vector3(),_hd=new T.Vector3();
+function pyPhaseB(t,dt,fx,fz,first){
+  if(first){pyHide();PYT.g.visible=true;PYT.op=1;PY.L=13.5;}
+  heroBone('Chest',_ch,tmpV2.set(sitPos.x,1.3,sitPos.z));heroBone('Head',_hd,tmpV2.set(sitPos.x,1.6,sitPos.z));heroBone('Hips',_ab,tmpV2.set(sitPos.x,.95,sitPos.z));
+  const sq=Math.max(0,Math.sin(t*2.4))**2,cx=_ab.x,cz=_ab.z,sx=fz,sz=-fx;
+  const y0=.07,y1=_ch.y+.16,turns=9,n=200;let k=0;
+  const P=(x,y,z)=>PB[k++].set(x,y,z);
+  P(cx-fx*1.1+sx*.55,.035,cz-fz*1.1+sz*.55);P(cx-fx*.6+sx*.2,.04,cz-fz*.6+sz*.2);P(cx-fx*.25,.05,cz-fz*.25);
+  for(let i=0;i<=n;i++){const u=i/n,a=u*turns*Math.PI*2,y=lerp(y0,y1,u),r=bodyRad(y,_ch.y)*(1-.12*sq)*(1+.03*Math.sin(u*40+t*4));
+    P(cx-fx*Math.cos(a)*r+sx*Math.sin(a)*r,y,cz-fz*Math.cos(a)*r+sz*Math.sin(a)*r);}
+  const sw=.04*Math.sin(t*1.7),bob=.03*Math.sin(t*2.3);
+  P(_hd.x+fx*.05+sx*(.32+sw),_hd.y-.14+bob,_hd.z+fz*.05+sz*(.32+sw));
+  P(_hd.x+fx*.26+sx*(.36+sw),_hd.y-.02+bob,_hd.z+fz*.26+sz*(.36+sw));
+  P(_hd.x+fx*.2+sx*(.26+sw),_hd.y+.02+bob,_hd.z+fz*.2+sz*(.26+sw));
+  pySetPath(PB.slice(0,k));pyBuild(t);pyShed(dt,34);pyPuffs(dt);PYT.glow.intensity=.8;
+  return sq;}
+/* 鼻涕一滴接一滴從鼻尖滴下，落地摔成一小灘，過一下子鼓起來變成小鼻涕蟲，在主角身邊爬來爬去 */
+function snotHide(){dropMs.forEach(d=>{d.visible=false;d.userData.on=false;});puddles.forEach(m=>m.visible=false);minis.forEach(m=>m.visible=false);SN.cnt=0;SN.mi=0;}
+function snotDrop(fx,fz){const d=dropMs.find(o=>!o.userData.on);if(!d)return;
+  if(HERO.ok&&HERO.bones.Head)noseWorld(tmpV);else tmpV.set(sitPos.x+fx*.2,.8,sitPos.z+fz*.2);
+  const u=d.userData,sp=rnd(.2,.95),sd=rnd(-.6,.6);u.on=true;u.vy=0;u.vx=fx*sp-fz*sd;u.vz=fz*sp+fx*sd;u.sz=rnd(.8,1.3);
+  d.position.set(tmpV.x,tmpV.y-.025,tmpV.z);d.visible=true;}
+function snotUpdate(t,dt,fx,fz,spawn){
+  if(spawn){SN.next-=dt;if(SN.next<=0){SN.next=SN.cnt<4?rnd(.35,.5):rnd(.14,.24);SN.cnt++;snotDrop(fx,fz);if(Math.random()<.35)SFX.sniff(.5);}}
+  dropMs.forEach(d=>{const u=d.userData;if(!u.on)return;u.vy-=4.2*dt;d.position.x+=u.vx*dt;d.position.y+=u.vy*dt;d.position.z+=u.vz*dt;
+    const sp=-u.vy;d.scale.set(u.sz*(1-sp*.1),u.sz*(1+sp*.8),u.sz*(1-sp*.1));
+    if(d.position.y<=.012){u.on=false;d.visible=false;SFX.drip();
+      const m=puddles.find(o=>!o.visible);if(m){m.visible=true;m.position.set(d.position.x,.002,d.position.z);m.userData.t=0;m.userData.born=false;m.userData.sz=u.sz;}}});
+  // 地上那一小灘：先攤開，再鼓起來抖動，然後長出一隻小蟲
+  puddles.forEach(m=>{if(!m.visible)return;const u=m.userData;u.t+=dt;const k=u.t,z=u.sz;
+    if(k<.25){const e=ease(k/.25);m.scale.set(lerp(.01,.032,e)*z,lerp(.015,.006,e)*z,lerp(.01,.032,e)*z);}
+    else if(k<.95){const e=ease((k-.25)/.7),w=Math.sin(t*30+u.t*7)*.25;m.scale.set(.032*z*(1+.15*w),(.006+.016*e)*z*(1-.2*w),.032*z*(1-.15*w));}
+    else{if(!u.born){u.born=true;const g=minis[SN.mi%NM];SN.mi++;const v=g.userData;g.visible=true;g.position.set(m.position.x,0,m.position.z);
+        v.th=rnd(0,6.28);v.sp=rnd(.07,.12);v.age=0;v.sc=u.sz*rnd(1.35,1.75);v.turn=rnd(-1,1);if(Math.random()<.5)SFX.blip();}
+      const e=clamp((k-.95)/.35,0,1);m.scale.set(.032*z*(1-e)+.001,.022*z*(1-e)+.001,.032*z*(1-e)+.001);if(e>=1)m.visible=false;}});
+  // 小蟲：慢慢爬，會轉彎，爬太遠會掉頭回來，不會爬到主角身上
+  const cx=sitPos.x+fx*.3,cz=sitPos.z+fz*.3;
+  minis.forEach(g=>{if(!g.visible)return;const v=g.userData;v.age+=dt;
+    const grow=ease(clamp(v.age/.45,0,1));
+    v.turn+=rnd(-3,3)*dt;v.turn=clamp(v.turn,-1.2,1.2);v.th+=v.turn*dt;
+    const dx=g.position.x-cx,dz=g.position.z-cz,r=Math.hypot(dx,dz),out=Math.atan2(dx,dz);
+    let pull=0;if(r>1.05)pull=Math.PI;else if(r<.32)pull=0.0001;   // 太遠→往回、太近（主角身上）→往外
+    if(pull){const want=pull===Math.PI?out+Math.PI:out;let d=want-v.th;d=Math.atan2(Math.sin(d),Math.cos(d));v.th+=d*Math.min(1,dt*2.5);}
+    const wav=.5+.5*Math.sin(t*5+v.ph),spd=v.sp*grow*(.55+.45*wav);
+    g.position.x+=Math.sin(v.th)*spd*dt;g.position.z+=Math.cos(v.th)*spd*dt;g.position.x=clamp(g.position.x,BOUNDS[0]+.08,BOUNDS[1]-.08);g.position.z=clamp(g.position.z,BOUNDS[2]+.08,BOUNDS[3]-.08);
+    g.rotation.y=v.th;const sc=v.sc*lerp(.25,1,grow);g.scale.set(sc,sc,sc*(1+.12*Math.sin(t*5+v.ph)));
+    v.tents.forEach((tg,i)=>{tg.rotation.x=-1.0+.25*Math.sin(t*2.6+v.ph+i);tg.rotation.z=(i?.3:-.3)+.2*Math.sin(t*1.9+v.ph*2+i);});});}
+/* 低角度側拍：先拍鼻涕滴下來、落地變蟲，再慢慢拉高拉遠，看到滿地的小蟲 */
+const CAMA=new T.Vector3(),CAMB=new T.Vector3(),LOOKA=new T.Vector3(),LOOKB=new T.Vector3();
+function snotCamera(t,dt,fx,fz){const px=fz,pz=-fx,sp=sitPos;
+  CAMA.set(sp.x+fx*.62+px*.8,.36,sp.z+fz*.62+pz*.8);LOOKA.set(sp.x+fx*.42,.28,sp.z+fz*.42);
+  CAMB.set(sp.x+fx*1.3+px*.75,1.15,sp.z+fz*1.3+pz*.75);LOOKB.set(sp.x+fx*.4,.1,sp.z+fz*.4);
+  CAMB.x=clamp(CAMB.x,BOUNDS[0]+.25,BOUNDS[1]-.25);CAMB.z=clamp(CAMB.z,BOUNDS[2]+.25,BOUNDS[3]-.25);
+  const w=ease(clamp((t-15.6)/3.4,0,1));camera.position.copy(CAMA).lerp(CAMB,w);tmpV2.copy(LOOKA).lerp(LOOKB,w);camera.lookAt(tmpV2);}
 function updateHorror(dt){
   stT+=dt;const t=stT,U=post.uniforms,F=FAILCFG[stage],M=monObj();
   if(A.ctx&&A.horNodes){A.nextHit-=dt;if(A.nextHit<0){A.nextHit=rnd(1.1,2.6);SFX.metal();}}
@@ -2050,7 +2241,9 @@ function updateHorror(dt){
     if(HERO.ok&&HERO.bones.Head)HERO.bones.Head.getWorldPosition(lookTmp);else lookTmp.set(player.x,1.55,player.z);
     camera.position.copy(H3.base).lerp(lookTmp,push);camera.position.x+=rnd(-shake,shake);camera.position.y+=rnd(-shake,shake);
     camera.lookAt(H3.look.x,H3.look.y+(t>1.2&&M?.25:0)*ease(clamp((t-1.2)/1.5,0,1)),H3.look.z);
-    if(M){const R=MONRISE[F.mon];
+    if(stage==='kitchen'){pyPhaseA(t,dt);U.flash.value=t>4.6?(t-4.6)/.2*.8:0;
+      camera.lookAt(lerp(H3.look.x,PYT.head.position.x,.45),lerp(H3.look.y,PYT.head.position.y,.45)+.1,lerp(H3.look.z,PYT.head.position.z,.45));}
+    else if(M){const R=MONRISE[F.mon];
       if(stage==='temple'&&t<3.9&&HERO.ok){const f=new T.Vector3(Math.sin(HERO.root.rotation.y),0,Math.cos(HERO.root.rotation.y));HERO.root.position.addScaledVector(f,dt*.16*(1-t/3.9));if(heroAnim)heroAnim.timeScale=.3*(1-t/3.9)+.05;if(Math.floor(t/1.1)!==Math.floor((t-dt)/1.1))SFX.breath();}
       if(t<1.2){if(stage==='bed'&&Math.random()<dt*6)setQuilt(q+rnd(-.03,.03));if(stage==='temple'&&M.scale.x<.3){M.scale.setScalar(.02+t/1.2*.25);animMon(t,6);}}
       else if(t<3.9){if(t-dt<1.2)SFX.sting();const p=ease(clamp((t-1.2)/2.2,0,1));M.position.y=lerp(R[0][1],R[1],p);M.scale.setScalar(lerp(.02,R[2],p));
@@ -2075,28 +2268,35 @@ function updateHorror(dt){
       HERO.root.visible=HERO.ok;HERO.root.position.set(sitPos.x,.1-(HERO.hipY||.9),sitPos.z);HERO.root.rotation.set(0,sitRot,0);
       if(HERO.mixer){HERO.mixer.stopAllAction();heroAnim=null;}BONES.forEach(n=>{if(HERO.bones[n])HERO.bones[n].quaternion.copy(HERO.rest[n]);});
       if(stage==='temple')setFat(1);
+      if(stage==='kitchen')HERO.root.position.y=0;   // 廚房：站著被蟒蛇從腳纏到肩膀
       if(stage==='bed'){for(let i=0;i<34;i++){const a=rnd(0,6.28),r=rnd(.25,.85);dropTissue(sitPos.x+Math.cos(a)*r+.25,sitPos.z+Math.sin(a)*r,.02);}handTissue.visible=HERO.ok;}
       if(M){const fx=Math.sin(sitRot),fz=Math.cos(sitRot);if(stage==='temple'){M.position.set(sitPos.x-fz*.9-fx*.6,1.05,sitPos.z+fx*.9-fz*.6);M.scale.setScalar(.85);}else{M.position.set(sitPos.x-fx*1.3,1.4,sitPos.z-fz*1.3);M.scale.setScalar(.7);}M.lookAt(sitPos.x,.6,sitPos.z);}
       swab.visible=rtest.visible=stage==='school'&&HERO.ok;U.red.value=0;coughNext=0;}
-    const close=t>=8.6;
+    const dropCam=stage==='bed'&&t>=12.35,close=t>=8.6&&!dropCam;
     let wipe=0;
     if(stage==='bed')wipe=close?Math.max(0,Math.sin((t-8.6)*1.4)):0;
-    if(stage==='kitchen'||stage==='school'){coughNext-=dt;if(coughNext<0){coughNext=stage==='kitchen'?rnd(.7,1.1):rnd(1.6,2.4);coughJ=1;SFX.cough();if(stage==='kitchen')emitFumes(20);}
-      coughJ=Math.max(0,coughJ-dt*3);wipe=stage==='kitchen'?.45+.35*coughJ:0;}
-    poseSit(t,close?1:stage==='temple'?.4:0,wipe);
-    if(coughJ>0)boneOff('Abdomen',.25+coughJ*.4,0,0);
+    if(stage==='school'){coughNext-=dt;if(coughNext<0){coughNext=rnd(1.6,2.4);coughJ=1;SFX.cough();}coughJ=Math.max(0,coughJ-dt*3);}
+    if(stage==='kitchen'){coughNext-=dt;if(coughNext<0){coughNext=rnd(1.25,1.6);coughJ=1;SFX.choke();}coughJ=Math.max(0,coughJ-dt*2.5);}
+    if(stage==='kitchen')poseBound(t,coughJ);else poseSit(t,close?1:stage==='temple'?.4:0,wipe);
+    if(coughJ>0&&stage!=='kitchen')boneOff('Abdomen',.25+coughJ*.4,0,0);
     if(stage==='temple'){const rise=Math.max(0,Math.sin(t*1.3))*.06;HERO.root.position.y=.1-(HERO.hipY||.9)+rise;if(Math.floor(t/1.6)!==Math.floor((t-dt)/1.6))SFX.breath();}
     if(stage==='school')boneOff('UpperArm.L',0,0,-1.25),boneOff('LowerArm.L',0,0,-.4);
     HERO.root.updateMatrixWorld(true);
     if(stage==='bed'&&HERO.ok&&HERO.bones['Wrist.R']){HERO.bones['Wrist.R'].getWorldPosition(handTissue.position);handTissue.position.y-=.02;}
+    const fx0=Math.sin(sitRot),fz0=Math.cos(sitRot);
     if(M)animMon(t,1.5);
+    if(stage==='kitchen'){const sq=pyPhaseB(t,dt,fx0,fz0,t-dt<5.4);if(sq>.92&&Math.random()<dt*2)SFX.squeeze();}
     U.black.value=clamp(1-(t-5.4)*2,0,1);U.k.value=close?.22:.6;
     if(HERO.ok&&HERO.bones.Head){HERO.bones.Head.getWorldPosition(lookTmp);}else lookTmp.set(sitPos.x,.75,sitPos.z);
     const fx=Math.sin(sitRot),fz=Math.cos(sitRot);
-    if(!close){if(stage==='temple'){camera.position.set(sitPos.x+fx*1.9+fz*.6,1.25,sitPos.z+fz*1.9-fx*.6);camera.lookAt(lookTmp.x-fz*.35,lookTmp.y+.1,lookTmp.z+fx*.35);}else{camera.position.set(sitPos.x+fx*1.2-fz*.15,1.3,sitPos.z+fz*1.2+fx*.15);camera.lookAt(lookTmp.x,lookTmp.y-.15,lookTmp.z);}}
-    else{const dd=stage==='school'?.6:stage==='temple'?1.05:.46;camera.position.set(lookTmp.x+fx*dd-fz*.1,lookTmp.y+.06,lookTmp.z+fz*dd+fx*.1);camera.lookAt(lookTmp.x,lookTmp.y+(stage==='school'?-.1:.04),lookTmp.z);}
+    if(!close){if(stage==='kitchen'){camera.position.set(sitPos.x-1.6,1.0,sitPos.z-.55);camera.lookAt(sitPos.x,.86,sitPos.z);}else if(stage==='temple'){camera.position.set(sitPos.x+fx*1.9+fz*.6,1.25,sitPos.z+fz*1.9-fx*.6);camera.lookAt(lookTmp.x-fz*.35,lookTmp.y+.1,lookTmp.z+fx*.35);}else{camera.position.set(sitPos.x+fx*1.2-fz*.15,1.3,sitPos.z+fz*1.2+fx*.15);camera.lookAt(lookTmp.x,lookTmp.y-.15,lookTmp.z);}}
+    else if(!dropCam){const dd=stage==='school'?.6:stage==='temple'?1.05:stage==='kitchen'?.85:.46;camera.position.set(lookTmp.x+fx*dd-fz*.1,lookTmp.y+.06,lookTmp.z+fz*dd+fx*.1);camera.lookAt(lookTmp.x,lookTmp.y+(stage==='school'?-.1:.04),lookTmp.z);}
+    if(dropCam){snotCamera(t,dt,fx,fz);}
     faceLight.position.copy(camera.position);faceLight.intensity=close?1.1:0;
-    if(stage==='bed'){placeDrips(t);
+    if(stage==='bed'){if(t<12.35)placeDrips(t);else drips.forEach(d=>d.visible=false);
+      if(t-dt<12.0&&t>=12.0)SFX.stretch();
+      if(t-dt<12.35&&t>=12.35){snotHide();SN.next=0;}
+      if(t>=12.35)snotUpdate(t,dt,fx,fz,true);
       if(t-dt<6.3&&t>=6.3)SFX.sneeze();
       [7.6,8.15,11.3,12.2].forEach(k=>{if(t-dt<k&&t>=k)SFX.sniff(1);});
       if(t-dt<8.85&&t>=8.85)SFX.blow();
@@ -2108,26 +2308,23 @@ function updateHorror(dt){
       swab.position.copy(ns).addScaledVector(dir,-.02);swab.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),dir);
       rtest.position.set(sitPos.x+fx*.3,lookTmp.y-.24,sitPos.z+fz*.3);rtest.lookAt(camera.position);rtest.rotateX(Math.PI/2);}
     if(t>12.8&&stage!=='bed')U.stat.value=(t-12.8)/.4;
-    if(stage==='bed'&&t>12.7)U.flash.value=(t-12.7)/.5*.9;}
-  else if(stage==='bed'&&t<19.8){ // 變成跟人一樣大的鼻涕蟲
-    const S=SLUG,sx=sitPos.x,sz=sitPos.z;
-    if(t-dt<13.2){HERO.root.visible=false;drips.forEach(d=>d.visible=false);handTissue.visible=false;faceLight.intensity=0;
-      S.g.visible=true;S.g.position.set(sx,0,sz);S.g.rotation.set(0,0,0);S.g.scale.setScalar(.25);S.crawl=0;S.rear=0;S.ext=.3;S.trail.visible=true;SFX.squelch();}
-    const k=t-13.2;U.flash.value=Math.max(0,.9-k*1.5);U.k.value=.45;U.red.value=0;
-    if(k<1.1){S.g.scale.setScalar(lerp(.25,1,ease(k/1.1))*(1+.06*Math.sin(t*25)*(1-k/1.1)));S.crawl=.3;}
-    else if(k<4.5){S.g.scale.setScalar(1);S.crawl=1;S.g.position.z=sz+(k-1.1)*.2;S.ext=lerp(S.ext,1,dt*1.5);}
-    else{S.crawl=lerp(S.crawl,.2,dt*2);S.rear=ease(clamp((k-4.5)/1.2,0,1));S.g.scale.setScalar(1+.25*S.rear);S.ext=1+.15*Math.sin(t*3);if(t-dt<17.7)SFX.hiss();}
-    const tail=S.g.position.z-SL.L*.85,len=Math.max(.01,tail-(sz-SL.L*.85)+.3);S.trail.position.set(sx,.004,tail-len/2+.15);S.trail.scale.set(SL.W*2.2,len,1);
-    animSlug(t);animMon(t,1.5);
-    if(A.slime)setG(A.slime,k>1.1&&k<4.6?.05+.04*Math.max(0,Math.sin(t*7)):0,.05);
-    if(k>1.1&&k<4.5&&Math.random()<dt*5)crackle(0,.08,6,.12,700,2600);
-    // 低角度鏡頭跟著鼻涕蟲，牠立起來時往上看
-    const hz=S.g.position.z+SL.L;tmpV.set(sx+1.15,lerp(.45,.32,S.rear),Math.min(2.3,hz+.75));camera.position.lerp(tmpV,k<.05?1:Math.min(1,dt*2));
-    tmpV2.set(sx,lerp(.25,1.15,S.rear),hz-.55-S.rear*.6);camera.lookAt(tmpV2);
-    if(t>19.4)U.stat.value=(t-19.4)/.4;}
+    }
+  else if(stage==='bed'&&t<20.6){ // 鼻涕繼續滴，滴下來的每一滴都變成小鼻涕蟲，爬滿主角身邊的地板
+    const fx=Math.sin(sitRot),fz=Math.cos(sitRot);
+    if(t-dt<13.2){drips.forEach(d=>d.visible=false);faceLight.intensity=0;U.flash.value=0;}
+    U.k.value=.45;U.red.value=0;U.black.value=0;
+    poseSit(t,0,0);HERO.root.updateMatrixWorld(true);
+    if(HERO.ok&&HERO.bones['Wrist.R']){HERO.bones['Wrist.R'].getWorldPosition(handTissue.position);handTissue.position.y-=.02;}
+    snotUpdate(t,dt,fx,fz,t<19.2);snotCamera(t,dt,fx,fz);
+    [14.2,15.6,17.1,18.4].forEach(k=>{if(t-dt<k&&t>=k)SFX.sniff(1);});
+    const live=minis.filter(g=>g.visible).length;
+    if(A.slime)setG(A.slime,Math.min(.12,live*.004),.2);
+    if(Math.random()<dt*Math.min(10,live*.4))crackle(0,.05,3,.06,900,3200);
+    if(t>20.2)U.stat.value=(t-20.2)/.4;}
   else if(!replay){ // 轉成熱成像重播
     U.stat.value=1;SFX.staticBurst();SFX.thermBeep();faceLight.intensity=0;
     if(M)M.visible=false;drips.forEach(d=>d.visible=false);handTissue.visible=false;swab.visible=rtest.visible=false;SLUG.g.visible=SLUG.trail.visible=false;if(A.slime)setG(A.slime,0);
+    pyHide();snotHide();
     while(tissues.children.length)tissues.remove(tissues.children[0]);
     clearDust();
     if(stage==='bed'){
