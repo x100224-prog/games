@@ -48,6 +48,12 @@ section > .wrap, .sign .wrap, footer .wrap { grid-template-columns: minmax(0, 1f
 @media (max-width: 900px) { .player { grid-template-columns: minmax(0, 1fr); } }
 .stage { position: relative; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; background: #0c0f0e; border-radius: 10px; overflow: hidden; display: grid; place-items: center; }
 .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+/* 放大：遊戲框蓋滿整個視窗 */
+.stage.big { position: fixed; inset: 0; width: auto; max-width: none; aspect-ratio: auto; border-radius: 0; z-index: 1000; }
+body.bigmode { overflow: hidden; }
+.bigbtn { background: var(--signal); color: var(--signal-ink); border: 0; border-radius: 8px; padding: 8px 14px; font: inherit; font-weight: 900; cursor: pointer; }
+.bigbtn:focus-visible, #btnShrink:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+#btnShrink { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 1001; background: rgba(10, 13, 16, .85); color: #fff; border: 1px solid rgba(255, 255, 255, .35); border-radius: 999px; padding: 6px 16px; font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; }
 .stage .idle { display: grid; gap: 10px; justify-items: center; color: #e9efec; text-align: center; padding: 20px; max-width: 46ch; }
 .stage .idle b { font-size: 20px; font-weight: 900; }
 .stage .idle span { font-size: 14px; opacity: .8; }
@@ -113,6 +119,7 @@ footer ul { margin: 0; padding-left: 20px; color: var(--mute); font-size: 14px; 
   </div>
 </header>
 
+<button id="btnShrink" type="button" hidden>縮小</button>
 <section id="watch">
   <div class="wrap">
     <div class="player">
@@ -123,7 +130,7 @@ footer ul { margin: 0; padding-left: 20px; color: var(--mute); font-size: 14px; 
         <div class="keys" aria-label="操作">
           <div><kbd>WASD</kbd>開車</div><div><kbd>Shift</kbd>推進器</div><div><kbd>F</kbd>飛越</div><div><kbd>T</kbd>翻轉</div><div><kbd>G</kbd>吸附</div><div><kbd>U</kbd>無人機系統</div><div><kbd>C</kbd>視角</div>
         </div>
-        <div class="row"><a href="game/index.html" target="_blank" rel="noopener">在新分頁開遊戲（畫面比較大）</a><span>點一下遊戲畫面才能用鍵盤操作</span></div>
+        <div class="row"><button class="bigbtn" id="btnBig" type="button" aria-pressed="false">放大到整個視窗</button><span>點一下遊戲畫面才能用鍵盤操作</span></div>
       </div>
       <div class="list" role="group" aria-label="示範清單">
 {{DEMO_BUTTONS}}
@@ -216,6 +223,20 @@ footer ul { margin: 0; padding-left: 20px; color: var(--mute); font-size: 14px; 
     f.title = '台北上班路'; f.allow = 'fullscreen; autoplay';
     stage.replaceChildren(f); f.focus();
   });
+  // 放大遊戲畫面：遊戲框蓋滿整個視窗（瀏覽器多大就多大），按「縮小」或 Esc 回來
+  const big = document.getElementById('btnBig'), shrink = document.getElementById('btnShrink');
+  const setBig = (on) => {
+    stage.classList.toggle('big', on); document.body.classList.toggle('bigmode', on);
+    shrink.hidden = !on; big.setAttribute('aria-pressed', String(on));
+    if (!on) stage.scrollIntoView({ block: 'center' });   // 縮小後回到遊戲框的位置
+    const f = stage.querySelector('iframe'); if (f) f.focus({ preventScroll: true });
+  };
+  big.addEventListener('click', () => {
+    if (!stage.querySelector('iframe')) btns[0].click();   // 還沒開遊戲：先打開「自己玩」
+    setBig(true);
+  });
+  shrink.addEventListener('click', () => setBig(false));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && stage.classList.contains('big')) setBig(false); });
   const vids = [...document.querySelectorAll('video')];
   for (const v of vids) v.addEventListener('play', () => { for (const o of vids) if (o !== v && !o.paused) o.pause(); });
 })();
