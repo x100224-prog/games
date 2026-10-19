@@ -4,7 +4,7 @@ export class Input {
     this.keys = new Set(); this.hit = new Set();
     this.lookX = 0; this.lookY = 0;
     this.joyX = 0; this.joyY = 0; this.tGas = 0; this.tBrake = 0;
-    this.touch = false; this.locked = false; this.enabled = false; this.rot = 0;   // rot 90：整個畫面轉了 90 度（手機橫向玩），手指的方向要轉回來
+    this.touch = false; this.locked = false; this.enabled = false; this.rot = 0; this.runOn = false;   // runOn：手機的「跑步」按鈕（按一下開、再按一下關）   // rot 90：整個畫面轉了 90 度（手機橫向玩），手指的方向要轉回來
     // 手機、平板（主要用手指點）：一開始就知道，選單上的說明不寫電腦按鍵
     this.coarse = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches); if (this.coarse) document.body.classList.add('coarse');
     const down = (e) => {
@@ -67,6 +67,7 @@ export class Input {
     hold('#btnGas', () => { this.tGas = 1; }, () => { this.tGas = 0; });
     hold('#btnBrake', () => { this.tBrake = 1; }, () => { this.tBrake = 0; });
     hold('#btnAct', () => { this.hit.add('KeyE'); }, () => {});
+    hold('#btnRun', () => { this.runOn = !this.runOn; }, () => {});
     hold('#btnCam', () => { this.hit.add('KeyC'); }, () => {});
     hold('#btnMap', () => { this.hit.add('KeyM'); }, () => {});
   }
@@ -78,6 +79,6 @@ export class Input {
 
   get forward() { return (this.has('KeyW', 'ArrowUp') ? 1 : 0) - (this.has('KeyS', 'ArrowDown') ? 1 : 0) - this.joyY; }
   get strafe() { return (this.has('KeyD', 'ArrowRight') ? 1 : 0) - (this.has('KeyA', 'ArrowLeft') ? 1 : 0) + this.joyX; }
-  get run() { return this.has('ShiftLeft', 'ShiftRight'); }
+  get run() { return this.runOn || this.has('ShiftLeft', 'ShiftRight'); }
   releaseLock() { if (document.pointerLockElement) { try { document.exitPointerLock(); } catch (err) { /* ignore */ } } }
 }

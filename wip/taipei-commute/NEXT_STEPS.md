@@ -1,6 +1,8 @@
-# 台北上班路：進度（2026-10-18 深夜更新）
+# 台北上班路：進度（2026-10-19 中午更新）
 
 ## 已完成
+- 2026-10-19 中午：手機走路時油門／煞車換成「跑步」按鈕（按一下開、再按一下關；input.runOn），電腦 Shift 跑步寫進說明。提示（#toast、#prompt）包進 #hints，排成一欄放在畫面左邊（手機直向在路名下面、手機橫向在任務欄和搖桿中間、電腦在任務欄下面），量測不再壓到人物（tests/phone_walk.mjs）。手機橫向後照鏡按鈕列移到搖桿右邊；飛行中不顯示後照鏡按鈕。
+- 2026-10-19 中午：停車規則改成哪裡都能停：拿掉早上公司 110 m 內全滿；停車場不用先有錢；停進格子＝合法；路邊沒格子、壓線、油車停電動車格＝違規，可能被拖吊（遊戲設定：上班時 35%、晚上過夜 25%）。拖吊用真實臺北市規定：移置費 1,500、保管費每半天 200（1 小時內免）、六個保管場依行政區（位置照地址找路／巷口，大約）；搭計程車（85 元起跳 1.25 km、每 200 m 5 元、夜間 +20）去保管場，扣錢、時間往後，車子在保管場門口（紅色「拖吊保管場」牌）。上班時被拖 → 18:00 下班發現；晚上被拖 → 隔天早上出門發現（存檔 towNext）。main.js towPickup、curbSpot、towMark；economy.js TOW、towYard、towStorage、taxiFare。測試 tests/tow_test.mjs（TOW=1 一定被拖、TOW=0 一定不被拖）。
 - 2026-10-18 23 點（線上 main a8093f2、artifact v11）：停車場開放計時收費（economy.js LOT_RATE：蛋黃區每小時 60、內湖 50、其他 40，遊戲設定；真實臺北市公有停車場 10～60 元）。身上的錢夠付才能停（一開始沒錢只能停路邊），可以自己選的停車場格子用藍色標示；早上算到 18:00、晚上過夜算到隔天 7:30（main.js lotInfo、canPark）。示範的自動停車仍只用路邊格／電動車格（bayAllowed）。早上公司 110 m 內路邊格全滿的設定沒改。測試 tests/lot_test.mjs、tests/park_probe.mjs。
 - 2026-10-18 深夜（線上 main 80ae632、artifact v10）：全螢幕地圖改成 web/js/citymap.js（滾輪／兩指／＋－縮放、拖曳、「我」「全市」；路名依道路等級和縮放顯示，資料 web/data/maplabels.json 由 tools/build_maplabels.py 產生；放大後顯示停車場 P；標出家、公司、你的車停在這裡、地下停車位）。商店新增「住處地下停車位」（economy.js GARAGE：大安等蛋黃區 280 萬、內湖 220 萬、其他 160 萬，遊戲設定；不算換住址的次數）：早上車子在家門口的車位（main.js garageSpot、G.atGarage），晚上開到紫色 P 7 公尺內就算停好。測試 tests/map_test.mjs。
 - 2026-10-18 晚：駕駛座以擋風玻璃為主（不畫方向盤、儀表台／車門／引擎蓋放低、A 柱細、座椅預設 tilt 5、seatKey taipei-seat3-；量測 tests/cockpit_frame.mjs：電腦 80～82%、手機直 86～91%、手機橫 83～85%）；手機直拿中控螢幕改貼在畫面上（#navMini）；手機不顯示電腦按鍵（main.js touchify、.k-desk/.k-touch、input.coarse）；手機「橫向玩」（全螢幕＋鎖方向，不行就 html.rot90 轉 90 度，排版改用 @container app）。

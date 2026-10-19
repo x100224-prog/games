@@ -106,6 +106,10 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 #speedo span { color: var(--mute); font-size: 13px; margin-left: 4px; }
 #speedo i { display: block; font-style: normal; font-family: var(--f-ui); font-weight: 500; font-size: 12px; color: var(--mute); }
 #toast { position: absolute; left: 50%; top: calc(88px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); background: rgba(10, 13, 16, .9); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; max-width: min(520px, calc(100% - 32px)); box-sizing: border-box; text-align: center; transition: opacity .3s; }
+/* 提示（訊息、動作提示）：排成一欄放在畫面左邊，不擋到畫面中間的人物 */
+#hints { position: absolute; left: 16px; top: calc(132px + env(safe-area-inset-top, 0px)); width: min(400px, calc(50% - 110px)); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
+#hints > #toast, #hints > #prompt { position: static; left: auto; top: auto; bottom: auto; transform: none; max-width: 100%; text-align: left; white-space: normal; }
+#hints > #prompt { border-radius: 12px; }
 #help { position: absolute; left: 16px; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font-size: 13px; color: var(--mute); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
 #help kbd { font-family: var(--f-num); color: var(--ink); font-weight: 700; }
 #help { max-width: min(460px, calc(100% - 220px)); max-height: calc(100% - 230px); overflow: hidden; box-sizing: border-box; }
@@ -188,6 +192,8 @@ body:not(.coarse) .k-touch { display: none !important; }
 .tbtn { position: absolute; pointer-events: auto; touch-action: none; width: 62px; height: 62px; border-radius: 50%; border: 1px solid var(--line); background: rgba(17, 21, 26, .7); font-weight: 900; font-size: 15px; }
 #btnGas { right: 22px; bottom: calc(130px + env(safe-area-inset-bottom, 0px)); background: rgba(79, 208, 140, .3); }
 #btnBrake { right: 96px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); background: rgba(255, 107, 94, .3); }
+#btnRun { right: 22px; bottom: calc(130px + env(safe-area-inset-bottom, 0px)); background: rgba(111, 211, 255, .22); font-size: 14px; }
+#btnRun.on { background: #6fd3ff; color: #06202b; border-color: transparent; }
 #btnAct { right: 22px; bottom: calc(56px + env(safe-area-inset-bottom, 0px)); background: var(--signal); color: #1a1500; }
 #btnMore { right: 22px; top: calc(176px + env(safe-area-inset-top, 0px)); width: 48px; height: 48px; font-size: 22px; line-height: 1; }
 #moreMenu { position: absolute; right: 22px; top: calc(230px + env(safe-area-inset-top, 0px)); pointer-events: auto; display: grid; gap: 6px; background: rgba(10, 13, 16, .92); border: 1px solid var(--line); border-radius: 12px; padding: 8px; z-index: 40; }
@@ -205,6 +211,8 @@ body:not(.coarse) .k-touch { display: none !important; }
   #task { max-width: calc(100% - 152px); }
   #clock { font-size: 20px; }
   #toast { top: calc(140px + env(safe-area-inset-top, 0px)); }
+  .touch #hints { top: calc(236px + env(safe-area-inset-top, 0px)); width: calc(64% - 16px); gap: 6px; }
+  .touch #hints > #toast, .touch #hints > #prompt { font-size: 13.5px; padding: 6px 11px; }
   #menuPanel { border-right: 0; background: rgba(13, 16, 20, .9); }
 }
 @media (prefers-reduced-motion: reduce) { #fade, #toast, #loadBar i, #distMap path { transition: none; } }
@@ -265,7 +273,10 @@ body:not(.coarse) .k-touch { display: none !important; }
 }
 /* 手機橫向（矮螢幕）：後照鏡列移到搖桿上方；特技按鈕排在煞車左邊兩列；避撞面板放在上方任務欄右邊 */
 @container app (max-height: 500px) {
-  .touch #btnMirL, .touch #btnMirR, .touch #btnSeat, .touch #btnCenter { bottom: calc(190px + env(safe-area-inset-bottom, 0px)); }
+  .touch #btnMirL, .touch #btnMirR, .touch #btnSeat, .touch #btnCenter { bottom: calc(74px + env(safe-area-inset-bottom, 0px)); }
+  .touch #btnMirL { left: 150px; } .touch #btnMirR { left: 220px; } .touch #btnCenter { left: 290px; }
+  .touch #hints { top: calc(120px + env(safe-area-inset-top, 0px)); width: min(330px, calc(50% - 96px)); gap: 5px; }
+  .touch #hints > #toast, .touch #hints > #prompt { font-size: 13px; padding: 5px 10px; line-height: 1.35; }
   .touch #btnBoost { right: 170px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
   .touch #btnDrone { right: 236px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
   .touch #btnJump { right: 170px; bottom: calc(116px + env(safe-area-inset-bottom, 0px)); }
@@ -336,8 +347,7 @@ body:not(.coarse) .k-touch { display: none !important; }
     <div id="speedo" hidden><b id="spd">0</b><span>km/h</span><i id="energy"></i></div>
     <canvas id="daa" width="220" height="230" hidden aria-label="無人機避撞面板"></canvas>
     <div id="stunt" hidden><span class="lab">壓縮空氣</span><span class="bar"><i id="stuntBar"></i></span><b id="stuntPct">100%</b><em id="stuntFill"></em><small id="stuntMode"></small><span class="gs" title="空氣罐容量、可飛幾次、補充方式與價錢都是遊戲設定，Tesla 沒有公布這些數字">遊戲設定</span></div>
-    <div id="prompt" hidden></div>
-    <div id="toast" hidden></div>
+    <div id="hints"><div id="toast" hidden></div><div id="prompt" hidden></div></div>
     <div id="demoCap" hidden></div>
     <div id="demoSpeed" hidden></div>
     <button id="demoExit" type="button" hidden>結束示範<span class="k-desk">（Esc）</span></button>
@@ -348,6 +358,7 @@ body:not(.coarse) .k-touch { display: none !important; }
     <button class="tbtn" id="btnGas" type="button">油門</button>
     <button class="tbtn" id="btnBrake" type="button">煞車</button>
     <button class="tbtn" id="btnAct" type="button">E</button>
+    <button class="tbtn" id="btnRun" type="button" hidden aria-pressed="false">跑步</button>
     <button class="tbtn" id="btnMore" type="button" aria-label="更多功能">⋯</button>
     <div id="moreMenu" hidden>
       <button type="button" data-act="KeyM">地圖</button>
