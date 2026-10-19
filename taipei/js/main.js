@@ -1,4 +1,4 @@
-// 台北上班路 — 主程式。每天：房間起床 → 走到路邊的車 → 開去公司 → 停進合法車格 → 走進公司打卡
+// 台北上班路 — 主程式。每天：房間起床 → 走到車子 → 開去公司 → 停車（停進格子合法；停路邊算違規，可能被拖吊）→ 走進公司打卡
 // → 下班走回車上 → 開回家 → 停好車走進家門 → 結算收入（每趟 20 萬）與花費。賺的錢可以在商店買導航、電動車、飛天跑車、無人機飛行系統。
 // 走路是第三人稱，開車是第一人稱駕駛座（含左右後照鏡、座椅調整、舒適設定）。
 import * as THREE from '../lib/three.module.min.js';
@@ -21,7 +21,7 @@ import { CityMap } from './citymap.js';
 import { edgePoint } from './world.js';
 import { DenseSky, SKY } from './sky.js';
 import { DemoRunner, DEMOS } from './demo.js';
-import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES, lotRate } from './economy.js';
+import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES, lotRate, TOW, towYard, towStorage, taxiFare } from './economy.js';
 import { VIEW, TIME, PARK, WORK_DIST, RUSH, FEATURES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
@@ -213,7 +213,7 @@ let world, parking, traffic, signs, car, cockpit, avatar, tp, meta, nav = null, 
 let droneCity = null, droneSky = null;   // 一般：全市千分之一的無人機；全城無人機：你附近的整片天空
 let ctl = null;   // 玩法「全城無人機・路空總控」的總控中心
 const mist = new Mist(scene);   // 壓縮空氣噴出的白霧
-window.__tc = { G, P, renderer, scene, camera, econ, engine, input };
+window.__tc = { G, P, renderer, scene, camera, econ, engine, input, THREE };
 if (location.hash.startsWith('#lowq')) { renderer.shadowMap.enabled = false; renderer.setPixelRatio(0.75); }
 if (location.hash.startsWith('#clip')) { renderer.setPixelRatio(1); if (location.hash.includes('ns')) renderer.shadowMap.enabled = false; if (location.hash.includes('pcf')) renderer.shadowMap.type = THREE.PCFShadowMap; }   // 錄影：解析度 1 倍
 
@@ -258,11 +258,12 @@ function touchify(t) {
     .replace(/按「([^」]+)」\1/g, '按「$1」');   // 「按「飛越」飛越」→「按「飛越」」
 }
 /** 總控卡片開著時，提示訊息如果跟卡片重疊，就移到卡片下面。 */
+/** 左邊的提示欄被路空總控卡片蓋到時，往下挪到卡片下面（用版面座標，畫面轉 90 度時也對）。 */
 function placeToast() {
-  const t = $('toast'), c = $('ctlCard'); t.style.top = '';
-  if (!c || c.hidden || t.hidden) return;
-  const a = c.getBoundingClientRect(), b = t.getBoundingClientRect();
-  if (a.right > b.left && b.right > a.left && a.bottom > b.top && b.bottom > a.top) t.style.top = Math.round(a.bottom + 8) + 'px';
+  const h = $('hints'), c = $('ctlCard'); h.style.top = '';
+  if (!c || c.hidden) return;
+  const ax = c.offsetLeft, ay = c.offsetTop, aw = c.offsetWidth, ah = c.offsetHeight, bx = h.offsetLeft, by = h.offsetTop, bw = h.offsetWidth;
+  if (ax < bx + bw && bx < ax + aw && ay + ah > by) h.style.top = Math.round(ay + ah + 8) + 'px';
 }
 function setPrompt(html, cls = '') { const p = $('prompt'); if (!html) { p.hidden = true; return; } html = touchify(html); if (!html) { p.hidden = true; return; } if (p._h !== html) { p.innerHTML = html; p._h = html; } p.className = cls; p.hidden = false; }
 function fadeThen(fn, hold = 60) { const f = $('fade'); f.classList.add('on'); setTimeout(() => { fn(); setTimeout(() => f.classList.remove('on'), hold); }, 360); }
@@ -410,7 +411,7 @@ function startDemo(key) {
   G.demo = { key, prevMode: G.demo ? G.demo.prevMode : G.mode };
   G.mode = D.mode || 'normal';
   econ.reset(); econ.applyMode(G.mode); for (const k of ['nav', 'roadster', 'drone']) econ.owned.add(k); econ.carKey = 'roadster'; econ.stuntFuel = 1;
-  G.cfg = D.key === 'hybrid' ? hybridDemoCfg() : demoCfg(!!D.near); G.dayN = 1; G.homeCar = null; G.cam = 'cockpit';
+  G.cfg = D.key === 'hybrid' ? hybridDemoCfg() : demoCfg(!!D.near); G.dayN = 1; G.homeCar = null; G.towNext = null; G.cam = 'cockpit';
   audioStart(); $('menu').hidden = true; input.enabled = true;
   $('demoExit').hidden = false; demoUi.cap(`看示範：${D.name}　載入中…`);
   startDay();
@@ -481,7 +482,7 @@ function refreshContinue() {
   if (sv && sv.cfg && sv.cfg.home && sv.cfg.work) {
     b.hidden = false;
     b.textContent = `繼續${G.mode !== 'normal' ? '（' + GAME_MODES[G.mode].name + '）' : ''}：第 ${sv.day} 天　${sv.cfg.home.a} → ${sv.cfg.work.n}　存款 ${fmtMoney((sv.econ && sv.econ.money) || 0)}`;
-    b.onclick = () => { G.cfg = sv.cfg; G.dayN = sv.day; econ.fromJSON(sv.econ); econ.applyMode(G.mode); G.homeCar = sv.homeCar || null; startGame(); };
+    b.onclick = () => { G.cfg = sv.cfg; G.dayN = sv.day; econ.fromJSON(sv.econ); econ.applyMode(G.mode); G.homeCar = sv.homeCar || null; G.towNext = sv.towNext || null; startGame(); };
   } else b.hidden = true;
 }
 function pickDistrict(i) {
@@ -576,7 +577,7 @@ function renderWorks() {
   }
 }
 function updateGo() { $('btnGo').disabled = !(G.cfg.home && G.cfg.work); }
-function newGame() { G.dayN = 1; econ.reset(); econ.applyMode(G.mode); G.homeCar = null; startGame(); }
+function newGame() { G.dayN = 1; econ.reset(); econ.applyMode(G.mode); G.homeCar = null; G.towNext = null; startGame(); }
 
 function startGame() {
   audioStart();
@@ -601,7 +602,7 @@ function renderHelp() {
   const rows = [...HELP_BASE];
   for (const k of FEATURES_ORDER()) if (featureOn(k)) rows.push(...FEATURE_HELP[k].rows);
   $('help').innerHTML = rows.map(([k, v]) => `<kbd>${k}</kbd><span>${v.replace(/（手機[：:][^）]*）/g, '')}</span>`).join('') +
-    '<kbd>H</kbd><span>收起／打開這張說明</span><span class="more">其他：C 車外視角・Z／X 後照鏡・V 調座椅・N／B 配樂／引擎聲</span>';
+    '<kbd>H</kbd><span>收起／打開這張說明</span><span class="more">其他：Shift 走路時跑步・C 車外視角・Z／X 後照鏡・V 調座椅・N／B 配樂／引擎聲</span>';
 }
 const TIP_KEY = 'taipei-commute-tips';
 function tipsSeen() { try { return JSON.parse(localStorage.getItem(TIP_KEY) || '[]'); } catch (err) { return []; } }
@@ -648,16 +649,16 @@ function toMenu() {
   destBeacon.visible = carBeacon.visible = false; bayMarks.count = 0; routeLine.visible = false;
   traffic.clear(); refreshContinue(); renderModes(); renderDemos(); $('tipCard').hidden = true; showPage('pgTitle');
 }
-/** 公司附近的路邊停車：早上 110 m 內都停滿了，110～260 m 至少留 3 個空格（電動車可以停停車場的電動車格，比較近）。 */
+/** 公司附近的路邊停車：照一般的占用比例（約七成五停滿），離公司 30～260 m 至少留 3 個空格。 */
 function workParking() {
   const w = G.cfg.work; if (!w || !parking) return;
-  if (G.leg === 'am') { parking.rushNear(w.x, w.z, PARK.rushR); parking.ensureFreeNear(w.x, w.z, 3, PARK.rushR); }
-  else parking.ensureFreeNear(w.x, w.z, 3);
+  parking.ensureFreeNear(w.x, w.z, 3);
 }
 function save() {
   if (G.demo) return;
   if (G.mode === 'normal' && econ.has('roadster') && econ.has('drone')) { try { localStorage.setItem(UNLOCK_KEY, '1'); } catch (err) { /* ignore */ } }
-  store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft }); }
+  store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft,
+    towNext: G.towNext || (G.tow && G.state === 'room' ? { yi: TOW.yards.indexOf(G.tow.yard), towT: G.tow.towT + 24 * 60 } : null) }); }   // 早上還沒去領車就關掉遊戲：下次車子還在保管場
 
 // ===================================================================== 每日流程
 function startDay() {
@@ -673,17 +674,23 @@ function startDay() {
   parking.setDay(G.dayN); traffic.clear();
   econ.setLife(G.cfg.home, districtName(G.cfg.di), G.cfg.work, G.cfg.work ? districtName(G.cfg.work.d) : '');   // 薪水、房租／房貸：選的時候看不到，領錢和結算時才知道
   econ.startDay();
+  // 昨晚停路邊被拖吊：今天早上車子在保管場（towT 換算成今天的時間，會是負的）
+  G.tow = G.towNext && !G.demo ? { yard: TOW.yards[G.towNext.yi] || TOW.yards[2], towT: G.towNext.towT - 24 * 60 } : null; G.towNext = null;
+  towMark.visible = false;
   G.wait = {
     cond: () => world.readyAround(h.x, h.z, 320) && parking.readyAround(h.x, h.z, 210),
     then: () => {
       parking.setDay(G.dayN); workParking();
       let bay = null; const gs = garageSpot(); G.atGarage = !!gs;
       garageMark.visible = !!gs; if (gs) { garageMark.position.set(gs.x, gs.y, gs.z); garageMark.rotation.y = gs.psi; parking.forBaysNear(gs.x, gs.z, 9, (b) => { b.reserved = true; b.occupied = false; }); }
-      if (gs) { /* 有地下停車位：車子從自己的車位出發 */ }
-      else if (G.homeCar) { const err = {}; bay = parking.bayAt(G.homeCar.x, G.homeCar.z, G.homeCar.psi, err); if (bay) { bay.reserved = true; bay.occupied = false; } }
-      if (!bay) bay = parking.pickHomeBay(h.x, h.z, G.dayN);
+      let street = null;
+      if (gs || G.tow) { /* 有地下停車位：車子從自己的車位出發；被拖吊：車子在保管場 */ }
+      else if (G.homeCar) { const err = {}; bay = parking.bayAt(G.homeCar.x, G.homeCar.z, G.homeCar.psi, err); if (bay) { bay.reserved = true; bay.occupied = false; } else street = G.homeCar; }   // 昨晚停路邊（沒被拖走）：車子還在原地
+      if (!bay && !street && !G.tow) bay = parking.pickHomeBay(h.x, h.z, G.dayN);
       if (stunts) stunts.reset();
-      if (gs) { car.place(gs.x, gs.z, gs.psi, gs.y); G.homeBay = null; }
+      if (G.tow) { G.atGarage = false; car.place(G.tow.yard.x, G.tow.yard.z, 0, 0); G.homeBay = null; }
+      else if (gs) { car.place(gs.x, gs.z, gs.psi, gs.y); G.homeBay = null; }
+      else if (street) { car.place(street.x, street.z, street.psi, world.groundAt(street.x, street.z)); G.homeBay = null; }
       else if (bay) { car.place(bay.x, bay.z, bay.psi, bay.y); G.homeBay = bay; }
       else { const o = {}; world.nearestEdge(h.x, h.z, 120, e => e.cls >= 4 && !e.bridge, o); const x = o.x ?? h.rx, z = o.z ?? h.rz; car.place(x, z, 0, world.groundAt(x, z)); G.homeBay = null; }
       // 電動車晚上在家充飽；油車沿用昨天剩的油，低於兩成就順路加滿（錢算在油錢裡）
@@ -709,6 +716,11 @@ function enterRoom() {
   save();
 }
 function leaveRoom() {
+  if (G.tow) {   // 走到樓下：車子不見了（昨晚被拖吊）
+    G.stats.leave = G.clock;
+    fadeThen(() => { if (avatar) scene.add(avatar.group); P.inRoom = false; towPickup(G.cfg.home.x, G.cfg.home.z, '車子不見了：昨晚停在路邊被拖吊了。'); });
+    return;
+  }
   fadeThen(() => {
     const h = G.cfg.home;
     G.state = 'walk'; G.phase = 'toCar'; P.inRoom = false;
@@ -747,19 +759,18 @@ function lotInfo(b) {
   const hrs = G.leg === 'am' ? (TIME.homeMin - G.clock) / 60 : (24 * 60 + TIME.startMin - G.clock) / 60;
   return { rate: b.rate, fee: Math.ceil(Math.max(0, hrs) - 1e-6) * b.rate };
 }
-/** 玩家自己可以停的格子：路邊格、電動車格（電動車），停車場格（付得起停車費）。 */
-function canPark(b) { return bayAllowed(b) || (b.type === 'lot' && econ.money >= lotInfo(b).fee); }
+/** 玩家可以合法停的格子：路邊格、停車場格（計時收費）、電動車格（電動車）。 */
+function canPark(b) { return bayAllowed(b) || b.type === 'lot'; }
 function parkingCheck() {
   const gs = G.leg === 'pm' ? garageSpot() : null;
   if (gs && Math.hypot(car.x - gs.x, car.z - gs.z) < 7) return { bay: gs, ok: true, msg: '停進自己的地下停車位' };
   const b = parking.bayAt(car.x, car.z, car.psi, _err);
   if (!b) return { bay: null, ok: false, msg: '' };
-  if (b.type === 'ev' && !car.spec.electric) return { bay: b, ok: false, msg: '這是電動車專用格，油車不能停' };
+  if (b.type === 'ev' && !car.spec.electric) return { bay: b, ok: false, kind: 'evgas', msg: '電動車專用格，油車停這裡算違規' };
   const lot = b.type === 'lot' ? lotInfo(b) : null;
-  if (lot && econ.money < lot.fee) return { bay: b, ok: false, msg: `停車場每小時 ${lot.rate} 元，身上的錢不夠付（先找路邊停車格）` };
-  if (Math.abs(_err.ang) > PARK.angTol) return { bay: b, ok: false, msg: '車身要擺正' };
-  if (Math.abs(_err.lat) > PARK.latTol) return { bay: b, ok: false, msg: '壓到格線了，往格子中間一點' };
-  if (Math.abs(_err.along) > PARK.posTol) return { bay: b, ok: false, msg: _err.along > 0 ? '再往後一點' : '再往前一點' };
+  if (Math.abs(_err.ang) > PARK.angTol) return { bay: b, ok: false, kind: 'align', msg: '車身要擺正' };
+  if (Math.abs(_err.lat) > PARK.latTol) return { bay: b, ok: false, kind: 'align', msg: '壓到格線了，往格子中間一點' };
+  if (Math.abs(_err.along) > PARK.posTol) return { bay: b, ok: false, kind: 'align', msg: _err.along > 0 ? '再往後一點' : '再往前一點' };
   return { bay: b, ok: true, msg: lot ? `停車場 每小時 ${lot.rate} 元` : '已停妥', rate: lot && lot.rate };
 }
 function exitCar() {
@@ -767,8 +778,10 @@ function exitCar() {
   if (stunts && stunts.busy) { toast(stunts.mode === 'roof' ? '屋頂上不能下車，先開下去' : '特技中不能下車', 1.6); return; }
   if (Math.abs(car.v) > 0.4) { toast('先停下來才能下車', 1.6); return; }
   const chk = parkingCheck(), near = dist(car, dest()) < 450;
-  G.parked = { legal: chk.ok && near, ok: chk.ok, bay: chk.bay, type: chk.bay ? chk.bay.type : null, rate: chk.rate || 0, t: G.clock };
-  if (chk.bay) { chk.bay.reserved = true; chk.bay.occupied = false; }   // 自己的車停在這格（之後重新佈置車格也不會被別台車占走）
+  // 停進格子（路邊格、停車場、電動車格、自己的地下停車位）＝合法；其他（路邊沒有格子、壓線、油車停電動車格）＝違規停車，可能被拖吊
+  // legal：離目的地夠近、可以走過去了（違規停車也算，只是可能被拖吊）
+  G.parked = { legal: near, illegal: !chk.ok, ok: chk.ok, bay: chk.ok ? chk.bay : null, type: chk.ok ? chk.bay.type : 'street', rate: chk.rate || 0, t: G.clock };
+  if (chk.ok && chk.bay) { chk.bay.reserved = true; chk.bay.occupied = false; }   // 自己的車停在這格（之後重新佈置車格也不會被別台車占走）
   G.phase = 'toDest'; engine.shutdown(); engine.stunt(0, 0);
   fadeThen(() => {
     const lx = -Math.cos(car.psi), lz = Math.sin(car.psi);
@@ -778,8 +791,9 @@ function exitCar() {
     G.state = 'walk'; camera.near = 0.15; camera.updateProjectionMatrix();
     routeLine.visible = false;
     const where = G.leg === 'am' ? '公司' : '家', go = G.leg === 'am' ? '走去公司打卡' : '走回家';
-    toast(G.parked.legal ? (chk.bay.type === 'ev' ? `停進電動車格（會順便充電），${go}` : chk.bay.type === 'garage' ? `停進自己的地下停車位，${go}` : chk.bay.type === 'lot' ? `停進停車場（每小時 ${chk.rate} 元），${go}` : `停好了！${go}`)
-      : chk.ok ? `停好了，但離${where}太遠（要 450 m 內）` : chk.msg ? '沒停好：' + chk.msg : '這裡不是停車格');
+    toast(!G.parked.legal ? `這裡離${where}太遠（要 450 m 內），回車上開近一點再停`
+      : G.parked.illegal ? (chk.kind === 'evgas' ? `油車停電動車專用格算違規，可能被拖吊。${go}` : chk.kind === 'align' ? `沒停進格子裡（${chk.msg}），算違規停車，可能被拖吊。${go}` : `停在路邊（不是停車格），可能被拖吊。${go}`)
+      : chk.bay.type === 'ev' ? `停進電動車格（會順便充電），${go}` : chk.bay.type === 'garage' ? `停進自己的地下停車位，${go}` : chk.bay.type === 'lot' ? `停進停車場（每小時 ${chk.rate} 元），${go}` : `停好了！${go}`, 4);
   });
 }
 
@@ -793,11 +807,19 @@ function arrive() {
     if (G.parked.type === 'road') econ.addParking('road');
     if (G.parked.type === 'lot') econ.addLot((TIME.homeMin - G.parked.t) / 60, G.parked.rate);   // 停車場：停到 18:00 下班
     if (G.parked.type === 'ev') { const need = c.spec.capacity - c.energy; econ.day.charge += need * PAY.bayKwh; c.energy = c.spec.capacity; }
+    G.tow = null;
+    if (G.parked.illegal && towRoll(TOW.workP)) G.tow = { yard: towYard(world.districtAt(c.x, c.z)), towT: G.parked.t + 20 + Math.random() * Math.max(0, 17 * 60 - G.parked.t - 20) };   // 上班時被拖走（停好 20 分鐘後到 17:00 之間）
     G.amClock = G.clock;
     G.state = 'work'; setPrompt(''); input.releaseLock();
     const f = $('fade'); $('workText').textContent = (late > 0.5 ? `${fmtClock(G.clock)} 打卡，遲到 ${Math.round(late)} 分鐘` : `${fmtClock(G.clock)} 準時打卡`) + `　這趟 +${fmtMoney(payAm)}`;
     f.classList.add('on'); $('workCard').hidden = false;
     setTimeout(() => {
+      if (G.tow) {   // 下班走出公司：車不見了 → 搭計程車去保管場領車
+        G.leg = 'pm'; G.clock = TIME.homeMin; setSun('pm'); traffic.clear(); ctlReset('pm'); G.parked = null; G.legE0 = c.energy;
+        $('workText').textContent = `18:00 下班。走出公司，車子不見了：停在路邊被拖吊到「${G.tow.yard.n}」`;
+        setTimeout(() => { $('workCard').hidden = true; f.classList.remove('on'); towPickup(G.cfg.work.x, G.cfg.work.z); }, 3200);
+        return;
+      }
       // 下班：18:00 從公司門口出來，走回車上
       G.leg = 'pm'; G.phase = 'toCar'; G.clock = TIME.homeMin; setSun('pm'); traffic.clear(); ctlReset('pm');
       const w = G.cfg.work; P.x = w.x; P.z = w.z; P.y = world.groundAt(w.x, w.z); P.yaw = Math.atan2(-(car.x - P.x), -(car.z - P.z)); tp.yaw = P.yaw;
@@ -808,6 +830,8 @@ function arrive() {
     }, 3200);
   } else {
     if (G.parked.type === 'lot') econ.addLot((24 * 60 + TIME.startMin - G.parked.t) / 60, G.parked.rate);   // 停車場過夜：停到隔天 7:30 出門
+    // 晚上停路邊（違規）過夜：可能半夜被拖走，隔天早上出門才發現
+    G.towNext = G.parked.illegal && towRoll(TOW.nightP) ? { yi: TOW.yards.indexOf(towYard(world.districtAt(c.x, c.z))), towT: G.parked.t + 30 + Math.random() * 300 } : null;
     econ.homeTrip(); finishDay();
   }
 }
@@ -837,6 +861,7 @@ function finishDay() {
   if (r.stunt) rows.push([airHome > 0.005 ? `壓縮空氣（回家補 ${Math.round(airHome * 100)}%）` : '壓縮空氣補充', '−' + fmtMoney(r.stunt), '']);
   if (r.drone) rows.push(['無人機燃料', '−' + fmtMoney(r.drone), '']);
   if (r.repair) rows.push(['修車', '−' + fmtMoney(r.repair), 'bad']);
+  if (r.tow) rows.push(['拖吊（移置費、保管費、計程車）', '−' + fmtMoney(r.tow), 'bad']);
   rows.push(['今天淨賺', fmtMoney(r.net), r.net >= 0 ? 'good' : 'bad'], ['存款', fmtMoney(r.money), '']);
   $('sumStats').innerHTML = rows.map(([k, v, cl]) => `<dt>${k}</dt><dd class="${cl}">${v}</dd>`).join('');
   $('summary').hidden = false; refreshMoveBtn();
@@ -1125,7 +1150,7 @@ function walkFrame(dt) {
   if (dCar < 3.0) { setPrompt('<kbd>E</kbd> 上車'); if (input.pressed('KeyE')) enterCar(); }
   else if (G.phase === 'toDest' && dDest < 4.5) {
     if (G.parked && G.parked.legal) { setPrompt(G.leg === 'am' ? '打卡中…' : '到家了', 'good'); arrive(); }
-    else setPrompt('車還沒停進合法車格，回去停好', 'warn');
+    else setPrompt('車停得離這裡太遠，回車上開近一點再停', 'warn');
   } else setPrompt('');
 }
 
@@ -1291,8 +1316,11 @@ function driveFrame(dt) {
   let pr = '', cls = '';
   if (Math.abs(c.v) < 1.2) {
     const chk = dDest < 450 ? parkingCheck() : { bay: null };
-    if (chk.bay) { if (chk.ok) { pr = (chk.rate ? `已停妥（停車場每小時 ${chk.rate} 元）` : '已停妥') + '　<kbd>E</kbd> 下車'; cls = 'good'; } else { pr = chk.msg; cls = 'warn'; } }
-    else if (Math.abs(c.v) < 0.3) pr = '<kbd>E</kbd> 下車';
+    const stopped = Math.abs(c.v) < 0.3;
+    if (chk.ok) { pr = (chk.rate ? `已停妥（停車場每小時 ${chk.rate} 元）` : '已停妥') + '　<kbd>E</kbd> 下車'; cls = 'good'; }
+    else if (chk.bay) { pr = chk.msg + (stopped ? '　<kbd>E</kbd> 下車（算違規停車）' : ''); cls = 'warn'; }
+    else if (stopped && dDest < 450) { pr = '路邊不是停車格，可能被拖吊　<kbd>E</kbd> 下車'; cls = 'warn'; }
+    else if (stopped) pr = '<kbd>E</kbd> 下車';
   }
   if ((stunts && stunts.busy) || flying) { pr = ''; cls = ''; }
   if (G.seatAdj) { pr = '調整好座椅後按「開始開車」（或 Enter）'; cls = ''; }
@@ -1390,7 +1418,7 @@ function hud(dt) {
     }
   } else if (G.phase === 'toDest') {
     if (G.parked && G.parked.legal) { t = G.leg === 'am' ? `走進 ${d.n}` : '走回家'; sub = fmtDist(dist(P, d)); }
-    else { t = '車沒停好'; sub = '回到車上（藍色光柱）重新停進車格'; }
+    else { t = '車停太遠了'; sub = '回到車上（藍色光柱），開到 450 m 內再停'; }
   }
   $('taskText').textContent = t; $('taskSub').textContent = touchify(sub);
   const sb = $('stunt'), showS = !!(G.state === 'drive' && stunts);
@@ -1515,14 +1543,71 @@ const garageMark = (() => {
 function garageSpot() {
   const h = G.cfg.home; if (!h || !econ.has('garage') || !world) return null;
   if (G.garage && G.garage.hx === h.x && G.garage.hz === h.z) return G.garage;
-  const o = {}, e = world.nearestEdge(h.x, h.z, 150, (ed) => ed.cls >= 3 && ed.cls <= 6 && !ed.bridge && !ed.tunnel && ed.len > 16, o);
+  const sp = curbSpot(h.x, h.z); if (!sp) return null;
+  G.garage = Object.assign(sp, { hx: h.x, hz: h.z, type: 'garage' });
+  return G.garage;
+}
+/** (x,z) 旁邊最近的一般道路：靠 (x,z) 那一邊的路邊，車頭順著靠右行駛的方向。 */
+function curbSpot(x0, z0, r = 150) {
+  const o = {}, e = world.nearestEdge(x0, z0, r, (ed) => ed.cls >= 3 && ed.cls <= 6 && !ed.bridge && !ed.tunnel && ed.len > 16, o);
   if (!e) return null;
   const sMid = Math.max(e.trimA + 4, Math.min(e.len - e.trimB - 4, o.s)), p = edgePoint(e, sMid, {});
   let nx = -p.dz, nz = p.dx, fx = p.dx, fz = p.dz;
-  if ((h.x - p.x) * nx + (h.z - p.z) * nz < 0) { nx = -nx; nz = -nz; fx = -fx; fz = -fz; }   // 家在路的哪一邊：那一邊當作車子的右手邊
+  if ((x0 - p.x) * nx + (z0 - p.z) * nz < 0) { nx = -nx; nz = -nz; fx = -fx; fz = -fz; }   // 目標在路的哪一邊：那一邊當作車子的右手邊
   const off = Math.max(0, e.hw - 1.3), x = p.x + nx * off, z = p.z + nz * off;
-  G.garage = { x, z, y: p.y, psi: Math.atan2(-fx, -fz), hx: h.x, hz: h.z, type: 'garage', edge: e };
-  return G.garage;
+  return { x, z, y: p.y, psi: Math.atan2(-fx, -fz), nx, nz, edge: e };
+}
+// ===================================================================== 違規停車拖吊：保管場門口（紅色的格子＋「拖吊」牌子）
+const towRoll = (p) => (window.__tc.towForce !== undefined ? !!window.__tc.towForce : Math.random() < p);
+const towMark = (() => {
+  const g = new THREE.Group();
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff5b4f, transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false }));
+  pad.position.y = 0.07; pad.renderOrder = 3; g.add(pad);
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128; const c = cv.getContext('2d');
+  c.fillStyle = '#c62f25'; c.fillRect(0, 0, 256, 128); c.fillStyle = '#fff'; c.font = '900 56px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('拖吊保管場', 128, 66);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  for (const r of [0, Math.PI]) {   // 正反兩面都貼一張，兩邊看過來字都是正的
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.9), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+    sign.position.set(2.2, 2.7, 0); sign.rotation.y = r; g.add(sign);
+  }
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.7, 8), new THREE.MeshLambertMaterial({ color: 0x9aa3ab })); post.position.set(2.2, 1.35, 0); g.add(post);
+  g.visible = false; scene.add(g); return g;
+})();
+/** 被拖吊：從 (fx,fz) 搭計程車到保管場、繳移置費＋保管費，然後在保管場門口上車繼續（早上去上班、晚上回家）。 */
+function towPickup(fx, fz, lead = '') {
+  const T = G.tow, y = T.yard;
+  const km = Math.hypot(y.x - fx, y.z - fz) * 1.3 / 1000;          // 實際開的路比直線長約三成
+  const ride = Math.round(6 + km / 22 * 60);                       // 叫車約 6 分鐘＋市區平均時速約 22 km
+  const taxi = taxiFare(km, G.clock);
+  G.clock += ride;
+  const storage = towStorage((G.clock - T.towT) / 60);
+  econ.addTow(TOW.fee + storage + taxi);
+  G.towBill = { yard: y, taxi, storage, km, ride };
+  G.state = 'loading'; G.phase = 'room'; setPrompt(''); bayMarks.count = 0; destBeacon.visible = carBeacon.visible = false;
+  $('hud').hidden = true; $('touch').hidden = true; $('loading').hidden = false;
+  $('loadText').textContent = `${lead}搭計程車去「${y.n}」領車…`;
+  $('loadSub').textContent = `${y.a}・約 ${km.toFixed(1)} 公里、${ride} 分鐘`;
+  G.focus = { x: y.x, z: y.z }; traffic.clear();
+  G.wait = {
+    cond: () => world.readyAround(y.x, y.z, 260) && parking.readyAround(y.x, y.z, 120),
+    then: () => {
+      const sp = curbSpot(y.x, y.z, 400) || { x: y.x, z: y.z, y: world.groundAt(y.x, y.z), psi: 0, nx: 1, nz: 0 };
+      parking.forBaysNear(sp.x, sp.z, 9, (b) => { b.reserved = true; b.occupied = false; });
+      car.place(sp.x, sp.z, sp.psi, sp.y); car.v = 0;
+      towMark.position.set(sp.x, sp.y, sp.z); towMark.rotation.y = sp.psi; towMark.visible = true;
+      // 人站在路邊人行道上，面向車子
+      P.x = sp.x + sp.nx * 2.6 - Math.sin(sp.psi) * 3; P.z = sp.z + sp.nz * 2.6 - Math.cos(sp.psi) * 3;
+      const q = { x: P.x, z: P.z }; if (world.collide(q, 0.4)) { P.x = sp.x - sp.nx * 2.6; P.z = sp.z - sp.nz * 2.6; }
+      P.y = world.groundAt(P.x, P.z); P.yaw = Math.atan2(-(car.x - P.x), -(car.z - P.z)); tp.yaw = P.yaw; tp.dist = 4.4; tp.curDist = 4.4; tp.pitch = 0.22;
+      if (avatar && avatar.group.parent !== scene) scene.add(avatar.group);
+      P.inRoom = false; G.state = 'walk'; G.phase = 'toCar'; G.parked = null; G.homeBay = null;
+      camera.near = 0.15; camera.updateProjectionMatrix();
+      $('loading').hidden = true; $('hud').hidden = false; if (input.touch) $('touch').hidden = false;
+      traffic.update(0.016, P.x, P.z, [], true);
+      toast(`在${y.n}繳了移置費 ${TOW.fee.toLocaleString()} 元${storage ? `、保管費 ${storage} 元` : ''}（計程車 ${taxi} 元）。上車${G.leg === 'am' ? '去上班' : '回家'}`, 6);
+      G.tow = null;
+    },
+  };
 }
 // ===================================================================== 自動示範（選單按鈕或 F8）
 let AUTO = location.hash.includes('autotest') ? { t: 0 } : null;
@@ -1786,7 +1871,12 @@ function frame(dt) {
       const lb = flyingNow ? '取消飛行' : hyb ? (G.ctl && G.ctl.armed && ctl.t - G.ctl.at < 10 ? '現在飛' : '問總控') : '無人機';
       if (dbt.textContent !== lb) dbt.textContent = lb;
     }
-    for (const id of ['btnMirL', 'btnMirR']) { const el = $(id), on = drv && mirrorBtns; if (el && el.hidden === on) el.hidden = !on; }
+    for (const id of ['btnMirL', 'btnMirR']) { const el = $(id), on = drv && mirrorBtns && !flyingNow; if (el && el.hidden === on) el.hidden = !on; }
+    // 走路（房間裡、街上）：油門、煞車用不到，油門的位置換成「跑步」
+    const onFoot = st === 'walk' || st === 'room';
+    for (const id of ['btnGas', 'btnBrake']) { const el = $(id); if (el.hidden !== onFoot) el.hidden = onFoot; }
+    const rb = $('btnRun'); if (rb.hidden === onFoot) rb.hidden = !onFoot;
+    if (onFoot) { const rl = input.runOn ? '跑步中' : '跑步'; if (rb.textContent !== rl) { rb.textContent = rl; rb.classList.toggle('on', input.runOn); rb.setAttribute('aria-pressed', String(input.runOn)); } }
     const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : '動作') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : '動作') : st === 'room' ? '出門' : '動作';
     if (act && act.textContent !== lab) act.textContent = lab;
     const bc = $('btnCenter'), showC = !!(drv && cockpit && (Math.abs(cockpit.lookYaw) > 0.05 || Math.abs(cockpit.lookPitch) > 0.05) && !G.glance);

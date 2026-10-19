@@ -46,8 +46,29 @@ export function jobPay(work, district) {
 export const GARAGE = { core: 2800000, semi: 2200000, other: 1600000 };
 export function garagePrice(district) { return LIFE.core.includes(district) ? GARAGE.core : LIFE.semi.includes(district) ? GARAGE.semi : GARAGE.other; }
 // 停車場計時收費（元／小時）。真實的臺北市公有停車場小型車每小時 10～60 元（信義區的公有停車場 50～60 元；TVBS 汽車報導），
-// 遊戲用：蛋黃區 60、內湖 50、其他區 40。身上的錢不夠付就不能停（一開始沒錢只能停路邊）。
+// 遊戲用：蛋黃區 60、內湖 50、其他區 40。停車費在打卡（停到 18:00）和回家（過夜停到隔天 7:30）時算。
 export const LOT_RATE = { core: 60, semi: 50, other: 40 };
+// 違規停車拖吊（臺北市，2026 年起）：移置費小型車每次 1,500 元；保管費前 5 天每半天 200 元，進場 1 小時內領車免保管費，1～12 小時算半天
+//（臺北市政府警察局交通警察大隊「車輛遭違規拖吊如何查詢？如何領車？」）。
+// 保管場依車子被拖走的行政區（臺北市停車管理工程處「違規車輛拖吊保管場位置查詢」）；遊戲裡的位置是照地址找到那條路／巷口，大約在附近。
+// 被拖吊的機率是遊戲設定：上班時間停路邊 35%、晚上停路邊過夜 25%。
+export const TOW = {
+  fee: 1500, halfDay: 200, freeHr: 1,
+  workP: 0.35, nightP: 0.25,
+  yards: [
+    { n: '士林、北投保管場', a: '北投區福善路 122 號斜對面', d: ['士林區', '北投區'], x: -3782, z: -4362 },
+    { n: '中正、萬華保管場', a: '中正區泉州街 55 號對面', d: ['中正區', '萬華區'], x: -3129, z: 3560 },
+    { n: '大安、文山保管場', a: '大安區信義路三段 147 巷 10 號', d: ['大安區', '文山區'], x: -308, z: 2895 },
+    { n: '松山、內湖保管場', a: '內湖區新湖二路 191 巷 17 號斜對面', d: ['松山區', '內湖區'], x: 3620, z: -385 },
+    { n: '信義、南港保管場', a: '南港區忠孝東路六段 135 號旁', d: ['信義區', '南港區'], x: 4925, z: 1052 },
+    { n: '中山、大同保管場', a: '中山區建國北路二段 11 巷', d: ['中山區', '大同區'], x: -760, z: 710 },
+  ],
+};
+export function towYard(district) { return TOW.yards.find(y => y.d.includes(district)) || TOW.yards[2]; }
+/** 保管費：進場 1 小時內領車免費，之後每 12 小時（半天）200 元。 */
+export function towStorage(hours) { return hours <= TOW.freeHr ? 0 : Math.ceil(hours / 12 - 1e-9) * TOW.halfDay; }
+// 臺北市計程車：起程 1.25 公里 85 元，續程每 200 公尺 5 元；晚上 11 點到早上 6 點每趟加 20 元（旺得富理財網 2026 年報導）。
+export function taxiFare(km, clockMin) { const night = clockMin % 1440 >= 23 * 60 || clockMin % 1440 < 6 * 60; return 85 + Math.max(0, Math.ceil((km - 1.25) / 0.2 - 1e-9)) * 5 + (night ? 20 : 0); }
 export function lotRate(district) { return LIFE.core.includes(district) ? LOT_RATE.core : LIFE.semi.includes(district) ? LOT_RATE.semi : LOT_RATE.other; }
 /** 這個住址每天的住的費用：{ kind: '房租'|'房貸', perDay }。district：住址所在的行政區名稱。 */
 export function homeCost(home, district) {
@@ -74,7 +95,7 @@ export const AIR = {
 export const PRICE_RULE = { tripsPerDay: 2, perMin: PAY.latePerMin, carBase: 2000000, carDays: 60, upgradeDays: 10 };
 // 每趟平均省下的遊戲分鐘數：2026/10/17 尖峰時段（車流 1.8 倍）實測，取中位數。
 //   導航：300 組住家→公司，最快路線 vs「沒有導航、只看方向箭頭」的開法（每個路口往前看 3 個路口選路），tests/nav_saving.mjs → 11 分。
-//   電動車：18 個公司附近，最近的空路邊格（早上 110 m 內停滿）vs 最近的電動車格，差的走路時間，tests/ev_measure.mjs → 約 0.2 分。
+//   電動車：18 個公司附近，最近的空路邊格（當時的設定：早上 110 m 內停滿，現在已拿掉）vs 最近的電動車格，差的走路時間，tests/ev_measure.mjs → 約 0.2 分。
 //   飛天跑車：8 組，同一條路線在車流裡開，一般車 vs 塞住時飛越車陣（每趟最多 3 次），tests/measure2.mjs → 20 分。
 //   無人機：7 組，一般車開 vs 用無人機飛（含避撞、等降落），tests/measure2.mjs → 82 分（飛一趟約 12～14 分鐘）。
 //   模擬的尖峰車速中位數 15 km/h（TomTom 2025 臺北：早上尖峰 19 km/h、晚上 15 km/h）。
@@ -160,7 +181,7 @@ export class Economy {
   }
 
   /** 一天開始。 */
-  startDay() { this.day = { pay: 0, payAm: 0, payPm: 0, late: 0, energy: 0, parking: 0, charge: 0, stunt: 0, drone: 0, repair: 0, lines: [] }; }
+  startDay() { this.day = { pay: 0, payAm: 0, payPm: 0, late: 0, energy: 0, parking: 0, charge: 0, stunt: 0, drone: 0, repair: 0, tow: 0, lines: [] }; }
   /** 晚上回到家：用家裡的壓縮機把空氣罐補滿，回傳補的量（0..1）。錢算在今天。 */
   refillAirHome() { const f = Math.max(0, 1 - this.stuntFuel); this.day.stunt += f * AIR.homePrice; this.stuntFuel = 1; return f; }
   /** 在充電格補氣（每幀呼叫）。 */
@@ -185,14 +206,16 @@ export class Economy {
   /** 停車場計時：停了幾小時（不足一小時算一小時）× 每小時費率。 */
   addLot(hours, rate) { const fee = Math.ceil(Math.max(0, hours) - 1e-6) * rate; this.day.parking += fee; return fee; }
   addDrone(cost) { this.day.drone += cost; }
+  /** 被拖吊：移置費＋保管費＋搭計程車去保管場。 */
+  addTow(cost) { this.day.tow = (this.day.tow || 0) + cost; }
   addRepair(cost) { this.day.repair = (this.day.repair || 0) + cost; }
   /** 一天結束：結算，回傳明細。 */
   endDay(km) {
-    const d = this.day, housing = this.home.perDay, spend = Math.round(housing + d.energy + d.parking + d.charge + d.stunt + d.drone + (d.repair || 0));
+    const d = this.day, housing = this.home.perDay, spend = Math.round(housing + d.energy + d.parking + d.charge + d.stunt + d.drone + (d.repair || 0) + (d.tow || 0));
     const net = Math.round(d.pay) - spend;
     this.money += net; this.totals.days++; this.totals.km += km; if (d.late) this.totals.late++;
     this.totals.earned += Math.round(d.pay); this.totals.spent += spend;
-    return { pay: Math.round(d.pay), payAm: Math.round(d.payAm), payPm: Math.round(d.payPm), trip: this.tripPay, housing, housingKind: this.home.kind, late: d.late, energy: Math.round(d.energy), parking: Math.round(d.parking), stunt: Math.round(d.stunt), drone: Math.round(d.drone), repair: Math.round(d.repair || 0), spend, net, money: this.money };
+    return { pay: Math.round(d.pay), payAm: Math.round(d.payAm), payPm: Math.round(d.payPm), trip: this.tripPay, housing, housingKind: this.home.kind, late: d.late, energy: Math.round(d.energy), parking: Math.round(d.parking), stunt: Math.round(d.stunt), drone: Math.round(d.drone), repair: Math.round(d.repair || 0), tow: Math.round(d.tow || 0), spend, net, money: this.money };
   }
 }
 
