@@ -12,8 +12,6 @@ export const PAY = {
   gasPrice: 30,         // 汽油（元／公升）
   homeKwh: 4,           // 在家充電（元／度）
   bayKwh: 6,            // 停車場電動車格充電（元／度）
-  roadParkHr: 30,       // 路邊停車（元／小時），上班 9 小時
-  workHours: 9,
 };
 
 // 飛天跑車的壓縮空氣罐（推進器、垂直升空、吸附風扇都靠它）。
@@ -46,8 +44,12 @@ export function jobPay(work, district) {
 export const GARAGE = { core: 2800000, semi: 2200000, other: 1600000 };
 export function garagePrice(district) { return LIFE.core.includes(district) ? GARAGE.core : LIFE.semi.includes(district) ? GARAGE.semi : GARAGE.other; }
 // 停車場計時收費（元／小時）。真實的臺北市公有停車場小型車每小時 10～60 元（信義區的公有停車場 50～60 元；TVBS 汽車報導），
-// 遊戲用：蛋黃區 60、內湖 50、其他區 40。停車費在打卡（停到 18:00）和回家（過夜停到隔天 7:30）時算。
+// 遊戲用：蛋黃區 60、內湖 50、其他區 40（停車場裡的電動車格也照這個收停車費，充電另外算）。停車費在打卡（停到 18:00）和回家（過夜停到隔天 7:30）時算。
 export const LOT_RATE = { core: 60, semi: 50, other: 40 };
+// 路邊停車格也按小時收費：一般路段每小時 30～40 元、鬧區 40～60 元（glike「台北路邊停車收費完整指南 2026」，以現場牌面為準）。
+// 遊戲用：蛋黃區 50、內湖 40、其他區 30。停多久算多久（不滿一小時算一小時），晚上停過夜也照算。
+export const ROAD_RATE = { core: 50, semi: 40, other: 30 };
+export function roadRate(district) { return LIFE.core.includes(district) ? ROAD_RATE.core : LIFE.semi.includes(district) ? ROAD_RATE.semi : ROAD_RATE.other; }
 // 違規停車拖吊（臺北市，2026 年起）：移置費小型車每次 1,500 元；保管費前 5 天每半天 200 元，進場 1 小時內領車免保管費，1～12 小時算半天
 //（臺北市政府警察局交通警察大隊「車輛遭違規拖吊如何查詢？如何領車？」）。
 // 保管場依車子被拖走的行政區（臺北市停車管理工程處「違規車輛拖吊保管場位置查詢」）；遊戲裡的位置是照地址找到那條路／巷口，大約在附近。
@@ -200,10 +202,7 @@ export class Economy {
     const cost = spec.electric ? used * (atHome ? PAY.homeKwh : PAY.bayKwh) : used * PAY.gasPrice;
     this.day.energy += cost;
   }
-  addParking(type) {
-    if (type === 'road') this.day.parking += PAY.roadParkHr * PAY.workHours;
-  }
-  /** 停車場計時：停了幾小時（不足一小時算一小時）× 每小時費率。 */
+  /** 停車費（路邊停車格、停車場都一樣）：停了幾小時（不足一小時算一小時）× 每小時費率。 */
   addLot(hours, rate) { const fee = Math.ceil(Math.max(0, hours) - 1e-6) * rate; this.day.parking += fee; return fee; }
   addDrone(cost) { this.day.drone += cost; }
   /** 被拖吊：移置費＋保管費＋搭計程車去保管場。 */
