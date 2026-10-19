@@ -21,7 +21,7 @@ import { CityMap } from './citymap.js';
 import { edgePoint } from './world.js';
 import { DenseSky, SKY } from './sky.js';
 import { DemoRunner, DEMOS } from './demo.js';
-import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES, lotRate, TOW, towYard, towStorage, taxiFare } from './economy.js';
+import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES, lotRate, roadRate, TOW, towYard, towStorage, taxiFare } from './economy.js';
 import { VIEW, TIME, PARK, WORK_DIST, RUSH, FEATURES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
@@ -753,9 +753,9 @@ function enterCar() {
 
 const _err = { along: 0, lat: 0, ang: 0 };
 function bayAllowed(b) { return b.type === 'road' || (b.type === 'ev' && !!car.spec.electric); }   // 電動車（含飛天跑車）可以停電動車格（示範自動停車只用這兩種）
-/** 停車場計時：這格每小時多少錢、停到什麼時候（早上停到 18:00 下班，晚上停到隔天 7:30 出門）。 */
+/** 停車費（路邊停車格、停車場、停車場裡的電動車格都按小時算）：這格每小時多少錢、停到什麼時候（早上停到 18:00 下班，晚上停到隔天 7:30 出門）。 */
 function lotInfo(b) {
-  if (!b.rate) b.rate = lotRate(world.districtAt(b.x, b.z) || '');
+  if (!b.rate) { const dn = world.districtAt(b.x, b.z) || ''; b.rate = b.type === 'road' ? roadRate(dn) : lotRate(dn); }
   const hrs = G.leg === 'am' ? (TIME.homeMin - G.clock) / 60 : (24 * 60 + TIME.startMin - G.clock) / 60;
   return { rate: b.rate, fee: Math.ceil(Math.max(0, hrs) - 1e-6) * b.rate };
 }
@@ -767,11 +767,11 @@ function parkingCheck() {
   const b = parking.bayAt(car.x, car.z, car.psi, _err);
   if (!b) return { bay: null, ok: false, msg: '' };
   if (b.type === 'ev' && !car.spec.electric) return { bay: b, ok: false, kind: 'evgas', msg: '電動車專用格，油車停這裡算違規' };
-  const lot = b.type === 'lot' ? lotInfo(b) : null;
+  const lot = b.type === 'garage' ? null : lotInfo(b);
   if (Math.abs(_err.ang) > PARK.angTol) return { bay: b, ok: false, kind: 'align', msg: '車身要擺正' };
   if (Math.abs(_err.lat) > PARK.latTol) return { bay: b, ok: false, kind: 'align', msg: '壓到格線了，往格子中間一點' };
   if (Math.abs(_err.along) > PARK.posTol) return { bay: b, ok: false, kind: 'align', msg: _err.along > 0 ? '再往後一點' : '再往前一點' };
-  return { bay: b, ok: true, msg: lot ? `停車場 每小時 ${lot.rate} 元` : '已停妥', rate: lot && lot.rate };
+  return { bay: b, ok: true, msg: lot ? `${b.type === 'road' ? '路邊停車格' : '停車場'}每小時 ${lot.rate} 元` : '已停妥', rate: lot && lot.rate };
 }
 function exitCar() {
   if (flight && flight.active) { toast('飛行中不能下車', 1.6); return; }
@@ -793,7 +793,7 @@ function exitCar() {
     const where = G.leg === 'am' ? '公司' : '家', go = G.leg === 'am' ? '走去公司打卡' : '走回家';
     toast(!G.parked.legal ? `這裡離${where}太遠（要 450 m 內），回車上開近一點再停`
       : G.parked.illegal ? (chk.kind === 'evgas' ? `油車停電動車專用格算違規，可能被拖吊。${go}` : chk.kind === 'align' ? `沒停進格子裡（${chk.msg}），算違規停車，可能被拖吊。${go}` : `停在路邊（不是停車格），可能被拖吊。${go}`)
-      : chk.bay.type === 'ev' ? `停進電動車格（會順便充電），${go}` : chk.bay.type === 'garage' ? `停進自己的地下停車位，${go}` : chk.bay.type === 'lot' ? `停進停車場（每小時 ${chk.rate} 元），${go}` : `停好了！${go}`, 4);
+      : chk.bay.type === 'ev' ? `停進電動車格（停車每小時 ${chk.rate} 元，會順便充電），${go}` : chk.bay.type === 'garage' ? `停進自己的地下停車位，${go}` : chk.bay.type === 'lot' ? `停進停車場（每小時 ${chk.rate} 元），${go}` : `停好了（路邊停車格每小時 ${chk.rate} 元），${go}`, 4);
   });
 }
 
@@ -804,8 +804,7 @@ function arrive() {
   if (G.leg === 'am') {
     const late = Math.max(0, G.clock - TIME.workMin);
     const payAm = econ.clockIn(late);
-    if (G.parked.type === 'road') econ.addParking('road');
-    if (G.parked.type === 'lot') econ.addLot((TIME.homeMin - G.parked.t) / 60, G.parked.rate);   // 停車場：停到 18:00 下班
+    if (G.parked.rate) econ.addLot((TIME.homeMin - G.parked.t) / 60, G.parked.rate);   // 停車費按小時：停到 18:00 下班
     if (G.parked.type === 'ev') { const need = c.spec.capacity - c.energy; econ.day.charge += need * PAY.bayKwh; c.energy = c.spec.capacity; }
     G.tow = null;
     if (G.parked.illegal && towRoll(TOW.workP)) G.tow = { yard: towYard(world.districtAt(c.x, c.z)), towT: G.parked.t + 20 + Math.random() * Math.max(0, 17 * 60 - G.parked.t - 20) };   // 上班時被拖走（停好 20 分鐘後到 17:00 之間）
@@ -829,7 +828,7 @@ function arrive() {
       toast('18:00 下班了，走回車上開回家');
     }, 3200);
   } else {
-    if (G.parked.type === 'lot') econ.addLot((24 * 60 + TIME.startMin - G.parked.t) / 60, G.parked.rate);   // 停車場過夜：停到隔天 7:30 出門
+    if (G.parked.rate) econ.addLot((24 * 60 + TIME.startMin - G.parked.t) / 60, G.parked.rate);   // 停車費按小時：過夜停到隔天 7:30 出門
     // 晚上停路邊（違規）過夜：可能半夜被拖走，隔天早上出門才發現
     G.towNext = G.parked.illegal && towRoll(TOW.nightP) ? { yi: TOW.yards.indexOf(towYard(world.districtAt(c.x, c.z))), towT: G.parked.t + 30 + Math.random() * 300 } : null;
     econ.homeTrip(); finishDay();
@@ -1317,7 +1316,7 @@ function driveFrame(dt) {
   if (Math.abs(c.v) < 1.2) {
     const chk = dDest < 450 ? parkingCheck() : { bay: null };
     const stopped = Math.abs(c.v) < 0.3;
-    if (chk.ok) { pr = (chk.rate ? `已停妥（停車場每小時 ${chk.rate} 元）` : '已停妥') + '　<kbd>E</kbd> 下車'; cls = 'good'; }
+    if (chk.ok) { pr = (chk.rate ? `已停妥（${chk.bay.type === 'road' ? '路邊停車格' : '停車場'}每小時 ${chk.rate} 元）` : '已停妥') + '　<kbd>E</kbd> 下車'; cls = 'good'; }
     else if (chk.bay) { pr = chk.msg + (stopped ? '　<kbd>E</kbd> 下車（算違規停車）' : ''); cls = 'warn'; }
     else if (stopped && dDest < 450) { pr = '路邊不是停車格，可能被拖吊　<kbd>E</kbd> 下車'; cls = 'warn'; }
     else if (stopped) pr = '<kbd>E</kbd> 下車';
