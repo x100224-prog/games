@@ -27,7 +27,7 @@ import { VIEW, TIME, PARK, WORK_DIST, RUSH, FEATURES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 // 目前已經做好、可以買的項目（其他的會顯示「製作中」）
-const READY = { nav: true, ev: true, roadster: true, drone: true, garage: true };
+const READY = { nav: true, ev: true, roadster: true, drone: true, garage: true, curbspot: true };
 
 // ===================================================================== 場景與光線
 const canvas = $('view');
@@ -143,6 +143,43 @@ function buildRoom() {
     piano: { x: px, z: pz - 0.74, yaw: Math.PI }, guitar: { x: 1.55, z: 0.45, yaw: -Math.PI / 2 }, gtr, gtrHome: { p: gtr.position.clone(), r: gtr.rotation.clone() } };
 }
 const room = buildRoom();
+
+// ===================================================================== 地下室（買了住處地下停車位才會去）：自己的車停在中間的格子，牆上有電梯回家
+function buildBasement() {
+  const s = new THREE.Scene(); s.background = new THREE.Color(0x15181c);
+  s.add(new THREE.HemisphereLight(0xe8f0ff, 0x4a4a48, 1.8));
+  for (const x of [-3.5, 3.5]) { const l = new THREE.PointLight(0xeaf4ff, 10, 14, 1.4); l.position.set(x, 2.4, 0.5); s.add(l); }
+  const W = 12, D = 9, H = 2.7, boxes = [];
+  const M = (c) => new THREE.MeshLambertMaterial({ color: c });
+  const box = (w, h, d, x, y, z, c, solid = true) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M(c)); m.position.set(x, y, z); s.add(m); if (solid) boxes.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, h: y + h / 2 }); return m; };
+  const shell = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), [M(0x9a9c98), M(0x9a9c98), M(0xb9bbb6), M(0x55595c), M(0x8e908c), M(0x8e908c)]);
+  shell.material.forEach(m => { m.side = THREE.BackSide; }); shell.position.y = H / 2; s.add(shell);
+  box(W, 0.01, 1.6, 0, 0.006, -2.6, 0x4f7a5a, false);                            // 綠色走道
+  for (const x of [-4.2, 4.2]) box(0.5, H, 0.5, x, H / 2, 0.6, 0xb4b6b1);         // 柱子
+  for (const x of [-4.2, -1.4, 1.4, 4.2]) box(0.08, 0.012, 4.6, x, 0.008, 2.15, 0xf2f2ea, false);   // 車格線
+  box(2.6, 0.012, 0.08, 0, 0.008, -0.1, 0xf2f2ea, false);
+  for (const x of [-2.8, 2.8]) {   // 鄰居的車（簡單的方塊）
+    box(1.8, 0.7, 4.3, x, 0.45, 2.3, x < 0 ? 0x6d7f8f : 0x8b2f2f); box(1.6, 0.55, 2.2, x, 1.05, 2.5, 0x2a2f36);
+  }
+  for (const x of [-3.5, 0, 3.5]) { const l = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.04, 0.18), new THREE.MeshBasicMaterial({ color: 0xf4fbff })); l.position.set(x, H - 0.03, 0.5); s.add(l); }
+  box(1.2, 2.1, 0.06, -4, 1.05, -4.47, 0x9fa7ae, false);                         // 電梯門
+  box(0.04, 2.1, 0.07, -4, 1.05, -4.46, 0x6b737a, false);
+  box(2.4, 2.2, 0.06, 4.6, 1.1, 4.47, 0x2a2d31, false);                          // 車道出口
+  const label = (text, bg, x, y, z, ry, w = 1.0) => {
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 96;
+    const g = cv.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, 256, 96);
+    g.fillStyle = '#fff'; g.font = '900 44px "Noto Sans TC", "PingFang TC", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 128, 50);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 0.375), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false })); m.position.set(x, y, z); m.rotation.y = ry; s.add(m);
+  };
+  label('電梯 → 家', '#0b6b4f', -4, 2.35, -4.44, 0);
+  label('出口 ↑', '#8a5a00', 4.6, 2.42, 4.43, Math.PI, 0.8);
+  label('B1', '#30343a', 0, 1.8, 4.44, Math.PI, 0.6);
+  return { scene: s, boxes, W, D, H, car: { x: 0, z: 2.25, psi: Math.PI }, lift: { x: -4, z: -3.6 } };
+}
+const basement = buildBasement();
+// 車子在地下室時佔的位置（人不能穿過去）
+basement.boxes.push({ x0: -0.95, x1: 0.95, z0: 0.0, z1: 4.5, h: 1.4 });
 
 // ===================================================================== 狀態
 const input = new Input(canvas, $('touch'));
@@ -673,7 +710,7 @@ function makeCar(key) {
   applyComfort();
 }
 function toMenu() {
-  stopInstrument(true);
+  stopInstrument(true); leaveBasement();
   input.enabled = false; input.releaseLock(); engine.shutdown();
   G.state = 'menu'; $('hud').hidden = true; $('menu').hidden = false; $('touch').hidden = true;
   destBeacon.visible = carBeacon.visible = false; bayMarks.count = 0; routeLine.visible = false;
@@ -695,6 +732,7 @@ function startDay() {
   const h = G.cfg.home;
   if (!car || car.spec.key !== econ.carKey) makeCar(econ.carKey);
   renderHelp();
+  leaveBasement();
   G.state = 'loading'; G.leg = 'am'; G.phase = 'room'; G.parked = null; G.clock = TIME.startMin;
   setSun('am'); applyMode(); ctlReset('am');
   $('hud').hidden = true; $('loading').hidden = false;
@@ -713,7 +751,8 @@ function startDay() {
     then: () => {
       parking.setDay(G.dayN); workParking();
       let bay = null; const gs = garageSpot(); G.atGarage = !!gs;
-      garageMark.visible = !!gs; if (gs) { garageMark.position.set(gs.x, gs.y, gs.z); garageMark.rotation.y = gs.psi; parking.forBaysNear(gs.x, gs.z, 9, (b) => { b.reserved = true; b.occupied = false; }); }
+      garageMark.visible = !!gs && gs.type === 'garage'; curbMark.visible = !!gs && gs.type === 'curb';
+      if (gs) { for (const mk of [garageMark, curbMark]) { mk.position.set(gs.x, gs.y, gs.z); mk.rotation.y = gs.psi; } parking.forBaysNear(gs.x, gs.z, 9, (b) => { b.reserved = true; b.occupied = false; }); }
       let street = null;
       if (gs || G.tow) { /* 有地下停車位：車子從自己的車位出發；被拖吊：車子在保管場 */ }
       else if (G.homeCar) { const err = {}; bay = parking.bayAt(G.homeCar.x, G.homeCar.z, G.homeCar.psi, err); if (bay) { bay.reserved = true; bay.occupied = false; } else street = G.homeCar; }   // 昨晚停路邊（沒被拖走）：車子還在原地
@@ -753,6 +792,7 @@ function leaveRoom() {
     fadeThen(() => { if (avatar) scene.add(avatar.group); P.inRoom = false; towPickup(G.cfg.home.x, G.cfg.home.z, '車子不見了：昨晚停在路邊被拖吊了。'); });
     return;
   }
+  if (G.atGarage && econ.has('garage')) { G.stats.leave = G.clock; fadeThen(() => enterBasement('am')); return; }
   fadeThen(() => {
     const h = G.cfg.home;
     G.state = 'walk'; G.phase = 'toCar'; P.inRoom = false;
@@ -763,7 +803,7 @@ function leaveRoom() {
     camera.near = 0.15; camera.updateProjectionMatrix();
     traffic.update(0.016, P.x, P.z, [], true);
     const hb = G.homeBay;
-    toast(G.atGarage ? '車在家樓下的地下停車位（家門口紫色的 P），跟著藍色光柱走過去'
+    toast(G.atGarage ? '車停在家門口的住戶專用車位（藍色的 P），跟著藍色光柱走過去'
       : hb && !hb.edge ? '車停在附近的停車場，跟著藍色光柱走過去'
       : `車停在${hb && hb.edge.name ? hb.edge.name + '的' : ''}路邊，跟著藍色光柱走過去`);
   });
@@ -772,6 +812,7 @@ function leaveRoom() {
 let seatShown = false;
 function enterCar() {
   fadeThen(() => {
+    if (G.inBasement) { leaveBasement(); const gs = garageSpot(); if (gs) car.place(gs.x, gs.z, gs.psi, gs.y); toast('從地下室開出來了', 2); }
     G.state = 'drive'; G.phase = 'drive'; G.parked = null;
     if (avatar) avatar.group.visible = false;
     audioStart(); engine.ignite();
@@ -795,7 +836,7 @@ function lotInfo(b) {
 function canPark(b) { return bayAllowed(b) || b.type === 'lot'; }
 function parkingCheck() {
   const gs = G.leg === 'pm' ? garageSpot() : null;
-  if (gs && Math.hypot(car.x - gs.x, car.z - gs.z) < 7) return { bay: gs, ok: true, msg: '停進自己的地下停車位' };
+  if (gs && Math.hypot(car.x - gs.x, car.z - gs.z) < 7) return gs.type === 'garage' ? { bay: gs, ok: true, under: true, msg: '地下停車場入口' } : { bay: gs, ok: true, msg: '停進自己的住戶專用車位' };
   const b = parking.bayAt(car.x, car.z, car.psi, _err);
   if (!b) return { bay: null, ok: false, msg: '' };
   if (b.type === 'ev' && !car.spec.electric) return { bay: b, ok: false, kind: 'evgas', msg: '電動車專用格，油車停這裡算違規' };
@@ -814,6 +855,11 @@ function exitCar() {
   // legal：離目的地夠近、可以走過去了（違規停車也算，只是可能被拖吊）
   G.parked = { legal: near, illegal: !chk.ok, ok: chk.ok, bay: chk.ok ? chk.bay : null, type: chk.ok ? chk.bay.type : 'street', rate: chk.rate || 0, t: G.clock };
   if (chk.ok && chk.bay) { chk.bay.reserved = true; chk.bay.occupied = false; }   // 自己的車停在這格（之後重新佈置車格也不會被別台車占走）
+  if (chk.under && near) {   // 開進自己家的地下室：在地下室下車，搭電梯回家
+    G.phase = 'toDest'; engine.shutdown(); engine.stunt(0, 0); routeLine.visible = false;
+    fadeThen(() => enterBasement('pm'));
+    return;
+  }
   G.phase = 'toDest'; engine.shutdown(); engine.stunt(0, 0);
   fadeThen(() => {
     const lx = -Math.cos(car.psi), lz = Math.sin(car.psi);
@@ -825,7 +871,7 @@ function exitCar() {
     const where = G.leg === 'am' ? '公司' : '家', go = G.leg === 'am' ? '走去公司打卡' : '走回家';
     toast(!G.parked.legal ? `這裡離${where}太遠（要 450 m 內），回車上開近一點再停`
       : G.parked.illegal ? (chk.kind === 'evgas' ? `油車停電動車專用格算違規，可能被拖吊。${go}` : chk.kind === 'align' ? `沒停進格子裡（${chk.msg}），算違規停車，可能被拖吊。${go}` : `停在路邊（不是停車格），可能被拖吊。${go}`)
-      : chk.bay.type === 'ev' ? `停進電動車格（停車每小時 ${chk.rate} 元，會順便充電），${go}` : chk.bay.type === 'garage' ? `停進自己的地下停車位，${go}` : chk.bay.type === 'lot' ? `停進停車場（每小時 ${chk.rate} 元），${go}` : `停好了（路邊停車格每小時 ${chk.rate} 元），${go}`, 4);
+      : chk.bay.type === 'ev' ? `停進電動車格（停車每小時 ${chk.rate} 元，會順便充電），${go}` : chk.bay.type === 'curb' ? `停進家門口的住戶專用車位，${go}` : chk.bay.type === 'lot' ? `停進停車場（每小時 ${chk.rate} 元），${go}` : `停好了（路邊停車格每小時 ${chk.rate} 元），${go}`, 4);
   });
 }
 
@@ -917,8 +963,9 @@ function renderShop() {
     if (owned) { b.textContent = '已擁有'; b.disabled = true; }
     else if (!ready) { b.textContent = '製作中'; b.disabled = true; }
     else if (it.requires && !econ.has(it.requires)) { b.textContent = '要先有飛天跑車'; b.disabled = true; }
+    else if (it.key === 'curbspot' && econ.has('garage')) { b.textContent = '已經有地下停車位'; b.disabled = true; }
     else if (econ.money < p) { b.textContent = `還差 ${fmtMoney(p - econ.money)}`; b.disabled = true; }
-    else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(!r.ok ? r.msg : it.kind === 'home' ? `${r.msg}：明天起車子停在家樓下，回家開到家門口紫色的 P 就停好了` : `${r.msg}：上路時會告訴你怎麼用。也多了一次換住址或工作的機會（在結算畫面）`, 3.5); save(); renderShop(); renderHelp(); }; }
+    else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(!r.ok ? r.msg : it.key === 'garage' ? `${r.msg}：家裡多了一層地下室。明天起早上搭電梯下樓就能開車，回家開到家門口紫色的 P（地下停車場入口）就會開進地下室` : it.key === 'curbspot' ? `${r.msg}：明天起車子停在家門口的住戶專用車位，回家停進藍色的 P 就好` : `${r.msg}：上路時會告訴你怎麼用。也多了一次換住址或工作的機會（在結算畫面）`, 3.5); save(); renderShop(); renderHelp(); }; }
     d.appendChild(b); box.appendChild(d);
   }
   const cars = econ.cars(), names = { gas: '油車', ev: '電動車', roadster: '飛天跑車' };
@@ -1152,6 +1199,58 @@ function roomFrame(dt) {
   world.update(G.cfg.home.x, G.cfg.home.z, dt);
   parking.update(dt, G.cfg.home.x, G.cfg.home.z);
 }
+// ===================================================================== 地下室
+function enterBasement(leg) {
+  G.state = 'basement'; G.inBasement = true; P.inRoom = true; P.y = 0;
+  const B = basement;
+  basement.scene.add(car.group); car.group.position.set(B.car.x, 0, B.car.z); car.group.rotation.set(0, B.car.psi, 0); car.body.visible = true;
+  if (avatar) { basement.scene.add(avatar.group); avatar.group.visible = true; }
+  destBeacon.visible = carBeacon.visible = false; bayMarks.count = 0; routeLine.visible = false;
+  camera.near = 0.05; camera.updateProjectionMatrix();
+  if (leg === 'am') { P.x = B.lift.x + 0.4; P.z = B.lift.z + 0.6; G.phase = 'toCar'; toast('搭電梯下樓到地下室了，你的車停在中間那一格', 3); }
+  else { P.x = B.car.x - 1.5; P.z = B.car.z - 0.6; G.phase = 'toDest'; toast('開進家裡的地下室停好了，搭電梯回家', 3); }
+  P.yaw = Math.atan2(-((leg === 'am' ? B.car.x : B.lift.x) - P.x), -((leg === 'am' ? B.car.z : B.lift.z) - P.z)); tp.yaw = P.yaw; tp.dist = 3.2; tp.curDist = 3.2; tp.pitch = 0.32;
+  $('hud').hidden = false; if (input.touch) $('touch').hidden = false;
+}
+/** 把車子和人放回城市（從地下室開出去，或搭電梯回家之前）。 */
+function leaveBasement() {
+  if (!G.inBasement) return;
+  scene.add(car.group); if (avatar) scene.add(avatar.group);
+  G.inBasement = false; P.inRoom = false;
+  camera.near = 0.15; camera.updateProjectionMatrix();
+}
+const basementBlocked = (x, y, z) => {
+  const B = basement, m = 0.12;
+  if (x < -B.W / 2 + m || x > B.W / 2 - m || z < -B.D / 2 + m || z > B.D / 2 - m || y > B.H - 0.1) return true;
+  for (const b of B.boxes) if (x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1 && y < b.h) return true;
+  return false;
+};
+function basementFrame(dt) {
+  tp.input(input.lookX, input.lookY);
+  const ox = P.x, oz = P.z, B = basement;
+  stepWalk(dt);
+  const m = 0.3;
+  P.x = Math.max(-B.W / 2 + m, Math.min(B.W / 2 - m, P.x)); P.z = Math.max(-B.D / 2 + m, Math.min(B.D / 2 - m, P.z));
+  for (const b of B.boxes) {
+    if (P.x > b.x0 - m && P.x < b.x1 + m && P.z > b.z0 - m && P.z < b.z1 + m) {
+      const dx0 = P.x - (b.x0 - m), dx1 = b.x1 + m - P.x, dz0 = P.z - (b.z0 - m), dz1 = b.z1 + m - P.z, mn = Math.min(dx0, dx1, dz0, dz1);
+      if (mn === dx0) P.x = b.x0 - m; else if (mn === dx1) P.x = b.x1 + m; else if (mn === dz0) P.z = b.z0 - m; else P.z = b.z1 + m;
+    }
+  }
+  P.speed = Math.hypot(P.x - ox, P.z - oz) / Math.max(dt, 1e-4);
+  if (avatar) avatar.update(dt, P.x, 0, P.z, P.yaw, P.speed);
+  tp.update(dt, P.x, 0, P.z, basementBlocked, () => 0);
+  const nearCar = Math.hypot(P.x - B.car.x, P.z - B.car.z) < 3.0, nearLift = Math.hypot(P.x - B.lift.x, P.z - B.lift.z) < 1.4;
+  G.bNear = G.phase === 'toCar' && nearCar ? 'car' : G.phase === 'toDest' && nearLift ? 'lift' : '';
+  setPrompt(G.bNear === 'car' ? '<kbd>E</kbd> 上車' : G.bNear === 'lift' ? '<kbd>E</kbd> 搭電梯回家' : G.phase === 'toCar' ? '走到你的車' : '走到電梯（綠色的牌子）');
+  if (input.pressed('KeyE')) {
+    if (G.bNear === 'car') enterCar();
+    else if (G.bNear === 'lift') { const gs = garageSpot(); leaveBasement(); if (gs) car.place(gs.x, gs.z, gs.psi, gs.y); setPrompt('到家了', 'good'); arrive(); }
+  }
+  world.update(G.cfg.home.x, G.cfg.home.z, dt);
+  parking.update(dt, G.cfg.home.x, G.cfg.home.z);
+}
+
 // ===================================================================== 房間裡的鋼琴、吉他（照《雞不可失》的練法）
 // 一天只算一次練習：第一天很不順、第二天好一點、第三天起就順了（中間沒練不會退步）。彈的時候配樂先收起來。
 const INST_LINES = {
@@ -1411,7 +1510,8 @@ function driveFrame(dt) {
   if (Math.abs(c.v) < 1.2) {
     const chk = dDest < 450 ? parkingCheck() : { bay: null };
     const stopped = Math.abs(c.v) < 0.3;
-    if (chk.ok) { pr = (chk.rate ? `已停妥（${chk.bay.type === 'road' ? '路邊停車格' : '停車場'}每小時 ${chk.rate} 元）` : '已停妥') + '　<kbd>E</kbd> 下車'; cls = 'good'; }
+    if (chk.ok && chk.under) { pr = '地下停車場入口　<kbd>E</kbd> 開進去'; cls = 'good'; }
+    else if (chk.ok) { pr = (chk.rate ? `已停妥（${chk.bay.type === 'road' ? '路邊停車格' : '停車場'}每小時 ${chk.rate} 元）` : '已停妥') + '　<kbd>E</kbd> 下車'; cls = 'good'; }
     else if (chk.bay) { pr = chk.msg + (stopped ? '　<kbd>E</kbd> 下車（算違規停車）' : ''); cls = 'warn'; }
     else if (stopped && dDest < 450) { pr = '路邊不是停車格，可能被拖吊　<kbd>E</kbd> 下車'; cls = 'warn'; }
     else if (stopped) pr = '<kbd>E</kbd> 下車';
@@ -1520,6 +1620,7 @@ function hud(dt) {
   let t = '', sub = '';
   const d = dest();
   if (G.state === 'room') { t = '起床了，出門上班'; sub = `${districtName(G.cfg.di)}${G.cfg.home.a}`; }
+  else if (G.state === 'basement') { t = G.phase === 'toCar' ? '走到你的車' : '搭電梯回家'; sub = '家裡的地下室'; }
   else if (G.phase === 'toCar') { t = '走到你的車'; sub = fmtDist(dist(P, car)); }
   else if (G.phase === 'drive') {
     const dd = dist(car, d);
@@ -1560,8 +1661,8 @@ function hud(dt) {
     $('energy').textContent = (car.spec.electric ? '電量 ' : '油量 ') + Math.round(car.energy / car.spec.capacity * 100) + '%' + (stunts && input.touch ? `・空氣 ${Math.round(econ.stuntFuel * 100)}%（${Math.floor(econ.stuntFuel * AIR.jumpsPerTank + 1e-6)} 次）${skillBanned() ? ' 特殊功能停用中' : ''}` : '');
   } else sp.hidden = true;
   placeT -= dt;
-  if (placeT <= 0 && G.state !== 'room') { placeT = 0.6; const o = {}, e = world.nearestEdge(P.x, P.z, 40, null, o); $('placeRoad').textContent = (e && e.name) || '　'; $('placeDist').textContent = world.districtAt(P.x, P.z) || '臺北市外'; }
-  else if (G.state === 'room') { $('placeRoad').textContent = '家裡'; $('placeDist').textContent = districtName(G.cfg.di); }
+  if (placeT <= 0 && G.state !== 'room' && G.state !== 'basement') { placeT = 0.6; const o = {}, e = world.nearestEdge(P.x, P.z, 40, null, o); $('placeRoad').textContent = (e && e.name) || '　'; $('placeDist').textContent = world.districtAt(P.x, P.z) || '臺北市外'; }
+  else if (G.state === 'room' || G.state === 'basement') { $('placeRoad').textContent = G.state === 'room' ? '家裡' : '地下室'; $('placeDist').textContent = districtName(G.cfg.di); }
   // 小地圖：買了導航才有；開車在駕駛座時導航改在車內螢幕上。還沒買導航只能按 M 看全螢幕地圖
   const showMini = econ.has('nav') && !(G.state === 'drive' && G.camMode === 'cockpit');
   if ($('mini').hidden === showMini) $('mini').hidden = !showMini;
@@ -1589,7 +1690,7 @@ function navScreenMap(g, x, y, w, h) {
 const ROADCOL = ['#e9c46a', '#e9c46a', '#f1f3f4', '#d7dbdf', '#b9c0c6', '#8f99a3', '#6b757e', '#d7dbdf'], ROADW = [5, 5, 4.5, 4, 3.2, 2.4, 1.6, 2.6];
 function drawMini() {
   const cv = $('mini'), g = cv.getContext('2d'), S = cv.width, R = S / 2;
-  const inCar = G.state === 'drive', cx = inCar ? car.x : P.x, cz = inCar ? car.z : P.z, head = inCar ? car.psi : (G.state === 'walk' ? tp.yaw : 0);
+  const inCar = G.state === 'drive', atHome = G.state === 'room' || G.state === 'basement', cx = inCar ? car.x : atHome ? G.cfg.home.x : P.x, cz = inCar ? car.z : atHome ? G.cfg.home.z : P.z, head = inCar ? car.psi : (G.state === 'walk' ? tp.yaw : 0);
   const scale = R / (inCar ? 300 : 160);
   g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#10141a'; g.fillRect(0, 0, S, S);
   if (G.state === 'room') { g.fillStyle = '#9aa6b0'; g.font = '700 26px "Noto Sans TC", sans-serif'; g.textAlign = 'center'; g.fillText('家', R, R + 8); return; }
@@ -1631,37 +1732,40 @@ function toggleBigMap(force) {
   requestAnimationFrame(() => { cityMap.resize(mapMe()); mapT = 0; drawMap(); });
   if (G.state === 'drive' && Math.abs(car.v) > 1) toast('看地圖時車子還在開！', 2);
 }
-const mapMe = () => { const inCar = G.state === 'drive'; return G.state === 'room' && G.cfg.home ? { x: G.cfg.home.x, z: G.cfg.home.z, hd: 0 } : { x: inCar ? car.x : P.x, z: inCar ? car.z : P.z, hd: inCar ? car.psi : P.yaw }; };
+const mapMe = () => { const inCar = G.state === 'drive'; return (G.state === 'room' || G.state === 'basement') && G.cfg.home ? { x: G.cfg.home.x, z: G.cfg.home.z, hd: 0 } : { x: inCar ? car.x : P.x, z: inCar ? car.z : P.z, hd: inCar ? car.psi : P.yaw }; };
 /** 全市地圖：可以放大縮小、拖曳；有路名、停車場、你的車停在哪裡。每 0.25 秒更新你的位置。 */
 function drawMap() {
   if (!cityMap || $('bigmap').hidden) return;
   const inCar = G.state === 'drive', moving = inCar && Math.abs(car.v) > 1;
   cityMap.draw({
-    me: G.state === 'room' ? null : mapMe(), car: car ? { x: car.x, z: car.z } : null, carParked: !!car && !inCar,
-    home: G.cfg.home, work: G.cfg.work, garage: econ.has('garage') ? garageSpot() : null,
+    me: G.state === 'room' || G.state === 'basement' ? null : mapMe(), car: car && !G.inBasement ? { x: car.x, z: car.z } : null, carParked: !!car && !inCar,
+    home: G.cfg.home, work: G.cfg.work, garage: garageSpot(),
     route: econ.has('nav') && G.routePoly ? G.routePoly : null, districtIndex: G.cfg.di,
     status: inCar ? (moving ? `車子還在開：${Math.round(car.kmh)} km/h` : '車子停著') : '', statusColor: moving ? '#ff6b5b' : '#9aa6b0',
   });
 }
 // ===================================================================== 住處地下停車位：家門口的停車場入口（路邊，紫色的格子＋P 牌子）
-const garageMark = (() => {
+function parkMark(padColor, signColor, sub) {
   const g = new THREE.Group();
-  const pad = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x8b6cff, transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false }));
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: padColor, transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false }));
   pad.position.y = 0.07; pad.renderOrder = 3; g.add(pad);
-  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 128; const c = cv.getContext('2d');
-  c.fillStyle = '#5b3fd6'; c.fillRect(0, 0, 128, 128); c.fillStyle = '#fff'; c.font = '900 96px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('P', 64, 70);
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 160; const c = cv.getContext('2d');
+  c.fillStyle = signColor; c.fillRect(0, 0, 128, 160); c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.font = '900 92px sans-serif'; c.fillText('P', 64, 62); c.font = '900 26px "Noto Sans TC", "PingFang TC", sans-serif'; c.fillText(sub, 64, 132);
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, toneMapped: false }));
-  sign.position.set(1.9, 2.7, 0); g.add(sign);
+  for (const r of [0, Math.PI]) { const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.12), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false })); sign.position.set(1.9, 2.8, 0); sign.rotation.y = r; g.add(sign); }
   const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.7, 8), new THREE.MeshLambertMaterial({ color: 0x9aa3ab })); post.position.set(1.9, 1.35, 0); g.add(post);
   g.visible = false; scene.add(g); return g;
-})();
+}
+const garageMark = parkMark(0x8b6cff, '#5b3fd6', '地下停車場'), curbMark = parkMark(0x4aa8ff, '#2f7fd6', '住戶專用');
 /** 家門口地下停車場入口的位置（買了停車位才有）：離家最近的路，靠家那一邊的路邊，車頭順著靠右行駛的方向。 */
+/** 住處的車位（買了才有）：type 'garage'（地下停車場入口，車子會開進地下室）或 'curb'（家門口的住戶專用路邊車位）。有地下的就用地下的。 */
 function garageSpot() {
-  const h = G.cfg.home; if (!h || !econ.has('garage') || !world) return null;
-  if (G.garage && G.garage.hx === h.x && G.garage.hz === h.z) return G.garage;
+  const h = G.cfg.home, kind = econ.has('garage') ? 'garage' : econ.has('curbspot') ? 'curb' : null;
+  if (!h || !kind || !world) return null;
+  if (G.garage && G.garage.hx === h.x && G.garage.hz === h.z && G.garage.type === kind) return G.garage;
   const sp = curbSpot(h.x, h.z); if (!sp) return null;
-  G.garage = Object.assign(sp, { hx: h.x, hz: h.z, type: 'garage' });
+  G.garage = Object.assign(sp, { hx: h.x, hz: h.z, type: kind });
   return G.garage;
 }
 /** (x,z) 旁邊最近的一般道路：靠 (x,z) 那一邊的路邊，車頭順著靠右行駛的方向。 */
@@ -1944,7 +2048,7 @@ function frame(dt) {
   if (input.pressed('KeyH')) $('help').hidden = !$('help').hidden;
   if (input.pressed('KeyN')) { audioStart(); music.toggle(); toast(music.on ? '音樂：開' : '音樂：關', 1.2); }
   if (input.pressed('KeyB')) { audioStart(); engine.toggle(); toast(engine.on ? '引擎聲：開' : '引擎聲：關', 1.2); }
-  if (input.pressed('KeyM') && ['walk', 'drive', 'room'].includes(G.state)) toggleBigMap();
+  if (input.pressed('KeyM') && ['walk', 'drive', 'room', 'basement'].includes(G.state)) toggleBigMap();
   if (!$('shop').hidden) { if (!window.__tc.noRender) render(); input.endFrame(); return; }
   // 全螢幕地圖打開時遊戲不暫停：車子還在動就會繼續開（沒有導航只能這樣看地圖）
   const mapOpen = !$('bigmap').hidden;
@@ -1961,14 +2065,15 @@ function frame(dt) {
     if (st === 'menu') menuFrame(dt);
     else if (st === 'loading') loadingFrame(dt);
     else if (st === 'room') { if (AUTO) autoTest(dt); roomFrame(dt); }
+    else if (st === 'basement') basementFrame(dt);
     else if (st === 'walk') { if (AUTO) autoTest(dt); walkFrame(dt); }
     else if (st === 'drive') { if (AUTO) autoTest(dt); driveFrame(dt); }
     else if (st === 'summary' || st === 'work') { world.update(P.x, P.z, dt); }
     else if (st === 'measure') measureFrame(dt);
-    if (['walk', 'drive', 'room', 'measure'].includes(st)) G.clock += dt * TIME.scale / 60;
+    if (['walk', 'drive', 'room', 'basement', 'measure'].includes(st)) G.clock += dt * TIME.scale / 60;
     if (ctl && G.mode === 'hybrid' && ['walk', 'drive', 'room'].includes(st)) ctlTick(dt);
   }
-  if (['walk', 'drive', 'room'].includes(st)) hud(dt);
+  if (['walk', 'drive', 'room', 'basement'].includes(st)) hud(dt);
   if (st === 'drive' || st === 'walk' || mist.n) mist.update(dt, camera, canvas.clientHeight || innerHeight, (x, z, y) => world.groundAt(x, z, y));
   if (input.touch) {
     const drv = st === 'drive' && G.camMode === 'cockpit' && !G.seatAdj;
@@ -1994,7 +2099,7 @@ function frame(dt) {
     for (const id of ['btnGas', 'btnBrake']) { const el = $(id); if (el.hidden !== onFoot) el.hidden = onFoot; }
     const rb = $('btnRun'); if (rb.hidden === onFoot) rb.hidden = !onFoot;
     if (onFoot) { const rl = input.runOn ? '跑步中' : '跑步'; if (rb.textContent !== rl) { rb.textContent = rl; rb.classList.toggle('on', input.runOn); rb.setAttribute('aria-pressed', String(input.runOn)); } }
-    const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : '動作') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : '動作') : st === 'room' ? ({ door: '出門', inst: G.inst ? '停下來' : '彈琴', desk: '商店' }[G.roomNear] || '動作') : '動作';
+    const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : '動作') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : '動作') : st === 'room' ? ({ door: '出門', inst: G.inst ? '停下來' : '彈琴', desk: '商店' }[G.roomNear] || '動作') : st === 'basement' ? ({ car: '上車', lift: '回家' }[G.bNear] || '動作') : '動作';
     if (act && act.textContent !== lab) act.textContent = lab;
     const bc = $('btnCenter'), showC = !!(drv && cockpit && (Math.abs(cockpit.lookYaw) > 0.05 || Math.abs(cockpit.lookPitch) > 0.05) && !G.glance);
     if (bc && bc.hidden === showC) bc.hidden = !showC;
@@ -2025,6 +2130,7 @@ function loadingFrame(dt) {
 }
 function render() {
   if (G.state === 'room') { renderer.clear(); renderer.render(room.scene, camera); return; }
+  if (G.state === 'basement') { renderer.clear(); renderer.render(basement.scene, camera); return; }
   if (window.__tc.camHook) window.__tc.camHook(camera);   // 錄影用：自訂鏡頭
   sky.position.copy(camera.position);
   ground.position.set(Math.round(camera.position.x / 50) * 50, -15, Math.round(camera.position.z / 50) * 50);

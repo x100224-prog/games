@@ -36,7 +36,7 @@ await page.keyboard.press('KeyM'); await wait(1500); await page.click('#mapIn');
 await page.screenshot({ path: 'shots/map_3_walk_car.png' }); await page.click('#bigClose');
 // 買地下停車位（商店），第二天早上車子在停車位
 await ev(() => { window.__tc.noRender = true; });
-const bought = await ev(() => { const e = window.__tc.econ; e.money = 5000000; const p = e.price('garage'); const r = e.buy('garage'); return { price: p, ok: r.ok, msg: r.msg, moves: e.moves }; });
+const bought = await ev(() => { const e = window.__tc.econ; e.money = 5000000; const p = e.price('curbspot'); const r = e.buy('curbspot'); return { price: p, ok: r.ok, msg: r.msg, moves: e.moves }; });
 console.log('buy garage:', JSON.stringify(bought));
 // 跳到隔天早上：結束今天（直接進下一天的流程）
 await ev(() => { const G = window.__tc.G; G.dayN++; window.__tc.startDayForTest && window.__tc.startDayForTest(); });

@@ -43,6 +43,9 @@ export function jobPay(work, district) {
 /** 住處地下停車位的價錢（遊戲設定）：跟房價一樣看住哪一區，蛋黃區最貴。 */
 export const GARAGE = { core: 2800000, semi: 2200000, other: 1600000 };
 export function garagePrice(district) { return LIFE.core.includes(district) ? GARAGE.core : LIFE.semi.includes(district) ? GARAGE.semi : GARAGE.other; }
+// 住處路邊停車位（家門口露天的住戶專用車位）：比地下停車位便宜（遊戲設定）。
+export const CURB = { core: 1100000, semi: 900000, other: 650000 };
+export function curbPrice(district) { return LIFE.core.includes(district) ? CURB.core : LIFE.semi.includes(district) ? CURB.semi : CURB.other; }
 // 停車場計時收費（元／小時）。真實的臺北市公有停車場小型車每小時 10～60 元（信義區的公有停車場 50～60 元；TVBS 汽車報導），
 // 遊戲用：蛋黃區 60、內湖 50、其他區 40（停車場裡的電動車格也照這個收停車費，充電另外算）。停車費在打卡（停到 18:00）和回家（過夜停到隔天 7:30）時算。
 export const LOT_RATE = { core: 60, semi: 50, other: 40 };
@@ -119,7 +122,8 @@ export const SHOP = [
   { key: 'ev', name: '電動車', kind: 'car', car: 'ev', desc: '可以停停車場裡的電動車專用格（停的時候順便充電，很少被占滿），電費比油錢便宜很多。' },
   { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車（也是電動車：可以停電動車專用格、停的時候順便充電、在家充電，電費比油錢便宜）＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；不用另外補氣，開車時每公里慢慢補回 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
   { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', requires: 'roadster', desc: '加裝在飛天跑車上（要先有飛天跑車，開飛天跑車時才能用）：塞車時按 U，車身伸出四組折疊旋翼（像多旋翼無人機），整台車升空，自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。降落後旋翼收回，還是你的車。燃料費每分鐘 2,500 元，飛越久越貴。' },
-  { key: 'garage', name: '住處地下停車位', kind: 'home', desc: '家樓下地下停車場自己的車位：回家開到家門口的停車場入口（地圖和路上都有 P 標記）停下來就停好了，早上直接從車位出發，不用在附近找路邊停車格。搬家時車位跟著換到新家。' },
+  { key: 'curbspot', name: '住處路邊停車位', kind: 'home', desc: '家門口路邊的住戶專用車位（露天）：回家開到家門口的專用車位（地圖和路上都有藍色 P）停好就好，不收停車費、不會被拖吊；早上走出家門就在車旁邊。搬家時車位跟著換到新家。' },
+  { key: 'garage', name: '住處地下停車位', kind: 'home', desc: '家裡多一層地下室停車場：回家開到家門口的地下停車場入口（地圖和路上都有紫色 P）停下來，車子就開進地下室，下車搭電梯回家；早上搭電梯下樓就在車旁邊，直接從地下室開出去。不收停車費、不會被拖吊。搬家時車位跟著換到新家。' },
 ];
 export function priceOf(key) {
   const m = SAVED_MIN[key] || 0, r = PRICE_RULE, it = SHOP.find(s => s.key === key);
@@ -151,7 +155,7 @@ export class Economy {
   }
   /** 依住址和工作設定薪水、住的費用（每天開始時呼叫；同一個住址、工作永遠一樣）。 */
   setLife(home, homeDistrict, work, workDistrict) {
-    this.tripPay = work ? jobPay(work, workDistrict) : PAY.trip; this.garageCost = garagePrice(homeDistrict);
+    this.tripPay = work ? jobPay(work, workDistrict) : PAY.trip; this.garageCost = garagePrice(homeDistrict); this.curbCost = curbPrice(homeDistrict);
     this.home = home ? homeCost(home, homeDistrict) : { kind: '房租', perDay: 0 };
   }
   toJSON() { return { money: this.money, owned: [...this.owned], carKey: this.carKey, stuntFuel: this.stuntFuel, totals: this.totals, moves: this.moves }; }
@@ -171,7 +175,7 @@ export class Economy {
   /** 擁有的車（油車一開始就有）。 */
   cars() { const M = GAME_MODES[this.mode]; if (M && M.car) return [M.car]; return ['gas', ...SHOP.filter(s => s.kind === 'car' && this.owned.has(s.key)).map(s => s.car)]; }
   /** 商店裡的價錢（地下停車位看住哪一區）。 */
-  price(key) { return key === 'garage' ? (this.garageCost || GARAGE.other) : priceOf(key); }
+  price(key) { return key === 'garage' ? (this.garageCost || GARAGE.other) : key === 'curbspot' ? (this.curbCost || CURB.other) : priceOf(key); }
   buy(key) {
     const p = this.price(key);
     if (this.owned.has(key)) return { ok: false, msg: '已經有了' };
