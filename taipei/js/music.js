@@ -70,6 +70,47 @@ function cySection(bar) {
 }
 
 const CYBER_LOOP = [14.88372, 89.30234];   // 「鉻色脈衝」循環：從第 8 小節到第 48 小節（129 BPM）
+const HOME_LOOP = [14.4, 91.2];            // 在家配樂「小巷裡的祕密」（tools/town_render.js）：從第 6 小節循環到第 38 小節（32 小節，100 BPM）
+
+// 居家曲（即時合成的備用版，在家配樂的音檔還沒載入時用）：F 大調、92 BPM，溫暖的城鎮曲風格 —— 長笛主旋律、豎琴琶音、弦樂墊、
+// 輕輕的沙鈴和木魚。段落：前奏 4 小節（只有豎琴和弦樂）→ A 8 小節 → B 8 小節 → A' 8 小節（加鐵琴），之後 A B A' 循環。
+const HOME_BPM = 92, HOME_STEP = 60 / HOME_BPM / 4, HG = 2.1;   // HG：居家曲各樂器的音量倍數（跟開車音樂差不多大聲）
+const HC = {
+  F: { bass: 41, n: [53, 57, 60, 65] }, Dm: { bass: 38, n: [50, 53, 57, 62] }, Bb: { bass: 46, n: [50, 53, 58, 62] },
+  C: { bass: 48, n: [52, 55, 60, 64] }, Am: { bass: 45, n: [52, 57, 60, 64] }, Gm: { bass: 43, n: [50, 55, 58, 62] },
+};
+const H_INTRO = ['F', 'Dm', 'Bb', 'C'];
+const H_A = ['F', 'Dm', 'Bb', 'C', 'F', 'Am', 'Bb', 'C'];
+const H_B = ['Gm', 'C', 'F', 'Dm', 'Gm', 'Bb', 'C', 'C'];
+// 主旋律（原創）：每小節 [十六分音符位置, MIDI 音, 長度]
+const H_MEL_A = [
+  [[0, 72, 4], [4, 69, 2], [6, 72, 2], [8, 77, 6], [14, 76, 2]],
+  [[0, 74, 4], [4, 77, 4], [8, 81, 6], [14, 79, 2]],
+  [[0, 77, 4], [4, 74, 2], [6, 77, 2], [8, 70, 4], [12, 74, 4]],
+  [[0, 72, 6], [6, 76, 2], [8, 79, 8]],
+  [[0, 81, 4], [4, 79, 2], [6, 77, 2], [8, 72, 6], [14, 77, 2]],
+  [[0, 76, 4], [4, 72, 2], [6, 76, 2], [8, 81, 8]],
+  [[0, 79, 4], [4, 77, 2], [6, 74, 2], [8, 70, 4], [12, 74, 4]],
+  [[0, 76, 4], [4, 74, 2], [6, 76, 2], [8, 77, 8]],
+];
+const H_MEL_B = [
+  [[0, 70, 4], [4, 74, 4], [8, 79, 6], [14, 77, 2]],
+  [[0, 76, 4], [4, 79, 4], [8, 84, 6], [14, 82, 2]],
+  [[0, 81, 6], [6, 77, 2], [8, 72, 8]],
+  [[0, 74, 4], [4, 76, 2], [6, 77, 2], [8, 81, 8]],
+  [[0, 79, 4], [4, 82, 4], [8, 79, 4], [12, 77, 4]],
+  [[0, 77, 4], [4, 74, 4], [8, 70, 8]],
+  [[0, 72, 4], [4, 74, 2], [6, 76, 2], [8, 79, 6], [14, 81, 2]],
+  [[0, 79, 12]],
+];
+const H_ARP = [0, 1, 2, 3, 2, 1, 2, 3];   // 八分音符的豎琴琶音
+function homeSection(bar) {
+  if (bar < 4) return { name: 'intro', i: bar, ch: H_INTRO[bar] };
+  const b = (bar - 4) % 24;
+  if (b < 8) return { name: 'a', i: b, ch: H_A[b] };
+  if (b < 16) return { name: 'b', i: b - 8, ch: H_B[b - 8] };
+  return { name: 'a2', i: b - 16, ch: H_A[b - 16] };
+}
 
 const PREF_KEY = 'yingge-music';
 
@@ -82,8 +123,10 @@ export class Music {
     this.mode = 'walk'; this.speed = 0;
     this.step = 0; this.next = 0; this.onChange = null; this.style = 'drive';
     this.rapOn = p.rap !== false; this.rapBuf = null; this.rapSrc = null; this.rapUrl = opts.rapUrl === undefined ? 'audio/rap.mp3' : opts.rapUrl;
-    // 看示範的配樂：事先算好的原創曲「鉻色脈衝」（tools/pulse_render.js）。載入前先用即時合成的版本代替
-    this.cyberUrl = opts.cyberUrl || null; this.cyberBuf = null; this.cyberSrc = null; this.cyberLoading = false;
+    // 事先算好的原創曲（音檔）：看示範用「鉻色脈衝」（tools/pulse_render.js）、在家用「小巷裡的祕密」（tools/town_render.js）。
+    // 載入前先用即時合成的版本代替。
+    this.files = { cyber: { url: opts.cyberUrl || null, loop: CYBER_LOOP }, home: { url: opts.homeUrl || null, loop: HOME_LOOP, gain: 0.62 } };   // gain：音檔本身比較大聲，收一點跟其他配樂一樣
+    this.fileSrc = null;
   }
 
   /** 載入饒舌人聲（失敗就只放純音樂）。 */
@@ -125,7 +168,7 @@ export class Music {
     const sr = 44100, ctx = new OfflineAudioContext(2, Math.ceil(sr * sec), sr), m = new Music({ rapUrl: null }); m.style = style;
     m.on = true; m._build(ctx); m.update(mode, speed); m.mode = mode;
     await m._loadRap(ctx);
-    for (let step = fromBar * 16, t = 0.05; t < sec - 0.05; step++, t += STEP) m._play(step, t);
+    for (let step = fromBar * 16, t = 0.05; t < sec - 0.05; step++, t += style === 'home' ? HOME_STEP : STEP) m._play(step, t);
     return ctx.startRendering();
   }
 
@@ -187,10 +230,18 @@ export class Music {
 
     if (!this.ctx) { if (this.onChange) this.onChange(this.on); return; }
     const t = this.ctx.currentTime;
-    this.master.gain.cancelScheduledValues(t); this.master.gain.setTargetAtTime(on ? this.volume : 0, t, 0.08);
-    if (this.fileBus) { this.fileBus.gain.cancelScheduledValues(t); this.fileBus.gain.setTargetAtTime(on ? this.volume : 0, t, 0.08); }
+    const v = on && !this.held ? this.volume : 0;
+    this.master.gain.cancelScheduledValues(t); this.master.gain.setTargetAtTime(v, t, 0.08);
+    if (this.fileBus) { this.fileBus.gain.cancelScheduledValues(t); this.fileBus.gain.setTargetAtTime(v, t, 0.08); }
     if (on) this.ctx.resume();
     if (this.onChange) this.onChange(this.on);
+  }
+
+  /** 暫時把配樂收起來（彈琴的時候），hold(false) 再慢慢回來。 */
+  hold(on) {
+    this.held = !!on; if (!this.ctx) return;
+    const t = this.ctx.currentTime, v = this.on && !this.held ? this.volume : 0;
+    for (const g of [this.master, this.fileBus]) if (g) { g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(v, t, on ? 0.25 : 0.8); }
   }
 
   /** 每幀呼叫：mode = 'title' | 'walk' | 'drive' | 'done'，speed 為車速 m/s。 */
@@ -199,7 +250,8 @@ export class Music {
     this.mode = mode; this.speed = Math.abs(speed || 0);
     const t = this.ctx.currentTime, k = Math.min(1, this.speed / 22);
     let cut, dr, kick;
-    if (mode === 'drive') { cut = 2600 + k * 15000; dr = 0.75 + 0.25 * k; kick = 1; }
+    if (this.style === 'home') { cut = 9000; dr = 0.6; kick = 0; }
+    else if (mode === 'drive') { cut = 2600 + k * 15000; dr = 0.75 + 0.25 * k; kick = 1; }
     else if (mode === 'done') { cut = 2400; dr = 0.0; kick = 0; }
     else { cut = 1500; dr = 0.32; kick = 0.15; }
     this.tone.frequency.setTargetAtTime(cut, t, 0.4);
@@ -211,42 +263,50 @@ export class Music {
   _tick() {
     const ctx = this.ctx; if (!ctx || ctx.state !== 'running') return;
     if (this.next < ctx.currentTime - 0.3) this.next = ctx.currentTime + 0.05;   // 分頁被暫停過，重新對齊
-    while (this.next < ctx.currentTime + 0.14) { this._play(this.step, this.next); this.next += STEP; this.step++; }
+    while (this.next < ctx.currentTime + 0.14) { this._play(this.step, this.next); this.next += this.style === 'home' ? HOME_STEP : STEP; this.step++; }
   }
 
   /** 曲風：'drive'（原本的開車音樂）或 'cyber'（賽博龐克，看示範時用）。換曲風從前奏重新開始。 */
   setStyle(st) {
-    if (this.style !== st) { this.style = st; this.step = 0; if (st !== 'cyber') this._stopCyber(); }
-    if (st === 'cyber' && this.ctx && !this.cyberFailed) { if (this.cyberBuf) { if (!this.cyberSrc) this._startCyber(); } else this._loadCyber(); }
+    if (this.style !== st) {
+      this.style = st; this.step = 0; if (this.fileSrc && this.fileSrc.style !== st) this._stopFile();
+      if (this.ctx) { this.next = Math.max(this.next, this.ctx.currentTime + 0.08); this.delay.delayTime.setValueAtTime((st === 'home' ? HOME_STEP : STEP) * 3, this.ctx.currentTime); }
+    }
+    const F = this.files[st];
+    if (F && F.url && this.ctx && !F.failed) { if (F.buf) { if (!this.fileSrc) this._startFile(st); } else this._loadFile(st); }
   }
-  async _loadCyber() {
-    if (!this.cyberUrl || this.cyberLoading || !this.ctx) return; this.cyberLoading = true;
+  async _loadFile(st) {
+    const F = this.files[st];
+    if (!F || !F.url || F.loading || !this.ctx) return; F.loading = true;
     try {
-      const r = await fetch(this.cyberUrl); if (!r.ok) throw new Error(r.status);
+      const r = await fetch(F.url); if (!r.ok) throw new Error(r.status);
       const ab = await r.arrayBuffer(); const buf = await new Promise((res, rej) => this.ctx.decodeAudioData(ab, res, rej));
-      // 曲子一開始是一聲重擊：找到它就是第 0 秒（避開壓縮格式前面的空白）
+      // 曲子一開始就有一聲：找到它就是第 0 秒（避開壓縮格式前面的空白）
       const d = buf.getChannelData(0); let i0 = 0; while (i0 < d.length && Math.abs(d[i0]) < 0.003) i0++;
       let off = Math.max(0, i0 / buf.sampleRate - 0.002);
-      if (off + CYBER_LOOP[1] > buf.duration) off = Math.max(0, buf.duration - CYBER_LOOP[1]);   // 瀏覽器已經去掉壓縮格式的空白
-      this.cyberBuf = buf; this.cyberOff = off;
-      if (this.style === 'cyber') this._startCyber();
-    } catch (err) { console.warn('cyber music load failed', err); this.cyberFailed = true; }
-    this.cyberLoading = false;
+      if (off + F.loop[1] > buf.duration) off = Math.max(0, buf.duration - F.loop[1]);   // 瀏覽器已經去掉壓縮格式的空白
+      F.buf = buf; F.off = off;
+      if (this.style === st && !this.fileSrc) this._startFile(st);
+    } catch (err) { console.warn(st + ' music load failed', err); F.failed = true; }
+    F.loading = false;
   }
-  _startCyber() {
-    if (!this.ctx || !this.cyberBuf || this.cyberSrc) return;
+  _startFile(st) {
+    const F = this.files[st];
+    if (!this.ctx || !F || !F.buf || this.fileSrc) return;
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain(), t = this.ctx.currentTime + 0.05;
-    src.buffer = this.cyberBuf; src.loop = true; src.loopStart = this.cyberOff + CYBER_LOOP[0]; src.loopEnd = this.cyberOff + CYBER_LOOP[1];
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.4);
-    src.connect(g); g.connect(this.fileBus); src.start(t, this.cyberOff);
-    this.cyberSrc = { src, g };
+    src.buffer = F.buf; src.loop = true; src.loopStart = F.off + F.loop[0]; src.loopEnd = F.off + F.loop[1];
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(F.gain || 1, t + 0.6);
+    src.connect(g); g.connect(this.fileBus); src.start(t, F.off);
+    this.fileSrc = { style: st, src, g };
   }
-  _stopCyber() {
-    if (!this.cyberSrc || !this.ctx) return;
-    const { src, g } = this.cyberSrc, t = this.ctx.currentTime; g.gain.setTargetAtTime(0, t, 0.15); src.stop(t + 0.8); this.cyberSrc = null;
+  _stopFile() {
+    if (!this.fileSrc || !this.ctx) return;
+    const { src, g } = this.fileSrc, t = this.ctx.currentTime; g.gain.setTargetAtTime(0, t, 0.25); src.stop(t + 1.2); this.fileSrc = null;
   }
   _play(step, t) {
-    if (this.style === 'cyber') { if (this.cyberSrc) return; return this._playCyber(step, t); }   // 音檔在播就不另外合成
+    if (this.fileSrc && this.fileSrc.style === this.style) return;   // 音檔在播就不另外合成
+    if (this.style === 'cyber') return this._playCyber(step, t);
+    if (this.style === 'home') return this._playHome(step, t);
     const bar = Math.floor(step / 16), s = step % 16, sec = section(bar), ch = CHORDS[bar % 4];
     const isIntro = sec.name === 'intro', isBreak = sec.name === 'break';
     // 鼓
@@ -295,6 +355,93 @@ export class Music {
     if (s === 0) this._pad(t, ch.arp.map(n => n - 12), STEP * 16);
     if (sec.name === 'b') for (const [ps, note, len] of CY_LEAD[sec.i % 4]) if (ps === s) this._lead(t, note, len * STEP, 0.95);
     if (sec.name === 'break' && sec.i === 2 && s === 0) this._riser(t, STEP * 32);
+  }
+  _playHome(step, t) {
+    const bar = Math.floor(step / 16), s = step % 16, sec = homeSection(bar), ch = HC[sec.ch], S = HOME_STEP;
+    const intro = sec.name === 'intro', isB = sec.name === 'b';
+    // 豎琴琶音：八分音符；B 段高八度、比較亮
+    if (s % 2 === 0) this._harp(t, ch.n[H_ARP[s / 2]] + (isB ? 12 : 0), intro ? 0.8 : 0.7);
+    // 弦樂墊：每小節一個和弦
+    if (s === 0) this._strings(t, ch.n, S * 16, intro ? 1 : 0.8);
+    if (intro && s === 0) this._bell(t, ch.n[3] + 12, 0.5);
+    if (intro) return;
+    // 低音：二分音符，根音、五度
+    if (s === 0) this._hbass(t, ch.bass, S * 7);
+    if (s === 8) this._hbass(t, ch.bass + 7, S * 7);
+    // 沙鈴（反拍重一點），B 段加木魚
+    if (s % 2 === 0) this._shaker(t, s % 4 === 2 ? 0.9 : 0.5);
+    if (isB && (s === 4 || s === 12)) this._wood(t, 0.8);
+    if (sec.i === 0 && s === 0 && sec.name !== 'a') this._bell(t, ch.n[3] + 12, 0.6);
+    // 長笛主旋律；A' 段加鐵琴高八度
+    const mel = isB ? H_MEL_B[sec.i] : H_MEL_A[sec.i];
+    for (const [ps, m, len] of mel) if (ps === s) {
+      this._flute(t, m, len * S);
+      if (sec.name === 'a2') this._bell(t, m + 12, 0.35);
+    }
+  }
+  _harp(t, m, v = 1) {
+    const ctx = this.ctx, o = ctx.createOscillator(), o2 = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    o.type = 'triangle'; o.frequency.value = mtof(m); o2.type = 'sine'; o2.frequency.value = mtof(m) * 2;
+    const g2 = ctx.createGain(); g2.gain.value = 0.35;
+    f.type = 'lowpass'; f.frequency.setValueAtTime(5200, t); f.frequency.exponentialRampToValueAtTime(1400, t + 0.6);
+    this._env(g, t, 0.07 * HG * v, 0.003, 1.1);
+    o.connect(f); o2.connect(g2); g2.connect(f); f.connect(g); g.connect(this.bus);
+    const vs = ctx.createGain(); vs.gain.value = 0.5; g.connect(vs); vs.connect(this.verb);
+    o.start(t); o2.start(t); o.stop(t + 1.3); o2.stop(t + 1.3);
+  }
+  _strings(t, notes, dur, v = 1) {
+    const ctx = this.ctx, f = ctx.createBiquadFilter(), g = ctx.createGain();
+    f.type = 'lowpass'; f.frequency.value = 1700; f.Q.value = 0.5;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.028 * HG * v, t + 0.5); g.gain.setValueAtTime(0.028 * HG * v, t + dur - 0.25); g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.35);
+    f.connect(g); g.connect(this.bus); const vs = ctx.createGain(); vs.gain.value = 0.8; g.connect(vs); vs.connect(this.verb);
+    for (const m of notes) for (const det of [-6, 6]) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mtof(m); o.detune.value = det;
+      o.connect(f); o.start(t); o.stop(t + dur + 0.45);
+    }
+  }
+  _hbass(t, m, dur) {
+    const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+    o.type = 'triangle'; o.frequency.value = mtof(m); f.type = 'lowpass'; f.frequency.value = 900;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.2 * HG, t + 0.02); g.gain.exponentialRampToValueAtTime(0.06 * HG, t + dur * 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f); f.connect(g); g.connect(this.subBus); o.start(t); o.stop(t + dur + 0.05);
+  }
+  _flute(t, m, dur, v = 1) {
+    const ctx = this.ctx, o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+    o.type = 'sine'; o.frequency.value = mtof(m); o2.type = 'triangle'; o2.frequency.value = mtof(m);
+    const g2 = ctx.createGain(); g2.gain.value = 0.25;
+    // 慢慢出來的抖音
+    const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 5.2; lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(14, t + Math.min(0.5, dur));
+    lfo.connect(lg); lg.connect(o.detune); lg.connect(o2.detune);
+    f.type = 'lowpass'; f.frequency.value = 4200;
+    const end = t + dur;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.1 * HG * v, t + 0.07); g.gain.setValueAtTime(0.085 * HG * v, end - 0.05); g.gain.exponentialRampToValueAtTime(0.0001, end + 0.18);
+    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(f); f.connect(this.bus);
+    // 吹氣聲
+    const n = ctx.createBufferSource(), nf = ctx.createBiquadFilter(), ng = ctx.createGain();
+    n.buffer = this.noise; nf.type = 'bandpass'; nf.frequency.value = mtof(m) * 2; nf.Q.value = 1.2;
+    this._env(ng, t, 0.012 * v, 0.03, 0.18); n.connect(nf); nf.connect(ng); ng.connect(this.bus); n.start(t, Math.random() * 0.5); n.stop(t + 0.3);
+    const vs = ctx.createGain(); vs.gain.value = 0.55; f.connect(vs); vs.connect(this.verb);
+    const ds = ctx.createGain(); ds.gain.value = 0.25; f.connect(ds); ds.connect(this.delay);
+    for (const x of [o, o2, lfo]) { x.start(t); x.stop(end + 0.25); }
+  }
+  _bell(t, m, v = 1) {
+    const ctx = this.ctx, o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = mtof(m); o2.type = 'sine'; o2.frequency.value = mtof(m) * 2.76;
+    const g2 = ctx.createGain(); g2.gain.value = 0.3;
+    this._env(g, t, 0.05 * HG * v, 0.002, 1.4);
+    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(this.bus); const vs = ctx.createGain(); vs.gain.value = 0.6; g.connect(vs); vs.connect(this.verb);
+    o.start(t); o2.start(t); o.stop(t + 1.5); o2.stop(t + 1.5);
+  }
+  _shaker(t, v = 1) {
+    const ctx = this.ctx, n = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    n.buffer = this.noise; f.type = 'bandpass'; f.frequency.value = 7000; f.Q.value = 1.5;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.05 * HG * v, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    n.connect(f); f.connect(g); g.connect(this.drums); n.start(t, Math.random() * 0.5); n.stop(t + 0.1);
+  }
+  _wood(t, v = 1) {
+    const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(1150, t); o.frequency.exponentialRampToValueAtTime(820, t + 0.05);
+    this._env(g, t, 0.09 * HG * v, 0.001, 0.07); o.connect(g); g.connect(this.drums); o.start(t); o.stop(t + 0.1);
   }
   _riser(t, dur) {
     const ctx = this.ctx, n = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();

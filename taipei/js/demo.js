@@ -176,7 +176,7 @@ export class DemoRunner {
     econ.stuntFuel = 0.002;
     this.cap('壓縮空氣用完了：按 F 也飛不起來'); await this.sleep(1); this.press('KeyF'); await this.sleep(2.5);
     this.keys('KeyW', 'ShiftLeft'); await this.sleep(1.5); this.keys('KeyW');
-    this.cap('開車時會慢慢補（每公里 5%），回家或停電動車充電格補得快（遊戲設定）'); await this.sleep(4); this.keys();
+    this.cap('不用另外補氣：開車時會慢慢補回來（每公里 5%，遊戲設定）'); await this.sleep(4); this.keys();
     await this.sleep(1);
   }
   async _drone() {
