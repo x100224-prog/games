@@ -125,7 +125,7 @@ export class Music {
     this.rapOn = p.rap !== false; this.rapBuf = null; this.rapSrc = null; this.rapUrl = opts.rapUrl === undefined ? 'audio/rap.mp3' : opts.rapUrl;
     // 事先算好的原創曲（音檔）：看示範用「鉻色脈衝」（tools/pulse_render.js）、在家用「小巷裡的祕密」（tools/town_render.js）。
     // 載入前先用即時合成的版本代替。
-    this.files = { cyber: { url: opts.cyberUrl || null, loop: CYBER_LOOP }, home: { url: opts.homeUrl || null, loop: HOME_LOOP, gain: 0.62 } };   // gain：音檔本身比較大聲，收一點跟其他配樂一樣
+    this.files = { cyber: { url: opts.cyberUrl || null, loop: CYBER_LOOP }, home: { url: opts.homeUrl || null, loop: HOME_LOOP, gain: 0.62, startAt: 9.6 } };   // startAt：跳過前奏，從長笛旋律那一小節（第 4 小節）開始   // gain：音檔本身比較大聲，收一點跟其他配樂一樣
     this.fileSrc = null;
   }
 
@@ -295,8 +295,8 @@ export class Music {
     if (!this.ctx || !F || !F.buf || this.fileSrc) return;
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain(), t = this.ctx.currentTime + 0.05;
     src.buffer = F.buf; src.loop = true; src.loopStart = F.off + F.loop[0]; src.loopEnd = F.off + F.loop[1];
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(F.gain || 1, t + 0.6);
-    src.connect(g); g.connect(this.fileBus); src.start(t, F.off);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(F.gain || 1, t + (F.startAt ? 0.15 : 0.6));
+    src.connect(g); g.connect(this.fileBus); src.start(t, F.off + (F.startAt || 0));
     this.fileSrc = { style: st, src, g };
   }
   _stopFile() {
