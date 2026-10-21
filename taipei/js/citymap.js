@@ -160,7 +160,7 @@ export class CityMap {
     };
     if (m.home) pin(m.home.x, m.home.z, '#4fd08c', '家');
     if (m.work) pin(m.work.x, m.work.z, '#f5c518', m.work.n || '公司');
-    if (m.garage) tag(m.garage.x, m.garage.z, '#5b3fd6', 'P', '地下停車位');
+    if (m.garage) tag(m.garage.x, m.garage.z, m.garage.type === 'curb' ? '#2f7fd6' : '#5b3fd6', 'P', m.garage.type === 'curb' ? '住戶專用車位' : '地下停車場入口');
     if (m.car && m.carParked) tag(m.car.x, m.car.z, '#d6453b', 'P', '你的車停在這裡');
     if (m.me) {
       g.save(); g.translate(X(m.me.x), Z(m.me.z)); g.rotate(-m.me.hd);
