@@ -12,6 +12,7 @@ import { Avatar } from './avatar.js';
 import { ThirdPersonCam } from './tpcam.js';
 import { SignManager, genShopName, genVerticalName } from './signs.js';
 import { Music } from './music.js';
+import { playInstrument } from './instruments.js';
 import { EngineSound } from './engine.js';
 import { Nav, polyProgress, nextTurn } from './nav.js';
 import { Stunts } from './stunts.js';
@@ -21,7 +22,7 @@ import { CityMap } from './citymap.js';
 import { edgePoint } from './world.js';
 import { DenseSky, SKY } from './sky.js';
 import { DemoRunner, DEMOS } from './demo.js';
-import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES, lotRate, roadRate, TOW, towYard, towStorage, taxiFare } from './economy.js';
+import { Economy, SHOP, priceOf, store, PAY, SAVED_MEASURED, SAVED_NOTE, AIR, GAME_MODES, lotRate, roadRate, repairFee, ANNOY, TOW, towYard, towStorage, taxiFare } from './economy.js';
 import { VIEW, TIME, PARK, WORK_DIST, RUSH, FEATURES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
@@ -119,13 +120,33 @@ function buildRoom() {
   };
   label('出 門 →', '#0b6b4f', 1.2, 2.3, -2.77, 0);
   label('商店', '#8a5a00', -1.97, 1.45, -1.2, Math.PI / 2, 0.5);
-  return { scene: s, boxes, door: { x: 1.2, z: -2.45 }, desk: { x: -1.25, z: -0.45 }, W, D, H };
+  // 直立式鋼琴：靠床和衣櫃中間的牆
+  const px = 0.45, pz = 2.5;
+  box(1.46, 1.22, 0.5, px, 0.61, pz + 0.04, 0x2a1d17);                       // 琴身
+  box(1.46, 0.06, 0.3, px, 0.74, pz - 0.36, 0x2a1d17);                       // 鍵盤底座
+  box(1.34, 0.025, 0.16, px, 0.785, pz - 0.4, 0xf6f3ea, false);              // 白鍵
+  for (let i = 0; i < 25; i++) { const k = i % 7; if (k === 2 || k === 6) continue;   // 黑鍵：每個八度 C#、D#、F#、G#、A#（E、B 後面沒有）
+    box(0.026, 0.02, 0.09, px - 0.67 + (i + 1) * (1.34 / 26), 0.805, pz - 0.37, 0x111111, false); }
+  box(1.0, 0.03, 0.04, px, 1.0, pz - 0.2, 0x3b2a20, false);                  // 譜架
+  box(1.36, 0.12, 0.04, px, 0.6, pz - 0.2, 0x3b2a20, false);
+  box(0.76, 0.46, 0.34, px, 0.23, pz - 1.1, 0x2a1d17, false);                // 琴椅（不擋路）
+  // 吉他：放在窗戶和衣櫃中間的吉他架上
+  const gtr = new THREE.Group(), wood = M(0xb9773f), dark = M(0x3a2618);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.2, 18, 12), wood); body.scale.set(1, 1.15, 0.28); body.position.y = 0.2; gtr.add(body);
+  const upper = new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 12), wood); upper.scale.set(1, 1, 0.28); upper.position.y = 0.48; gtr.add(upper);
+  const hole = new THREE.Mesh(new THREE.CircleGeometry(0.055, 18), dark); hole.position.set(0, 0.4, 0.058); gtr.add(hole);
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.46, 0.03), dark); neck.position.set(0, 0.85, 0.02); gtr.add(neck);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.13, 0.025), dark); head.position.set(0, 1.13, 0.01); gtr.add(head);
+  gtr.position.set(1.98, 0.08, 0.45); gtr.rotation.set(-0.18, -Math.PI / 2, 0); s.add(gtr);
+  box(0.3, 0.08, 0.3, 1.98, 0.04, 0.45, 0x22262b);                           // 吉他架
+  return { scene: s, boxes, door: { x: 1.2, z: -2.45 }, desk: { x: -1.25, z: -0.45 }, W, D, H,
+    piano: { x: px, z: pz - 0.74, yaw: Math.PI }, guitar: { x: 1.55, z: 0.45, yaw: -Math.PI / 2 }, gtr, gtrHome: { p: gtr.position.clone(), r: gtr.rotation.clone() } };
 }
 const room = buildRoom();
 
 // ===================================================================== 狀態
 const input = new Input(canvas, $('touch'));
-const music = new Music({ key: 'taipei-music', rapUrl: null, cyberUrl: 'audio/cyber.mp3' });
+const music = new Music({ key: 'taipei-music', rapUrl: null, cyberUrl: 'audio/cyber.mp3', homeUrl: 'audio/home.mp3' });
 for (const [id, code] of [['btnMirL', 'KeyZ'], ['btnMirR', 'KeyX']]) {
   const el = $(id); if (!el) continue;
   el.addEventListener('touchstart', (e) => { input.keys.add(code); e.preventDefault(); }, { passive: false });
@@ -233,7 +254,9 @@ const fmtMoney = (n) => {
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const districtName = (i) => meta.districts[i] ? meta.districts[i].name : '';
 let toastT = 0;
-function toast(msg, sec = 3) { const t = $('toast'); t.textContent = touchify(msg); t.hidden = false; toastT = uiTime + sec; placeToast(); }
+let toastPrio = 0;
+/** prio：重要的訊息（例如被檢舉停用）在顯示時間內不會被一般訊息蓋掉。 */
+function toast(msg, sec = 3, prio = 0) { if (prio < toastPrio && uiTime < toastT) return; toastPrio = prio; const t = $('toast'); t.textContent = touchify(msg); t.hidden = false; toastT = uiTime + sec; placeToast(); }
 /** 手機玩的時候看不到電腦才有的按鍵說明：「按 F」→「按「飛越」」、拿掉（Enter）（Esc）等。電腦版原樣。 */
 const TOUCH_KEY = { Shift: '推進', F: '飛越', G: '吸附', T: '翻轉', R: '回正', E: '動作' };
 function touchKey(k) {
@@ -449,7 +472,7 @@ function endDemo() {
 }
 window.__tc.startDemo = startDemo; window.__tc.endDemo = endDemo;
 window.__tc.startDayForTest = () => startDay();   // 測試用：直接開始下一天
-window.__tc.bayMarks = bayMarks;
+window.__tc.bayMarks = bayMarks; window.__tc.room = room; window.__tc.music = music; window.__tc.skillBanned = () => skillBanned();
 /** 依玩法設定世界：路上車流、別人的飛天跑車、天上的無人機。 */
 function applyMode() {
   const m = G.mode;
@@ -482,7 +505,7 @@ function refreshContinue() {
   if (sv && sv.cfg && sv.cfg.home && sv.cfg.work) {
     b.hidden = false;
     b.textContent = `繼續${G.mode !== 'normal' ? '（' + GAME_MODES[G.mode].name + '）' : ''}：第 ${sv.day} 天　${sv.cfg.home.a} → ${sv.cfg.work.n}　存款 ${fmtMoney((sv.econ && sv.econ.money) || 0)}`;
-    b.onclick = () => { G.cfg = sv.cfg; G.dayN = sv.day; econ.fromJSON(sv.econ); econ.applyMode(G.mode); G.homeCar = sv.homeCar || null; G.towNext = sv.towNext || null; startGame(); };
+    b.onclick = () => { G.cfg = sv.cfg; G.dayN = sv.day; econ.fromJSON(sv.econ); econ.applyMode(G.mode); G.homeCar = sv.homeCar || null; G.towNext = sv.towNext || null; G.annoy = sv.annoy || 0; G.banUntil = sv.banUntil || 0; G.prac = sv.prac || {}; startGame(); };
   } else b.hidden = true;
 }
 function pickDistrict(i) {
@@ -577,7 +600,7 @@ function renderWorks() {
   }
 }
 function updateGo() { $('btnGo').disabled = !(G.cfg.home && G.cfg.work); }
-function newGame() { G.dayN = 1; econ.reset(); econ.applyMode(G.mode); G.homeCar = null; G.towNext = null; startGame(); }
+function newGame() { G.dayN = 1; econ.reset(); econ.applyMode(G.mode); G.homeCar = null; G.towNext = null; G.annoy = 0; G.banUntil = 0; G.prac = {}; startGame(); }
 
 function startGame() {
   audioStart();
@@ -590,7 +613,7 @@ const HELP_BASE = [['W A S D', '走路／開車（油門、煞車、方向盤）
 const FEATURE_HELP = {
   nav: { title: '導航', rows: [['藍線', '路面上的藍色線就是建議路線'], ['螢幕', '右下角的車內螢幕會提示下一個轉彎和距離']] },
   ev: { title: '電動車', rows: [['充電', '可以停停車場裡的「電動車專用格」，停著就會充電']] },
-  roadster: { title: '飛天跑車', rows: [['Shift', '推進器：約 1 秒破百（手機：推進）'], ['F', '垂直升空，飛越前面的車陣，約 10 台車（手機：飛越）'], ['T', '飛越時空中翻轉，落地前要轉正（手機：翻轉）'], ['G', '面向大樓：吸住外牆往上開；在高架橋下：吸在橋底倒著開；再按一次脫離（手機：吸附）'], ['空氣', '特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。開車慢慢補、停電動車充電格快速補、回家補滿（遊戲設定）']] },
+  roadster: { title: '飛天跑車', rows: [['Shift', '推進器：約 1 秒破百（手機：推進）'], ['F', '垂直升空，飛越前面的車陣，約 10 台車（手機：飛越）'], ['T', '飛越時空中翻轉，落地前要轉正（手機：翻轉）'], ['G', '面向大樓：吸住外牆往上開；在高架橋下：吸在橋底倒著開；再按一次脫離（手機：吸附）'], ['空氣', '特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。不用另外補氣，開車時會慢慢補回來（遊戲設定）']] },
   drone: { title: '無人機飛行系統', rows: [['U', '開飛天跑車時按 U：旋翼伸出、升空，自動避撞飛到目的地附近降落；再按一次取消（手機：無人機）'], ['C', '飛行中切換車外／駕駛座視角']] },
   ctl: { title: '路空總控', rows: [['U', '問路空總控：它比較「繼續開」和「飛起來」哪個先到。飛比較快就核准升空、排好降落時段（開著也能問，核准後慢下來停住就自動升空）（手機：問總控）'],
     ['再按 U', '總控建議繼續開、或建議先開等時段時，10 秒內再按一次就照你的意思現在升空'], ['C', '飛行中切換車外／駕駛座視角']] },
@@ -621,19 +644,25 @@ function makeCar(key) {
   const spec = carSpec(key);
   if (car) scene.remove(car.group);
   car = new PlayerCar(scene, world, spec);
-  car.onBump = (s) => { if (s > 0.4) toast(s > 1.5 ? '碰！撞到了' : '擦撞', 1.3); };
+  // 每撞一次扣修車費（特技翻車、被別人的飛天跑車壓到：那邊已經另外算或對方負責，這裡不重複扣）
+  car.onBump = (s) => {
+    if (G.demo || uiTime < (G.bumpFreeT || 0)) { if (s > 0.4) toast(s > 1.5 ? '碰！撞到了' : '擦撞', 1.3); return; }
+    const fee = repairFee(s); econ.addRepair(fee);
+    toast(`${s > 1.5 ? '碰！撞到了' : '擦撞'}　修車費 ${fmtMoney(fee)}`, 2);
+  };
   car.group.traverse(o => { if (o.isMesh) o.castShadow = true; });
   cockpit = new Cockpit(spec);
   cockpit.hemi.intensity = 5.0; cockpit.sun.intensity = 3.2;
   engine.setKind(spec.electric ? 'ev' : 'gas');
   // 飛天跑車：特技系統。特技用空氣罐的壓縮空氣（存檔裡的 stuntFuel，0..1）；用完特殊功能就停用。
-  // 補氣的錢在補的時候算（回家補、充電格補）；開車時慢慢補用的是車子的電。
+  // 不用另外補氣：開車時車上的小壓縮機慢慢補回來，用的是車子的電。
   stunts = spec.stunt ? new Stunts(car, world, {
     fuel: () => econ.stuntFuel,
     burn: (f) => { if (econ.stuntFuel <= 1e-4 || (f > 0.005 && econ.stuntFuel < f - 1e-6)) return false; econ.stuntFuel = Math.max(0, econ.stuntFuel - f); return true; },
     regen: (d) => { if (econ.stuntFuel >= 1) return; const add = Math.min(1 - econ.stuntFuel, d / 1000 * AIR.drivePerKm); econ.stuntFuel += add; car.energy = Math.max(0, car.energy - add * AIR.driveKwhPerTank); G.airRegenT = 1.5; },
     toast: (m, sec) => toast(m, sec),
-    crash: (fee, msg) => { econ.addRepair(fee); toast(`${msg}　修車費 ${fmtMoney(fee)}`, 2.8); },
+    crash: (fee, msg) => { G.bumpFreeT = uiTime + 0.3; econ.addRepair(fee); toast(`${msg}　修車費 ${fmtMoney(fee)}`, 2.8); },
+    locked: () => skillBanned(), lockMsg: () => `飛天跑車的特殊功能停用中（被附近車主檢舉），${banEndText()} 才能再用`,
     bump: (st) => car._bump(st),
   }) : null;
   flight = new DroneFlight(car, world, {
@@ -644,6 +673,7 @@ function makeCar(key) {
   applyComfort();
 }
 function toMenu() {
+  stopInstrument(true);
   input.enabled = false; input.releaseLock(); engine.shutdown();
   G.state = 'menu'; $('hud').hidden = true; $('menu').hidden = false; $('touch').hidden = true;
   destBeacon.visible = carBeacon.visible = false; bayMarks.count = 0; routeLine.visible = false;
@@ -657,7 +687,7 @@ function workParking() {
 function save() {
   if (G.demo) return;
   if (G.mode === 'normal' && econ.has('roadster') && econ.has('drone')) { try { localStorage.setItem(UNLOCK_KEY, '1'); } catch (err) { /* ignore */ } }
-  store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft,
+  store.set({ v: 2, cfg: G.cfg, day: G.dayN, econ: econ.toJSON(), homeCar: G.homeCar, gasLeft: G.gasLeft, annoy: G.annoy || 0, banUntil: G.banUntil || 0, prac: G.prac || null,
     towNext: G.towNext || (G.tow && G.state === 'room' ? { yi: TOW.yards.indexOf(G.tow.yard), towT: G.tow.towT + 24 * 60 } : null) }); }   // 早上還沒去領車就關掉遊戲：下次車子還在保管場
 
 // ===================================================================== 每日流程
@@ -675,6 +705,7 @@ function startDay() {
   econ.setLife(G.cfg.home, districtName(G.cfg.di), G.cfg.work, G.cfg.work ? districtName(G.cfg.work.d) : '');   // 薪水、房租／房貸：選的時候看不到，領錢和結算時才知道
   econ.startDay();
   // 昨晚停路邊被拖吊：今天早上車子在保管場（towT 換算成今天的時間，會是負的）
+  G.annoy = Math.max(0, (G.annoy || 0) - ANNOY.decayPerDay);   // 厭惡值每天自然消一點
   G.tow = G.towNext && !G.demo ? { yard: TOW.yards[G.towNext.yi] || TOW.yards[2], towT: G.towNext.towT - 24 * 60 } : null; G.towNext = null;
   towMark.visible = false;
   G.wait = {
@@ -716,6 +747,7 @@ function enterRoom() {
   save();
 }
 function leaveRoom() {
+  stopInstrument(true);
   if (G.tow) {   // 走到樓下：車子不見了（昨晚被拖吊）
     G.stats.leave = G.clock;
     fadeThen(() => { if (avatar) scene.add(avatar.group); P.inRoom = false; towPickup(G.cfg.home.x, G.cfg.home.z, '車子不見了：昨晚停在路邊被拖吊了。'); });
@@ -839,8 +871,6 @@ function finishDay() {
   const c = car, s = G.stats, km = (c.odo - s.odo0) / 1000, bumps = c.bumps - s.bumps0;
   G.gasLeft = c.spec.electric ? undefined : c.energy;
   G.homeCar = G.parked && G.parked.bay ? { x: G.parked.bay.x, z: G.parked.bay.z, psi: G.parked.bay.psi } : { x: car.x, z: car.z, psi: car.psi };
-  // 有飛天跑車：晚上在家用壓縮機把空氣罐補滿（錢算在今天）
-  const airHome = econ.has('roadster') ? econ.refillAirHome() : 0;
   const charge = Math.round(econ.day.charge || 0), r = econ.endDay(km);
   G.state = 'summary'; input.releaseLock(); setPrompt('');
   $('sumTitle').textContent = r.late ? `第 ${G.dayN} 天｜遲到 ${r.late} 分鐘` : `第 ${G.dayN} 天｜準時上班`;
@@ -857,7 +887,6 @@ function finishDay() {
     [c.spec.electric ? '電費' : '油錢', '−' + fmtMoney(r.energy), ''],
     ['停車／充電', '−' + fmtMoney(r.parking + charge), ''],
   ];
-  if (r.stunt) rows.push([airHome > 0.005 ? `壓縮空氣（回家補 ${Math.round(airHome * 100)}%）` : '壓縮空氣補充', '−' + fmtMoney(r.stunt), '']);
   if (r.drone) rows.push(['無人機燃料', '−' + fmtMoney(r.drone), '']);
   if (r.repair) rows.push(['修車', '−' + fmtMoney(r.repair), 'bad']);
   if (r.tow) rows.push(['拖吊（移置費、保管費、計程車）', '−' + fmtMoney(r.tow), 'bad']);
@@ -1094,6 +1123,7 @@ function stepWalk(dt, speedMul = 1) {
 }
 function roomFrame(dt) {
   tp.input(input.lookX, input.lookY);
+  if (G.inst && uiTime >= G.inst.end) stopInstrument(false);
   const ox = P.x, oz = P.z;
   stepWalk(dt, 0.8);
   const m = 0.3;
@@ -1108,11 +1138,81 @@ function roomFrame(dt) {
   if (avatar) { avatar.group.visible = true; avatar.update(dt, P.x, 0, P.z, P.yaw, P.speed); }
   tp.update(dt, P.x, 0, P.z, roomBlocked, () => 0);
   const nearDoor = Math.hypot(P.x - room.door.x, P.z - room.door.z) < 1.25, nearDesk = Math.hypot(P.x - room.desk.x, P.z - room.desk.z) < 1.0;
-  setPrompt(nearDoor ? '<kbd>E</kbd> 出門' : nearDesk ? '<kbd>E</kbd> 打開電腦（商店）' : '走到房門口出門上班');
-  if (input.pressed('KeyE')) { if (nearDoor) leaveRoom(); else if (nearDesk) openShop(); }
+  const nearPno = Math.hypot(P.x - room.piano.x, P.z - room.piano.z) < 0.85, nearGtr = Math.hypot(P.x - room.guitar.x, P.z - room.guitar.z) < 0.85;
+  G.roomNear = G.inst ? 'inst' : nearDoor ? 'door' : nearPno || nearGtr ? 'inst' : nearDesk ? 'desk' : '';
+  if (G.inst) {   // 正在彈：按 E 或走開就停
+    const k = G.inst.kind;
+    if (k === 'gtr') holdGuitar();
+    setPrompt(`${k === 'pno' ? '彈鋼琴' : '彈吉他'}中…　<kbd>E</kbd> 停下來`);
+    if (input.pressed('KeyE') || Math.abs(input.forward) > 0.3 || Math.abs(input.strafe) > 0.3) stopInstrument(true);
+  } else {
+    setPrompt(nearDoor ? '<kbd>E</kbd> 出門' : nearPno ? '<kbd>E</kbd> 彈鋼琴' : nearGtr ? '<kbd>E</kbd> 彈吉他' : nearDesk ? '<kbd>E</kbd> 打開電腦（商店）' : '走到房門口出門上班');
+    if (input.pressed('KeyE')) { if (nearDoor) leaveRoom(); else if (nearPno) startInstrument('pno'); else if (nearGtr) startInstrument('gtr'); else if (nearDesk) openShop(); }
+  }
   world.update(G.cfg.home.x, G.cfg.home.z, dt);
   parking.update(dt, G.cfg.home.x, G.cfg.home.z);
 }
+// ===================================================================== 房間裡的鋼琴、吉他（照《雞不可失》的練法）
+// 一天只算一次練習：第一天很不順、第二天好一點、第三天起就順了（中間沒練不會退步）。彈的時候配樂先收起來。
+const INST_LINES = {
+  gtr_0: ['第一次摸吉他，手指各彈各的。', '這首是〈阿爾罕布拉宮的回憶〉。現在彈出來的比較像〈回憶不起來〉。', '左手按不準，右手輪指也不太聽話。'],
+  gtr_1: ['昨天練過了，今天手指有記得一點。', '還會卡，但卡得比較有節奏了。', '今天彈到後半段了，前半段假裝很熟。'],
+  gtr_2: ['三天了，〈阿爾罕布拉宮的回憶〉終於順了。', '輪指順了，手指自己知道要去哪裡。', '這次是完整的一段，一次都沒卡住。'],
+  gtr_end0: ['……彈完了。手指好痛。', '剛剛那幾個音不算，是在調音。'],
+  gtr_end1: ['比昨天好，明天應該就順了。', '有幾個地方卡住，記下來了，明天修。'],
+  gtr_end2: ['這一段可以一直彈下去。', '彈完了，心情很好，可以出門了。'],
+  pno_0: ['第一次坐上琴椅，兩隻手一隻都不聽話。', '這首是〈匈牙利舞曲第五號〉。現在只彈得出前面一點點。', '右手找旋律，左手找不到路。'],
+  pno_1: ['昨天練過了，今天兩隻手開始認識彼此。', '今天彈完整段，還要升 key。升上去會不會掉下來，不保證。', '快的地方還是會打結。'],
+  pno_2: ['三天了，〈匈牙利舞曲第五號〉彈兩遍，第二遍還升 key。', '琴鍵終於肯聽話了。', '兩隻手終於一起走了。'],
+  pno_end0: ['……彈完了。左手說它盡力了。', '手指打結了，明天再解。'],
+  pno_end1: ['比昨天好，升 key 那邊明天再修。', '有幾個地方卡住，記下來了。'],
+  pno_end2: ['彈完了，布拉姆斯聽了應該會點頭。', '這段可以拿出去表演了。'],
+  prac: ['今天練過了。再彈幾次也是這樣，手指要睡一覺才會記得，明天再來。', '一天練十次，不如十天各練一次。', '今天的份練完了。進步是明天的事，不是等一下的事。'],
+};
+const pickLine = (k) => { const a = INST_LINES[k]; return a[Math.floor(Math.random() * a.length)]; };
+let instOut = null;
+function instLevel(kind) {
+  const P = G.prac || (G.prac = {});
+  if (P[kind + 'Last'] !== G.dayN) { P[kind + 'Days'] = (P[kind + 'Days'] || 0) + 1; P[kind + 'Last'] = G.dayN; }
+  return Math.max(0, Math.min(2, (P[kind + 'Days'] || 1) - 1));
+}
+function startInstrument(kind) {
+  const level = instLevel(kind);
+  const face = kind === 'pno' ? room.piano : room.guitar;
+  P.x = face.x; P.z = face.z; P.yaw = face.yaw;
+  // 鏡頭：彈鋼琴從斜後方看得到琴鍵；彈吉他人轉向房間、鏡頭在前面看得到吉他
+  if (kind === 'gtr') { P.yaw = face.yaw + Math.PI; tp.yaw = P.yaw + Math.PI + 0.35; } else tp.yaw = P.yaw + 0.85;
+  tp.pitch = 0.28;
+  save();
+  audioStart();
+  const ctx = music.ctx;
+  if (!ctx || !music.on) {   // 配樂關著：照樣算練習，只是聽不到
+    toast(pickLine(kind + '_' + level) + '（配樂關著，聽不到琴聲：在「⋯」或右上角打開配樂）', 4);
+    return;
+  }
+  if (!instOut) { instOut = ctx.createGain(); instOut.connect(ctx.destination); }
+  instOut.gain.value = Math.max(0.25, music.volume) * 1.1;
+  music.hold(true);
+  const p = playInstrument(ctx, instOut, kind, level);
+  G.inst = { kind, level, stop: p.stop, end: uiTime + p.dur };
+  toast(pickLine(kind + '_' + level), Math.min(6, p.dur));
+}
+function stopInstrument(early) {
+  const I = G.inst; if (!I) return;
+  G.inst = null; I.stop(); music.hold(false);
+  if (I.kind === 'gtr') { room.gtr.position.copy(room.gtrHome.p); room.gtr.rotation.copy(room.gtrHome.r); }
+  if (early) { toast('先不彈了。', 1.5); return; }
+  const end = pickLine(I.kind + '_end' + I.level);
+  toast(end, 4);
+  if (I.level < 2) setTimeout(() => { if (G.state === 'room' && !G.inst && $('toast').textContent === touchify(end)) toast(pickLine('prac'), 5); }, 4300);   // 還沒練順：提醒每天練一點比一天練很多有用
+}
+/** 彈吉他的時候把吉他拿到人的身前（琴頸朝左上）。 */
+function holdGuitar() {
+  const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = -fz, rz = fx;   // r：人的右手邊（往前 × 往上）
+  room.gtr.position.set(P.x + fx * 0.3 + rx * 0.16, 0.8, P.z + fz * 0.3 + rz * 0.16);   // 琴身在身體前面偏右，琴頸往左
+  room.gtr.rotation.set(0, Math.atan2(fx, fz), -Math.PI / 2 + 0.4);
+}
+
 function walkFrame(dt) {
   tp.input(input.lookX, input.lookY);
   const ox = P.x, oz = P.z;
@@ -1266,13 +1366,8 @@ function driveFrame(dt) {
   } else c.update(dt, pedals, obs);
   if (flight) flight.animate(dt);   // 旋翼展開／收回的動畫（不影響開車）
   if (drones) drones.update(dt, c.x, c.z, flying ? [{ x: flight.x, y: flight.y, z: flight.z, vx: flight.vx, vy: flight.vy, vz: flight.vz }] : null);
-  // 壓縮空氣：停在電動車充電格（車停著）就快速補氣（遊戲設定：每秒 4%，滿罐 600 元）
+  // 壓縮空氣：開車時慢慢補回來（stunts 的 regen）
   G.airRegenT = Math.max(0, (G.airRegenT || 0) - dt);
-  if (stunts && !stunts.busy && !flying && Math.abs(c.v) < 0.3 && econ.stuntFuel < 1) {
-    G.airBayT = (G.airBayT || 0) - dt;
-    if (G.airBayT <= 0) { G.airBayT = 0.3; const b = parking.bayAt(c.x, c.z, c.psi, _err); G.airBay = !!(b && b.type === 'ev'); }
-    G.airStation = G.airBay && econ.refillAirStation(AIR.stationRate * dt) > 0;
-  } else { G.airStation = false; G.airBay = false; }
   if (stunts) c.airText = `空氣 ${Math.round(econ.stuntFuel * 100)}%・${Math.floor(econ.stuntFuel * AIR.jumpsPerTank + 1e-6)} 次`;
   engine.update(dt, { v: flying ? 0 : c.v, throttle: c.energy > 0 && !flying ? c.thrF : 0, brake: c.brkF, cockpit: G.camMode === 'cockpit' });
   engine.stunt(flying ? 0.22 : stunts ? stunts.thrust : 0, flying ? 0.9 : stunts ? stunts.suction : 0);
@@ -1280,7 +1375,7 @@ function driveFrame(dt) {
   traffic.update(dt, c.x, c.z, [{ x: c.x, z: c.z, y: c.y, r: 2.3 }]);
   jetMist(dt);
   for (const ev of traffic.events.splice(0)) {
-    if (ev.type === 'hitPlayer') { c._bump(2); toast('被飛過來的飛天跑車壓到了！（對方負責修車費）', 2.6); }
+    if (ev.type === 'hitPlayer') { G.bumpFreeT = uiTime + 0.3; c._bump(2); toast('被飛過來的飛天跑車壓到了！（對方負責修車費）', 2.6); }
     else if (Math.hypot(ev.x - c.x, ev.z - c.z) < 150) toast('前面有飛天跑車落地壓到別的車，撞成一團', 2.4);
   }
   if (G.camMode === 'drone') { c.body.visible = true; flight.camera(camera, dt); }
@@ -1355,6 +1450,7 @@ function jetMist(dt) {
   lastCar = { x: car.x, y: car.y, z: car.z };
   if (stunts) {
     const J = stunts.jets(); car.group.updateMatrixWorld(true); const mw = car.group.matrixWorld;
+    annoyTick(J.down || 0);
     for (const k of Object.keys(ROADSTER_JETS)) {
       const lv = J[k] || 0; if (lv < 0.02) { mistAcc[k] = 0; continue; }
       const fx = JET_FX[k]; mistAcc[k] = (mistAcc[k] || 0) + fx.rate * lv * dt;
@@ -1374,6 +1470,28 @@ function jetMist(dt) {
     for (const [lx, lz] of [[-0.62, -1.6], [0.62, -1.6], [-0.62, 1.6], [0.62, 1.6]]) mist.emit(c.x + lx * cs + lz * sn, c.y + 0.17, c.z - lx * sn + lz * cs, 0, -1, 0, nAi, { speed: 12, life: 1.3, s1: 3 });
   }
 }
+
+/** 升空、落地時車底往下噴的煙霧：罩到旁邊的車就累積厭惡值（不顯示），太高就被檢舉、特殊功能停用 24 小時。 */
+const annoyHit = new Set();
+function annoyTick(down) {
+  if (down < 0.02) { annoyHit.clear(); return; }   // 這一次噴完了：下一次升空或落地重新算
+  if (G.demo || !traffic) return;
+  const R = ANNOY.radius;
+  for (const c of traffic.cars) {
+    if (c.hop || annoyHit.has(c)) continue;
+    const dx = c.x - car.x, dz = c.z - car.z, dy = car.y - (c.y || 0);
+    if (dx * dx + dz * dz > R * R || dy < -1.5 || dy > 14) continue;
+    annoyHit.add(c); G.annoy = (G.annoy || 0) + 1;
+  }
+  if (G.annoy >= ANNOY.limit && !skillBanned()) {
+    G.banUntil = absMin() + ANNOY.banMin; G.annoy = 0;
+    toast(`附近的車主受不了飛天跑車噴出來的煙霧，聯合檢舉你！特殊功能停用一天，${banEndText()} 才能再用`, 7, 2);
+    save();
+  }
+}
+const absMin = () => G.dayN * 24 * 60 + G.clock;   // 從第 0 天 0:00 算起的遊戲分鐘
+function skillBanned() { return !G.demo && !!G.banUntil && absMin() < G.banUntil; }
+function banEndText() { const d = Math.floor(G.banUntil / 1440), m = G.banUntil - d * 1440; return `${d === G.dayN ? '今天' : d === G.dayN + 1 ? '明天' : `第 ${d} 天`} ${fmtClock(m)}`; }
 
 // ===================================================================== 隧道光線（不閃白光）
 let tunnelF = 0;
@@ -1427,10 +1545,10 @@ function hud(dt) {
     $('stuntBar').style.width = (f * 100).toFixed(1) + '%'; $('stuntBar').classList.toggle('low', f < 1 / AIR.jumpsPerTank);
     sb.classList.toggle('empty', f <= 1e-4);
     const pct = `${Math.round(f * 100)}%・可飛越 ${jumps} 次`; if ($('stuntPct').textContent !== pct) $('stuntPct').textContent = pct;
-    const fill = G.airStation ? '充電格補氣中' : (G.airRegenT > 0 && f < 1 ? '開車中慢慢補' : '');
+    const fill = skillBanned() ? '特殊功能停用中' : (G.airRegenT > 0 && f < 1 ? '開車中慢慢補' : '');
     if ($('stuntFill').textContent !== fill) $('stuntFill').textContent = fill;
     const lb = stunts.label(), hint = input.touch ? '' : stunts.mode === 'air' ? 'T 翻轉　A/D 轉向' : stunts.mode === 'wall' ? 'W 往上　A/D 轉向　G 跳離' : stunts.mode === 'under' ? 'W 前進　A/D 左右　G 翻轉落地' : stunts.mode === 'roof' ? 'F 飛下去　邊緣按 G 沿牆開下去' : 'Shift 推進　F 飛越　G 吸附';
-    const t = lb ? lb + (hint ? '・' + hint : '') : hint;
+    const t = skillBanned() && stunts.mode === 'ground' ? lb : lb ? lb + (hint ? '・' + hint : '') : hint;
     if ($('stuntMode').textContent !== t) $('stuntMode').textContent = t;
   }
   const dp = $('daa'), showD = !!(G.state === 'drive' && flight && flight.active);
@@ -1439,7 +1557,7 @@ function hud(dt) {
   const sp = $('speedo');
   if (G.state === 'drive' && (G.camMode !== 'cockpit' || input.touch)) {
     sp.hidden = false; $('spd').textContent = Math.round(car.kmh);
-    $('energy').textContent = (car.spec.electric ? '電量 ' : '油量 ') + Math.round(car.energy / car.spec.capacity * 100) + '%' + (stunts && input.touch ? `・空氣 ${Math.round(econ.stuntFuel * 100)}%（${Math.floor(econ.stuntFuel * AIR.jumpsPerTank + 1e-6)} 次）${G.airStation ? ' 補氣中' : ''}` : '');
+    $('energy').textContent = (car.spec.electric ? '電量 ' : '油量 ') + Math.round(car.energy / car.spec.capacity * 100) + '%' + (stunts && input.touch ? `・空氣 ${Math.round(econ.stuntFuel * 100)}%（${Math.floor(econ.stuntFuel * AIR.jumpsPerTank + 1e-6)} 次）${skillBanned() ? ' 特殊功能停用中' : ''}` : '');
   } else sp.hidden = true;
   placeT -= dt;
   if (placeT <= 0 && G.state !== 'room') { placeT = 0.6; const o = {}, e = world.nearestEdge(P.x, P.z, 40, null, o); $('placeRoad').textContent = (e && e.name) || '　'; $('placeDist').textContent = world.districtAt(P.x, P.z) || '臺北市外'; }
@@ -1831,7 +1949,7 @@ function frame(dt) {
   // 全螢幕地圖打開時遊戲不暫停：車子還在動就會繼續開（沒有導航只能這樣看地圖）
   const mapOpen = !$('bigmap').hidden;
   if (mapOpen) { mapT -= dt; if (mapT <= 0) { mapT = 0.25; drawMap(); } }
-  music.setStyle(G.demo ? 'cyber' : 'drive');   // 看示範：賽博龐克電子樂
+  music.setStyle(G.demo ? 'cyber' : G.state === 'room' ? 'home' : 'drive');   // 看示範：賽博龐克電子樂；在家：居家曲
   music.update(G.state === 'drive' ? (G.seatAdj ? 'walk' : 'drive') : G.state === 'summary' ? 'done' : G.state === 'menu' ? 'title' : 'walk', car ? car.v : 0);
   const st = G.state;
   // 測試用快轉：window.__tc.steps > 1 時，每一幀跑好幾次遊戲邏輯（只畫一次）。正常遊戲是 1。
@@ -1862,7 +1980,7 @@ function frame(dt) {
     G.gripT = (G.gripT || 0) - dt;
     if (G.gripT <= 0) { G.gripT = 0.3; G.gripOk = !!(stn && sm === 'ground' && (stunts._deckAbove(car.x, car.z, car.y, 3.9) || stunts._wallAhead(car.x, car.z, car.psi, 5.5, car.y))); }
     const vis = { btnBoost: stn && sm === 'ground', btnJump: stn && ((sm === 'ground' && slowNow) || sm === 'roof'), btnFlip: stn && sm === 'air', btnGrip: stn && (G.gripOk || ['wall', 'under', 'roof'].includes(sm)) };
-    for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (!el) continue; if (el.hidden === vis[id]) el.hidden = !vis[id]; el.classList.toggle('off', airOut || (id === 'btnJump' && econ.stuntFuel < 1 / AIR.jumpsPerTank - 1e-6)); }
+    for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (!el) continue; if (el.hidden === vis[id]) el.hidden = !vis[id]; el.classList.toggle('off', airOut || skillBanned() || (id === 'btnJump' && econ.stuntFuel < 1 / AIR.jumpsPerTank - 1e-6)); }
     const hyb = G.mode === 'hybrid' && !!ctl;   // 路空總控：開著也能問總控
     const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone') && car.spec.key === 'roadster' && (flyingNow || hyb || Math.abs(car.v) < 3);
     if (dbt) {
@@ -1876,7 +1994,7 @@ function frame(dt) {
     for (const id of ['btnGas', 'btnBrake']) { const el = $(id); if (el.hidden !== onFoot) el.hidden = onFoot; }
     const rb = $('btnRun'); if (rb.hidden === onFoot) rb.hidden = !onFoot;
     if (onFoot) { const rl = input.runOn ? '跑步中' : '跑步'; if (rb.textContent !== rl) { rb.textContent = rl; rb.classList.toggle('on', input.runOn); rb.setAttribute('aria-pressed', String(input.runOn)); } }
-    const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : '動作') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : '動作') : st === 'room' ? '出門' : '動作';
+    const act = $('btnAct'), lab = st === 'walk' ? (car && dist(P, car) < 3.0 ? '上車' : '動作') : st === 'drive' ? (G.seatAdj ? '開車' : Math.abs(car.v) < 0.4 && !busyNow ? '下車' : '動作') : st === 'room' ? ({ door: '出門', inst: G.inst ? '停下來' : '彈琴', desk: '商店' }[G.roomNear] || '動作') : '動作';
     if (act && act.textContent !== lab) act.textContent = lab;
     const bc = $('btnCenter'), showC = !!(drv && cockpit && (Math.abs(cockpit.lookYaw) > 0.05 || Math.abs(cockpit.lookPitch) > 0.05) && !G.glance);
     if (bc && bc.hidden === showC) bc.hidden = !showC;

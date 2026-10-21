@@ -46,6 +46,13 @@ export function garagePrice(district) { return LIFE.core.includes(district) ? GA
 // 停車場計時收費（元／小時）。真實的臺北市公有停車場小型車每小時 10～60 元（信義區的公有停車場 50～60 元；TVBS 汽車報導），
 // 遊戲用：蛋黃區 60、內湖 50、其他區 40（停車場裡的電動車格也照這個收停車費，充電另外算）。停車費在打卡（停到 18:00）和回家（過夜停到隔天 7:30）時算。
 export const LOT_RATE = { core: 60, semi: 50, other: 40 };
+// 碰撞修車費（遊戲設定）：每撞一次都要修，輕輕擦到 3,000 元起，撞得越用力越貴，最多一次 15,000 元。
+export const REPAIR = { base: 3000, per: 6000, max: 15000 };
+export function repairFee(strength) { return Math.round(Math.min(REPAIR.max, REPAIR.base + REPAIR.per * Math.max(0, strength)) / 100) * 100; }
+// 飛天跑車的「厭惡值」（遊戲設定，畫面上不顯示）：升空、落地時車底噴出的煙霧罩到旁邊的車，每罩到一台加 1；
+// 累積到 limit 就被附近車主聯合檢舉，特殊功能（推進、飛越、吸附、翻轉）停用 24 小時（遊戲時間）。每過一天自然消一點。
+// 實測：停在車陣裡原地飛越一次，煙霧大約罩到 4～10 台車 → 在車陣裡連續飛 5、6 次左右會被檢舉。
+export const ANNOY = { limit: 40, decayPerDay: 10, banMin: 24 * 60, radius: 9 };
 // 路邊停車格也按小時收費：一般路段每小時 30～40 元、鬧區 40～60 元（glike「台北路邊停車收費完整指南 2026」，以現場牌面為準）。
 // 遊戲用：蛋黃區 50、內湖 40、其他區 30。停多久算多久（不滿一小時算一小時），晚上停過夜也照算。
 export const ROAD_RATE = { core: 50, semi: 40, other: 30 };
@@ -83,10 +90,7 @@ export function homeCost(home, district) {
 export const AIR = {
   gameSetting: true,
   jumpsPerTank: 8,       // 滿罐可以垂直升空飛越 8 次（每次 1/8 罐，含落地前的反推）
-  homePrice: 3000,       // 回家補：每晚在家用壓縮機補滿，從空補到滿 3,000 元（依補的量算）
-  stationPrice: 8000,    // 充電站補：停在電動車充電格補氣，比較快但比較貴，從空到滿 8,000 元
-  stationRate: 0.04,     // 充電格補氣速度：每秒 4%（約 25 秒補滿）
-  drivePerKm: 0.05,      // 開車時慢慢補：車上的小壓縮機，每開 1 公里補 5%（用車子的電，約 1 度電補滿一罐）
+  drivePerKm: 0.05,      // 不用另外補氣：開車時車上的小壓縮機慢慢補回來，每開 1 公里補 5%（用車子的電，約 1 度電補滿一罐）
   driveKwhPerTank: 1,
 };
 
@@ -113,7 +117,7 @@ export const SAVED_NOTE = {
 export const SHOP = [
   { key: 'nav', name: '導航系統', kind: 'upgrade', desc: '中控螢幕與小地圖顯示建議路線，轉彎前提示。' },
   { key: 'ev', name: '電動車', kind: 'car', car: 'ev', desc: '可以停停車場裡的電動車專用格（停的時候順便充電，很少被占滿），電費比油錢便宜很多。' },
-  { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車（也是電動車：可以停電動車專用格、停的時候順便充電、在家充電，電費比油錢便宜）＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；每晚在家補滿（3,000 元／罐）、停電動車充電格補（8,000 元／罐）、開車時每公里慢慢補 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
+  { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車（也是電動車：可以停電動車專用格、停的時候順便充電、在家充電，電費比油錢便宜）＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；不用另外補氣，開車時每公里慢慢補回 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
   { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', requires: 'roadster', desc: '加裝在飛天跑車上（要先有飛天跑車，開飛天跑車時才能用）：塞車時按 U，車身伸出四組折疊旋翼（像多旋翼無人機），整台車升空，自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。降落後旋翼收回，還是你的車。燃料費每分鐘 2,500 元，飛越久越貴。' },
   { key: 'garage', name: '住處地下停車位', kind: 'home', desc: '家樓下地下停車場自己的車位：回家開到家門口的停車場入口（地圖和路上都有 P 標記）停下來就停好了，早上直接從車位出發，不用在附近找路邊停車格。搬家時車位跟著換到新家。' },
 ];
@@ -184,10 +188,6 @@ export class Economy {
 
   /** 一天開始。 */
   startDay() { this.day = { pay: 0, payAm: 0, payPm: 0, late: 0, energy: 0, parking: 0, charge: 0, stunt: 0, drone: 0, repair: 0, tow: 0, lines: [] }; }
-  /** 晚上回到家：用家裡的壓縮機把空氣罐補滿，回傳補的量（0..1）。錢算在今天。 */
-  refillAirHome() { const f = Math.max(0, 1 - this.stuntFuel); this.day.stunt += f * AIR.homePrice; this.stuntFuel = 1; return f; }
-  /** 在充電格補氣（每幀呼叫）。 */
-  refillAirStation(frac) { const f = Math.min(frac, 1 - this.stuntFuel); if (f <= 0) return 0; this.stuntFuel += f; this.day.stunt += f * AIR.stationPrice; return f; }
   /** 上班打卡。 */
   clockIn(lateMin) {
     const d = this.day; d.late = Math.max(0, Math.round(lateMin));

@@ -32,6 +32,7 @@ export class Avatar {
     const model = gltf.scene;
     model.rotation.y = Math.PI;              // 模型臉朝 +z，遊戲裡統一臉朝 -z
     model.traverse(o => {
+      if (o.name === 'Pistol') { o.visible = false; return; }   // 模型原本手上拿著一把手槍：上班族不需要，藏起來
       if (o.isMesh) {
         o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
         if (o.material) { o.material.roughness = 0.75; o.material.metalness = 0; }

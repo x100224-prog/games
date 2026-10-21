@@ -4,7 +4,7 @@
 //  ・空中翻轉（T）：在空中滾一圈，落地前要轉正，不然會撞壞
 //  ・吸附（G）：面向大樓外牆按 G，車底風扇把車吸在牆上，可以一路往上開到屋頂（屋頂邊緣按 G 也能沿外牆開下來）；
 //    在高架橋正下方按 G，翻上去吸在橋底倒著開。再按一次 G（或 F）脫離：從牆上跳開、從橋底翻轉落地
-//  垂直開、倒著開、飛越、推進器、翻轉都要用壓縮空氣（空氣罐）；空氣用完，這些特殊功能就停用，要補氣才能再用。
+//  垂直開、倒著開、飛越、推進器、翻轉都要用壓縮空氣（空氣罐）；空氣用完，這些特殊功能就停用，開車會慢慢補回來。
 //  空氣罐的容量、能跳幾次、怎麼補充都是遊戲設定（見 economy.js 的 AIR），Tesla 沒有公布。
 //  特技時自動切到車外視角（地平線保持水平），落地後回到駕駛座。
 import * as THREE from '../lib/three.module.min.js';
@@ -64,6 +64,7 @@ export class Stunts {
   get external() { return (this.mode !== 'ground' && this.mode !== 'roof') || this.camHold > 0; }
   get busy() { return this.mode !== 'ground'; }
   label() {
+    if (this.mode === 'ground' && this.h.locked && this.h.locked()) return '特殊功能停用中';
     if (this.mode === 'ground' && this.h.fuel() <= 1e-4) return '空氣用完・特殊功能暫停';
     return { ground: '', air: '飛行中', tween: '吸附中', wall: '垂直開', roof: '屋頂', under: '橋底倒著開' }[this.mode] || '';
   }
@@ -76,9 +77,14 @@ export class Stunts {
     this.thrust = 0; this.down = 0; this.suction = 0; this.side = 0; this.front = 0;   // 各方向噴氣的強度（0..1；side：正＝右側噴、負＝左側噴）
     const c = this.car, ox = c.x, oz = c.z;
     if (this.mode !== 'ground') { c.thrF = ctl.throttle || 0; c.brkF = ctl.brake || 0; }
-    this._emptyT = Math.max(0, (this._emptyT || 0) - dt);
+    this._emptyT = Math.max(0, (this._emptyT || 0) - dt); this._lockT = Math.max(0, (this._lockT || 0) - dt);
     switch (this.mode) {
       case 'ground': {
+        // 特殊功能停用中（被檢舉）：在地面不能開始任何特技；已經在空中、牆上的照常做完，才不會半空中摔下來
+        if (this.h.locked && this.h.locked()) {
+          if ((keys.jump || keys.grip || keys.flip || (keys.boost && ctl.throttle > 0.05)) && !this._lockT) { this._lockT = 4; this.h.toast(this.h.lockMsg ? this.h.lockMsg() : '飛天跑車的特殊功能停用中', 4); }
+          keys = { boost: false, jump: false, grip: false, flip: false };
+        }
         if (keys.jump && this._startHop()) break;
         if (keys.grip && this._tryGrip()) break;
         c.update(dt, ctl, obstacles);
@@ -546,7 +552,7 @@ export class Stunts {
   _empty(lead) {
     if (this._emptyT > 0) return; this._emptyT = 4;
     const none = this.h.fuel() <= 1e-4;
-    this.h.toast(`${lead || '壓縮空氣用完了'}${none ? '，飛天跑車的特殊功能暫停' : ''}。開車會慢慢補、停電動車充電格可以快速補、晚上回家會補滿`, 3.5);
+    this.h.toast(`${lead || '壓縮空氣用完了'}${none ? '，飛天跑車的特殊功能暫停' : ''}。繼續開車就會慢慢補回來`, 3.5);
   }
   _crash(fee, msg) { this.stats.crashes++; this.h.crash(fee, msg); this.h.bump(2); }
 
