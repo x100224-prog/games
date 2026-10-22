@@ -96,6 +96,10 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
 #opt{background:rgba(11,12,13,.95)}
 #slides{position:fixed;inset:0;background:#0b0c0d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:12px max(12px,env(safe-area-inset-right,0px)) max(12px,env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));cursor:pointer;z-index:5}
 #slides[hidden]{display:none}
+#winVid{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000;z-index:4;transition:none}
+#winVid[hidden],#winCap[hidden]{display:none}
+#winCap{position:fixed;left:max(20px,env(safe-area-inset-left,0px));bottom:max(18px,env(safe-area-inset-bottom,0px));margin:0;z-index:6;color:rgba(245,242,232,.9);font-family:var(--serif);letter-spacing:.35em;font-size:clamp(.9rem,2.4vw,1.2rem);text-shadow:0 1px 6px rgba(0,0,0,.6);animation:capIn 2.5s ease both}
+@keyframes capIn{from{opacity:0}to{opacity:1}}
 #slideImg{max-width:100%;max-height:calc(100% - 40px);object-fit:contain;box-shadow:0 0 0 1px rgba(217,212,199,.15)}
 #slideHint{margin:0;color:var(--ash);font-size:.85rem;letter-spacing:.05em;animation:slideBlink 1.6s ease-in-out infinite}
 @keyframes slideBlink{50%{opacity:.45}}
@@ -185,7 +189,7 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
   <button id="fsBtn" type="button" hidden>全螢幕</button>
   <button id="start" type="button">醒來</button>
   <div class="qpick" role="group" aria-label="章節"><span class="small">或直接從這裡開始</span>
-    <button type="button" data-ch="bath">浴室</button><button type="button" data-ch="kitchen">廚房</button><button type="button" data-ch="temple">廟宇</button><button type="button" data-ch="school">學校</button></div>
+    <button type="button" data-ch="bath">浴室</button><button type="button" data-ch="kitchen">廚房</button><button type="button" data-ch="temple">廟宇</button><button type="button" data-ch="school">學校</button><button type="button" data-ch="win" id="chWin" hidden>通關動畫</button></div>
 </div>
 
 <div class="screen" id="opt" hidden role="dialog" aria-label="視角與防暈設定">
@@ -202,6 +206,8 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
   <button type="button" id="optClose">完成</button>
 </div>
 
+<video id="winVid" muted playsinline preload="auto" hidden></video>
+<p id="winCap" hidden>南投・杉林溪</p>
 <div id="slides" hidden role="dialog" aria-label="資料圖片">
   <img id="slideImg" alt="">
   <p id="slideHint"></p>
@@ -277,6 +283,8 @@ const QUAL={
   std:{label:'標準',pr:1,msaa:2,snap:false,near:false,dith:1/300,lv:255,shadow:1024},
   retro:{label:'復古',h:240,msaa:0,snap:true,near:true,dith:1/24,lv:31,shadow:512}};
 let qual=coarse?'std':'hi';try{const v=localStorage.getItem('sky-qual');if(QUAL[v])qual=v;}catch(e){}
+/* 動態解析度：畫面卡的時候自動把內部解析度調低一點，順了再慢慢調回來 */
+let DSCALE=1;const BASE_RES={w:0,h:0};
 let rt=null;const SNAP={value:new T.Vector2(1e5,1e5)};const TEXS=[];let PSZ=1;
 const scene=new T.Scene();
 const FOG=new T.FogExp2(0x15171a,.06);
@@ -322,6 +330,7 @@ function applyQuality(){
   let lh,lw;
   if(Q.h){lh=Q.h;lw=Math.max(160,Math.round(lh*w/h));}
   else{const pr=Math.min(devicePixelRatio||1,Q.pr);lw=Math.round(w*pr);lh=Math.round(h*pr);}
+  BASE_RES.w=lw;BASE_RES.h=lh;lw=Math.max(160,Math.round(lw*DSCALE));lh=Math.max(90,Math.round(lh*DSCALE));
   const f=Q.near?T.NearestFilter:T.LinearFilter;
   if(rt){rt.dispose();}
   const opt={minFilter:f,magFilter:f,encoding:T.sRGBEncoding};
@@ -345,7 +354,10 @@ function psx(m){m.onBeforeCompile=s=>{s.uniforms.uSnap=SNAP;
   s.vertexShader='uniform vec2 uSnap;\n'+s.vertexShader.replace('#include <project_vertex>',
   '#include <project_vertex>\nvec4 sp=gl_Position;sp.xyz/=sp.w;sp.xy=floor(sp.xy*uSnap+.5)/uSnap;sp.xyz*=sp.w;gl_Position=sp;');};return m;}
 const std=o=>psx(new T.MeshStandardMaterial(Object.assign({roughness:.8,metalness:0,envMapIntensity:.35},o)));
-const phys=o=>psx(new T.MeshPhysicalMaterial(Object.assign({envMapIntensity:.45},o)));
+/* 手機（觸控裝置）效能：MeshPhysical 的透明漆層（clearcoat）在手機 GPU 上很吃效能，手機改用一般的 Standard 材質 */
+const LITE=coarse;
+const PHYS_ONLY=['clearcoat','clearcoatRoughness','transmission','sheen','sheenColor','sheenRoughness','ior','thickness','reflectivity','attenuationColor','attenuationDistance','specularIntensity','specularColor'];
+const phys=o=>{if(LITE){const q=Object.assign({envMapIntensity:.45},o);PHYS_ONLY.forEach(k=>delete q[k]);return psx(new T.MeshStandardMaterial(q));}return psx(new T.MeshPhysicalMaterial(Object.assign({envMapIntensity:.45},o)));};
 const bas=o=>psx(new T.MeshBasicMaterial(o));
 function ctex(w,h,draw,rep,srgb=true){const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');draw(x,w,h);
   const t=new T.CanvasTexture(c);if(srgb)t.encoding=T.sRGBEncoding;
@@ -1078,6 +1090,8 @@ const SFX={
   vomit(){tn({type:'sawtooth',f:130,f2:95,a:.02,d:.5,v:.18,filt:700,ft:'bandpass',q:2});nb({type:'lowpass',f:1400,a:.02,d:.6,v:.35});nb({type:'bandpass',f:900,q:1,a:.15,d:.5,v:.3,at:.2});crackle(.2,.5,26,.22,700,3200);},
   // 拉肚子：一連串濕的噗嚕聲
   diarrhea(){for(let i=0;i<7;i++){nb({type:'lowpass',f:rnd(220,520),a:.005,d:rnd(.05,.12),v:.32,at:i*.09+rnd(0,.03)});}crackle(0,.7,20,.18,400,2200);tn({f:70,f2:55,a:.02,d:.6,v:.12});},
+  // 森林裡的鳥叫：幾個很快往上滑的短音（像繡眼畫眉、白耳畫眉那樣清脆）
+  bird(){const n=2+(Math.random()*4|0),f0=rnd(2600,4200),pan=rnd(-.6,.6);for(let i=0;i<n;i++)tn({f:f0*rnd(.9,1.1),f2:f0*rnd(1.25,1.6),a:.004,d:rnd(.05,.11),v:rnd(.02,.045),at:i*rnd(.09,.16)});},
   // 一滴鼻涕落在木地板：短而濕的「啪」
   drip(){tn({f:rnd(260,340),f2:rnd(110,150),a:.001,d:.06,v:.18,filt:900});nb({type:'bandpass',f:rnd(1400,2200),q:2,a:.001,d:.05,v:.14});},
   // 小蟲冒出來：細小的濕「啵」
@@ -1391,7 +1405,7 @@ const KLIGHT=new T.Group();KIT.add(KLIGHT);
 {
   addRoomBox(KIT,3.2,3.6,2.5,std({map:tileTex('#cfc6b2','#a89f8a',4,[4,4]),roughness:.6}),std({map:tileTex('#dfe3df','#b9c0bb',8,[3,2]),roughness:.4}),std({color:0xe8e6df,roughness:.9}));
   KLIGHT.add(new T.HemisphereLight(0xdfe6f0,0x3a342c,.45));
-  const cl=new T.PointLight(0xf2f6ff,1.0,7,2);cl.position.set(0,2.35,0);cl.castShadow=true;cl.shadow.bias=-.003;cl.shadow.normalBias=.02;KLIGHT.add(cl);
+  const cl=new T.PointLight(0xf2f6ff,1.0,7,2);cl.position.set(0,2.35,0);cl.castShadow=true;if(LITE)cl.shadow.mapSize.set(256,256);cl.shadow.bias=-.003;cl.shadow.normalBias=.02;KLIGHT.add(cl);
   KIT.add(mesh(new T.BoxGeometry(.9,.03,.3),bas({color:0xf6f8ff}),0,2.48,0,.4));
   const cab=std({color:0x8a9a8c,roughness:.5}),top=std({color:0x3a3a3a,roughness:.3,metalness:.2});
   KIT.add(mesh(rbox(3.0,.86,.6,.02),cab,0,.43,-1.5,.2),mesh(rbox(3.04,.04,.64,.01),top,0,.88,-1.5,.22));
@@ -1506,14 +1520,14 @@ function emitFumes(n){for(let k=0;k<n;k++){emitAt(STOVE.x+rnd(-.09,.09),STOVE.y+
 
 
 /* ---------- 浴室（刷牙 → 上廁所滑手機 → 沖馬桶）---------- */
-const mirRT=new T.WebGLRenderTarget(512,512,{encoding:T.sRGBEncoding});mirRT.texture.repeat.x=-1;mirRT.texture.offset.x=1;mirRT.texture.wrapS=T.RepeatWrapping;
+const mirRT=new T.WebGLRenderTarget(LITE?256:512,LITE?256:512,{encoding:T.sRGBEncoding});mirRT.texture.repeat.x=-1;mirRT.texture.offset.x=1;mirRT.texture.wrapS=T.RepeatWrapping;
 BATH.position.set(BX,0,0);
 const BLIGHT=new T.Group();BATH.add(BLIGHT);
 const B={};
 {
   addRoomBox(BATH,2.4,2.8,2.5,std({map:tileTex('#bfc4c2','#8f9694',6,[3,3.5]),roughness:.35}),std({map:tileTex('#cfd6d6','#a3aeb0',10,[2.4,2.5]),roughness:.3}),std({color:0xe6e6e2,roughness:.9}));
   BLIGHT.add(new T.HemisphereLight(0xe6ebf0,0x34342f,.32));
-  const bl=new T.PointLight(0xf2f4f8,.72,6,2);bl.position.set(0,2.3,0);bl.castShadow=true;bl.shadow.bias=-.003;bl.shadow.normalBias=.02;BLIGHT.add(bl);
+  const bl=new T.PointLight(0xf2f4f8,.72,6,2);bl.position.set(0,2.3,0);bl.castShadow=true;if(LITE)bl.shadow.mapSize.set(256,256);bl.shadow.bias=-.003;bl.shadow.normalBias=.02;BLIGHT.add(bl);
   BATH.add(mesh(new T.CylinderGeometry(.16,.16,.03,24),bas({color:0xf6f8ff}),0,2.48,0,.4));
   // 洗手台、鏡子
   const cab=std({color:0xd8d2c4,roughness:.5});
@@ -2015,6 +2029,7 @@ function hideAllProps(){heroLayer(0);if(HERO.ok)footRestore();pyHide();snotHide(
   while(tissues.children.length)tissues.remove(tissues.children[0]);setFat(0);if(HERO.ok){HERO.mixer.stopAllAction();heroAnim=null;BONES.forEach(n=>{if(HERO.bones[n])HERO.bones[n].quaternion.copy(HERO.rest[n]);});}}
 function showStage(n){room.visible=n==='bed';BED_LIGHTS.forEach(l=>l.visible=n==='bed');KIT.visible=n==='kitchen';BATH.visible=n==='bath';TEM.visible=n==='temple';SCH.visible=n==='school';}
 function commonReset(n){
+  if(WIN.fade||WIN.on)roomRestore();renderer.toneMappingExposure=.95;scene.background.set(0x0c0d0f);
   stage=n;sky=100;kv=0;lastSkyShown=-1;inhaleQ=0;samples=[];recAcc=0;REC=[];replay=null;clearDust();setThermal(false);
   Object.assign(PS,{on:false,level:1,auto:false,sleep:false,circ:false,autoLv:1,sensed:0,hold:0});closePur();applyPur();
   hideAllProps();showStage(n);clockMin=STAGE_INFO[n].clock;handle.visible=false;grab=null;settle=null;
@@ -2046,10 +2061,10 @@ function enterClass(){SC.sub='class';fadeV=1;
   player.x=RX+1.2;player.z=-2.6;player.yaw=Math.PI*.25;player.pitch=-.05;
   if(!KIDS.length)buildKids();KIDS.forEach(k=>k.root.visible=true);say('點黑板開始上課。',3);}
 $('start').addEventListener('click',()=>{aInit();applyPur();$('title').hidden=true;startStage('bed');});
-document.querySelectorAll('[data-ch]').forEach(b=>b.addEventListener('click',()=>{aInit();applyPur();$('title').hidden=true;startStage(b.dataset.ch);}));
+document.querySelectorAll('[data-ch]').forEach(b=>b.addEventListener('click',()=>{aInit();applyPur();$('title').hidden=true;if(b.dataset.ch==='win'){stage='bed';startWin();}else startStage(b.dataset.ch);}));
 $('again').addEventListener('click',()=>{aInit();startStage(lastFail?stage:'bed');});
 /* 回到主選單：清掉這一關的狀態，回到標題畫面（可以重新選章節） */
-$('menu').addEventListener('click',()=>{$('slides').hidden=true;commonReset('bed');resetWorld();setHUD(false);state='title';$('end').hidden=true;$('title').hidden=false;$('blink').style.opacity=0;fadeV=0;
+$('menu').addEventListener('click',()=>{$('slides').hidden=true;if(WIN.fade||WIN.on)roomRestore();commonReset('bed');resetWorld();setHUD(false);state='title';$('end').hidden=true;$('title').hidden=false;$('blink').style.opacity=0;fadeV=0;
   ['rustle','hum','sizzle','fan','amb','room'].forEach(k=>setG(A[k],0));});
 function finishDay(){state='end';lastFail=false;setHUD(false);closePur();if(document.exitPointerLock&&locked())document.exitPointerLock();
   $('endBig').textContent='SKY '+Math.ceil(sky);$('endBig').classList.remove('red');
@@ -2065,10 +2080,15 @@ function preloadSlides(st){(SLIDES[st]||[]).forEach(n=>{const im=new Image();im.
 function showSlides(){slideList=SLIDES[stage]||[];slideIdx=0;if(!slideList.length){failDay();return;}
   state='slides';setThermal(false);hideAllProps();$('slides').hidden=false;drawSlide();}
 function drawSlide(){$('slideImg').src=slideSrc(slideList[slideIdx]);$('slideImg').alt='資料圖片 '+(slideIdx+1)+'/'+slideList.length;
-  $('slideHint').textContent=(isTouch?'點畫面':'按空白鍵')+(slideIdx<slideList.length-1?'看下一張':'繼續')+(slideList.length>1?`　${slideIdx+1} / ${slideList.length}`:'');}
+  const back=slideIdx>0?(isTouch?'　點左邊回上一張':'　按「上」回上一張'):'';
+  $('slideHint').textContent=(isTouch?'點畫面':'按空白鍵')+(slideIdx<slideList.length-1?'看下一張':'繼續')+back+(slideList.length>1?`　${slideIdx+1} / ${slideList.length}`:'');}
+function prevSlide(){if(state!=='slides'||slideIdx<=0)return;slideIdx--;drawSlide();}
 function nextSlide(){if(state!=='slides')return;slideIdx++;if(slideIdx>=slideList.length){$('slides').hidden=true;failDay();}else drawSlide();}
-addEventListener('keydown',e=>{if(state==='slides'&&(e.code==='Space'||e.code==='Enter')){e.preventDefault();if(!e.repeat)nextSlide();}});
-$('slides').addEventListener('click',nextSlide);
+addEventListener('keydown',e=>{if(state!=='slides')return;
+  if(e.code==='Space'||e.code==='Enter'||e.code==='ArrowDown'||e.code==='ArrowRight'||e.code==='PageDown'){e.preventDefault();if(!e.repeat)nextSlide();}
+  else if(e.code==='ArrowUp'||e.code==='ArrowLeft'||e.code==='PageUp'){e.preventDefault();if(!e.repeat)prevSlide();}});
+/* 點畫面左邊三分之一＝上一張，其他地方＝下一張 */
+$('slides').addEventListener('click',e=>{if(e.clientX<innerWidth*.3&&slideIdx>0)prevSlide();else nextSlide();});
 function nextStage(n){SFX.door();state='fade';stT=0;nextName=n;}
 let nextName=null;
 
@@ -2169,7 +2189,7 @@ function stageUpdate(dt){
     if(SC.started&&!SC.done){SC.coughT-=dt;if(SC.coughT<0){SC.coughT=rnd(2.5,4.2);let i;do{i=(Math.random()*KIDS.length)|0;}while(i===SC.lastKid&&KIDS.length>1);SC.lastKid=i;if(KIDS.length)kidCough(i,true);SC.coughs++;}}
     // 遊戲設定：聽到第 5 次咳嗽以後，清淨機沒開 sky 就慢慢下降；開了就停
     if(SC.coughs>=5&&!SC.done&&purLevel()===0)sky=Math.max(0,sky-3.8*dt);
-    if(SC.explain>0){SC.explain-=dt;if(SC.explain<=0){SC.q++;SC.wrong=-1;if(SC.q>=QUESTIONS.length){SC.done=true;SFX.bell();say('下課了。今天的課上完了！',3);setTimeout(()=>{if(state==='play'&&stage==='school')finishDay();},3500);}drawBoard();}}}
+    if(SC.explain>0){SC.explain-=dt;if(SC.explain<=0){SC.q++;SC.wrong=-1;if(SC.q>=QUESTIONS.length){SC.done=true;SFX.bell();say('下課了。今天的課上完了！',3);setTimeout(()=>{if(state==='play'&&stage==='school')startWin();},3500);}drawBoard();}}}
 }
 let coughT2=3;
 /* 倒油：拿起油瓶 → 移到鍋子上方傾斜 → 油柱流進鍋子、鍋底一灘油慢慢變大 → 放回去 */
@@ -2267,6 +2287,181 @@ function bathPhaseA(t,dt){ // 沖出大腸桿菌：水花繼續往上噴、小�
   miniEco.forEach(m=>{const u=m.userData;if(t>=u.t0&&!m.visible&&t<u.t0+.1){m.visible=true;m.position.copy(TOILET);m.position.y+=.05;u.v.set(rnd(-.9,.9),rnd(2.2,3.4),rnd(-.4,1.4));u.r=new T.Vector3(rnd(-6,6),rnd(-6,6),rnd(-6,6));}
     if(m.visible){u.v.y-=4*dt;m.position.addScaledVector(u.v,dt);if(m.position.y<.04){m.position.y=.04;u.v.multiplyScalar(.3);u.v.y=0;}m.rotation.x+=u.r.x*dt;m.rotation.z+=u.r.z*dt;}});}
 function bathHideHorror(){miniEco.forEach(m=>m.visible=false);vomit.visible=false;}
+
+/* =========================================================
+   通關動畫：主角躺在臥室床上 → 房間慢慢化成杉林溪的柳杉林 → 接一段預先算好的寫實短片
+   （即時部分用 three.js；最後幾秒是用 Blender Cycles 算好的影片，第一格的鏡頭位置跟這裡的結尾對齊）
+   ========================================================= */
+const WIN={built:false,t:0,on:false};
+const WH=new T.Vector3(BED.x,0,-1.5);   // 主角身體中心（對應影片裡的原點）
+function barkTex(){return ctex(256,512,x=>{x.fillStyle='#5a3220';x.fillRect(0,0,256,512);
+  for(let i=0;i<260;i++){const xx=rnd(0,256),w=rnd(2,9);const g=x.createLinearGradient(xx,0,xx+w,0);const c=rnd(.55,1.25);
+    g.addColorStop(0,`rgba(${30*c|0},${16*c|0},${9*c|0},0)`);g.addColorStop(.5,`rgba(${110*c|0},${60*c|0},${34*c|0},${rnd(.35,.8)})`);g.addColorStop(1,'rgba(0,0,0,0)');
+    x.fillStyle=g;x.beginPath();let y=rnd(-60,512);x.moveTo(xx,y);const len=rnd(120,520);
+    for(let k=0;k<=8;k++)x.lineTo(xx+Math.sin(k*1.3+i)*3,y+len*k/8);for(let k=8;k>=0;k--)x.lineTo(xx+w+Math.sin(k*1.3+i)*3,y+len*k/8);x.fill();}
+  for(let i=0;i<120;i++){x.strokeStyle=`rgba(20,10,5,${rnd(.2,.5)})`;x.lineWidth=rnd(1,3);const xx=rnd(0,256);x.beginPath();x.moveTo(xx,rnd(0,512));x.lineTo(xx+rnd(-4,4),rnd(0,512));x.stroke();}},[3,6]);}
+function mossTex(){return ctex(512,512,x=>{x.fillStyle='#2c3a14';x.fillRect(0,0,512,512);
+  for(let i=0;i<5000;i++){const v=rnd(.6,1.4);x.fillStyle=`rgba(${48*v|0},${70*v|0},${20*v|0},${rnd(.3,.8)})`;x.beginPath();x.arc(rnd(0,512),rnd(0,512),rnd(1,4),0,7);x.fill();}
+  for(let i=0;i<900;i++){x.strokeStyle=`rgba(${rnd(90,130)|0},${rnd(55,75)|0},${rnd(25,40)|0},${rnd(.5,.9)})`;x.lineWidth=rnd(1,2);const xx=rnd(0,512),yy=rnd(0,512),a=rnd(0,6.3),l=rnd(6,16);
+    x.beginPath();x.moveTo(xx,yy);x.lineTo(xx+Math.cos(a)*l,yy+Math.sin(a)*l);x.stroke();}   // 落下的柳杉針葉
+  for(let i=0;i<300;i++){x.fillStyle=`rgba(${rnd(10,25)|0},${rnd(15,25)|0},5,${rnd(.3,.6)})`;x.beginPath();x.ellipse(rnd(0,512),rnd(0,512),rnd(6,22),rnd(4,12),rnd(0,3),0,7);x.fill();}},[10,10]);}
+function needleClumpGeo(){const pos=[];const V=(a)=>pos.push(a.x,a.y,a.z);
+  for(let k=0;k<28;k++){const d=new T.Vector3(rnd(-1,1),rnd(-.55,.45),rnd(-.5,.5)).normalize(),b=new T.Vector3(rnd(-.35,.35),rnd(-.12,.12),rnd(-.15,.15));
+    const ln=rnd(.35,.8),tip=b.clone().addScaledVector(d,ln);let side=new T.Vector3().crossVectors(d,new T.Vector3(0,1,0));if(side.lengthSq()<1e-4)side.set(1,0,0);side.normalize();
+    const up=new T.Vector3().crossVectors(d,side).normalize(),r=rnd(.05,.09),q=[b.clone().addScaledVector(side,r),b.clone().addScaledVector(up,r),b.clone().addScaledVector(side,-r),b.clone().addScaledVector(up,-r)];
+    for(let i=0;i<4;i++){V(q[i]);V(q[(i+1)%4]);V(tip);}}
+  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.computeVertexNormals();return g;}
+function fernGeo(){const pos=[];const V=(x,y,z)=>pos.push(x,y,z);
+  for(let f=0;f<7;f++){const ang=f/7*Math.PI*2+rnd(-.2,.2),ln=rnd(.5,.8),pts=[];
+    for(let k=0;k<14;k++){const t=k/13;pts.push(new T.Vector3(Math.cos(ang)*t*ln,.36*Math.sin(t*2.4)*(1-t*.4),Math.sin(ang)*t*ln));}
+    for(let k=1;k<13;k++){const p=pts[k],d=pts[k+1].clone().sub(pts[k-1]).normalize(),side=new T.Vector3(-d.z,0,d.x).normalize(),w=(1-k/13)*.12+.02;
+      for(const sg of [-1,1]){const b=p.clone().addScaledVector(side,w*sg);b.y-=.04;const c=p.clone().addScaledVector(d,.035);V(p.x,p.y,p.z);V(b.x,b.y,b.z);V(c.x,c.y,c.z);}}}
+  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.computeVertexNormals();return g;}
+function rayTex(){return ctex(64,256,(x,w,h)=>{const g=x.createLinearGradient(0,0,0,h);g.addColorStop(0,'rgba(255,240,210,0)');g.addColorStop(.25,'rgba(255,240,210,.9)');g.addColorStop(1,'rgba(255,240,210,0)');x.fillStyle=g;x.fillRect(0,0,w,h);
+  const g2=x.createLinearGradient(0,0,w,0);g2.addColorStop(0,'rgba(0,0,0,1)');g2.addColorStop(.5,'rgba(0,0,0,0)');g2.addColorStop(1,'rgba(0,0,0,1)');x.globalCompositeOperation='destination-out';x.fillStyle=g2;x.fillRect(0,0,w,h);});}
+/* 地面「從主角身邊往外長出來」：超出半徑的像素丟掉，邊緣用雜訊打散 */
+function revealMat(m,u){m.onBeforeCompile=sh=>{sh.uniforms.uR=u;sh.uniforms.uC={value:WH};
+  sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 vWp;').replace('#include <worldpos_vertex>','#include <worldpos_vertex>\nvWp=(modelMatrix*vec4(transformed,1.)).xyz;');
+  sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vWp;uniform float uR;uniform vec3 uC;float hh(vec2 p){return fract(sin(dot(p,vec2(12.99,78.23)))*43758.5);}')
+    .replace('void main() {','void main() {\nfloat dd=distance(vWp.xz,uC.xz)+ (hh(floor(vWp.xz*6.))-.5)*.6;if(dd>uR)discard;');};m.needsUpdate=true;}
+function buildWin(){if(WIN.built)return;WIN.built=true;
+  const G=new T.Group();G.visible=false;scene.add(G);WIN.G=G;
+  WIN.uR={value:0};
+  const gm=std({map:mossTex(),roughness:.95});revealMat(gm,WIN.uR);
+  const gg=new T.PlaneGeometry(90,90,90,90);gg.rotateX(-Math.PI/2);const gp=gg.attributes.position;
+  for(let i=0;i<gp.count;i++){const x=gp.getX(i),z=gp.getZ(i),d=Math.hypot(x,z);gp.setY(i,d<3?0:(Math.sin(x*.31)*Math.cos(z*.27)*.35+Math.sin(x*.9+z*.7)*.08)*Math.min(1,(d-3)/4));}
+  gg.computeVertexNormals();const ground=new T.Mesh(gg,gm);ground.position.set(WH.x,.012,WH.z);ground.receiveShadow=true;ground.userData.heat=.15;G.add(ground);
+  // 柳杉：數量依畫質
+  const NT=qual==='hi'?120:qual==='std'?85:55,PER=qual==='hi'?34:qual==='std'?24:16;
+  const trunkM=std({map:barkTex(),color:0xffffff,roughness:.9});
+  const trunkG=new T.CylinderGeometry(.2,1,1,14,1,true);trunkG.translate(0,.5,0);
+  const leafM=std({color:0x1d3a14,roughness:.75,side:T.DoubleSide});
+  const clumpG=needleClumpGeo();
+  WIN.trees=[];const pts=[];
+  for(let i=0;i<NT;i++){let x,z;for(let k=0;k<200;k++){const r=2.4+Math.pow(Math.random(),.7)*34,a=rnd(0,6.28);x=WH.x+Math.cos(a)*r;z=WH.z+Math.sin(a)*r;if(pts.every(p=>Math.hypot(p[0]-x,p[1]-z)>1.8))break;}
+    pts.push([x,z]);const H=rnd(22,34),R=rnd(.22,.48),d=Math.hypot(x-WH.x,z-WH.z);
+    const tr=new T.Mesh(trunkG,trunkM);tr.position.set(x,-.3,z);tr.rotation.set(rnd(-.015,.015),rnd(0,6.28),rnd(-.015,.015));tr.castShadow=tr.receiveShadow=true;tr.userData.heat=.3;G.add(tr);
+    WIN.trees.push({tr,H,R,delay:1.0+d*.11+rnd(0,.5),x,z,cl:[]});}
+  // 再補一圈只有樹幹的柳杉（樹冠在畫面外），讓接影片前的林子跟影片一樣密；用 InstancedMesh 一次畫完，手機也不會多很多負擔
+  const NX=qual==='hi'?110:qual==='std'?80:50;WIN.xt=[];
+  for(let i=0;i<NX;i++){let x,z;for(let k=0;k<200;k++){const r=3+Math.pow(Math.random(),.8)*22,a=rnd(0,6.28);x=WH.x+Math.cos(a)*r;z=WH.z+Math.sin(a)*r;
+      if(pts.every(p=>Math.hypot(p[0]-x,p[1]-z)>1.5)&&Math.hypot(x-(WH.x+1.05),z-(WH.z+.3))>1)break;}
+    pts.push([x,z]);WIN.xt.push({x,z,H:rnd(22,32),R:rnd(.2,.45),ry:rnd(0,6.28),delay:1.0+Math.hypot(x-WH.x,z-WH.z)*.11+rnd(0,.5)});}
+  WIN.xi=new T.InstancedMesh(trunkG,trunkM,NX);WIN.xi.castShadow=WIN.xi.receiveShadow=true;WIN.xi.frustumCulled=false;G.add(WIN.xi);
+  const nC=NT*PER;const inst=new T.InstancedMesh(clumpG,leafM,nC);inst.castShadow=true;inst.frustumCulled=false;G.add(inst);WIN.inst=inst;WIN.cl=[];
+  let ci=0;WIN.trees.forEach(T_=>{for(let k=0;k<PER;k++){const u=Math.pow(rnd(.5,1),.8),rr=(1-u)*4.6+.35,ang=rnd(0,6.28),dd=rnd(.15,1)*rr,s=rnd(.8,1.5)*(.6+rr*.22);
+      WIN.cl.push({t:T_,u,ox:Math.cos(ang)*dd,oz:Math.sin(ang)*dd,s,ry:ang,rx:rnd(-.25,.25),rz:rnd(-.3,.1)});ci++;}});
+  // 蕨類
+  const NF=qual==='retro'?90:170,fg=fernGeo(),fm=std({color:0x2e5a17,roughness:.6,side:T.DoubleSide});
+  const fi=new T.InstancedMesh(fg,fm,NF);fi.frustumCulled=false;G.add(fi);WIN.ferns=fi;WIN.fd=[];
+  for(let i=0;i<NF;i++){const r=1.1+Math.pow(Math.random(),.6)*14,a=rnd(0,6.28);const x=WH.x+Math.cos(a)*r,z=WH.z+Math.sin(a)*r;
+    if(Math.abs(x-WH.x)<.6&&Math.abs(z-WH.z)<1.2)continue;WIN.fd.push({x,z,s:rnd(.6,1.5),ry:rnd(0,6.28),delay:.6+r*.16+rnd(0,.4)});}
+  // 光線：太陽從遠方樹縫斜射進來
+  WIN.sun=new T.DirectionalLight(0xffe3b8,0);WIN.sun.position.set(WH.x+9,16,WH.z-14);WIN.sun.target.position.copy(WH);WIN.sun.castShadow=true;
+  Object.assign(WIN.sun.shadow.camera,{left:-14,right:14,top:14,bottom:-14,near:1,far:60});WIN.sun.shadow.mapSize.set(LITE?1024:2048,LITE?1024:2048);WIN.sun.shadow.bias=-.0008;WIN.sun.shadow.normalBias=.03;G.add(WIN.sun,WIN.sun.target);
+  WIN.hemi=new T.HemisphereLight(0xcfe3ff,0x26331a,0);G.add(WIN.hemi);
+  const rt_=rayTex(),dir=new T.Vector3().subVectors(WIN.sun.position,WH).normalize();WIN.rays=[];
+  for(let i=0;i<9;i++){const m=new T.Mesh(new T.PlaneGeometry(rnd(.6,1.6),28),new T.MeshBasicMaterial({map:rt_,transparent:true,depthWrite:false,blending:T.AdditiveBlending,opacity:0,side:T.DoubleSide,fog:false}));
+    const base=WH.clone().add(new T.Vector3(rnd(-5,5),0,rnd(-6,2)));m.position.copy(base).addScaledVector(dir,13);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),dir);m.rotateY(rnd(0,3));
+    m.userData={o:rnd(.05,.13),ph:rnd(0,6)};m.userData.noTherm=true;G.add(m);WIN.rays.push(m);}
+  // 光束裡飄的細小塵埃（森林裡是花粉和小蟲，被陽光照亮）
+  const NP=400,pp=new Float32Array(NP*3);for(let i=0;i<NP;i++){pp[i*3]=WH.x+rnd(-5,5);pp[i*3+1]=rnd(.3,5);pp[i*3+2]=WH.z+rnd(-6,4);}
+  const pg=new T.BufferGeometry();pg.setAttribute('position',new T.BufferAttribute(pp,3));
+  WIN.motes=new T.Points(pg,new T.PointsMaterial({color:0xfff2c8,size:.025,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending}));G.add(WIN.motes);
+  // 天空球：清晨的淡藍到地平線的白霧
+  const skyM=new T.ShaderMaterial({side:T.BackSide,depthWrite:false,fog:false,uniforms:{a:{value:0}},vertexShader:'varying vec3 vP;void main(){vP=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader:'uniform float a;varying vec3 vP;void main(){float h=normalize(vP).y;vec3 c=mix(vec3(.86,.9,.9),vec3(.45,.62,.82),smoothstep(0.,.6,h));gl_FragColor=vec4(c,a);}',transparent:true});
+  WIN.sky=new T.Mesh(new T.SphereGeometry(60,24,16),skyM);WIN.sky.position.copy(WH);WIN.sky.renderOrder=-1;G.add(WIN.sky);
+  WIN.vid=$('winVid');}
+/* 房間淡出：每個物件依離主角的距離，先後變透明；之後要能還原 */
+const inPur=o=>{for(let p=o;p;p=p.parent)if(p===PUR.g)return true;return false;};
+function roomFadeSetup(){WIN.fade=[];room.traverse(o=>{if(!o.isMesh||!o.material||inPur(o))return;const ms=Array.isArray(o.material)?o.material:[o.material];
+  o.getWorldPosition(tmpV);const d=Math.hypot(tmpV.x-WH.x,tmpV.z-WH.z),isBed=Math.hypot(tmpV.x-BED.x,tmpV.z-BED.z)<1.3&&tmpV.y<1.2;
+  ms.forEach(m=>{if(m.userData.fadeOrig==null)m.userData.fadeOrig={t:m.transparent,o:m.opacity,dw:m.depthWrite};});
+  WIN.fade.push({o,ms,delay:isBed?7.6:2.2+d*.55+(tmpV.y>2?-.5:0),cast:o.castShadow});});}
+function roomRestore(){if(!WIN.fade)return;WIN.fade.forEach(F=>{F.o.visible=true;F.o.castShadow=F.cast;F.ms.forEach(m=>{const g=m.userData.fadeOrig;if(g){m.transparent=g.t;m.opacity=g.o;m.depthWrite=g.dw;m.needsUpdate=true;}});});WIN.fade=null;
+  PUR.g.position.set(1.5,0,-2.0);PUR.g.rotation.y=-.75;
+  if(WIN.G)WIN.G.visible=false;WIN.on=false;if(WIN.vid){WIN.vid.pause();WIN.vid.hidden=true;}$('winCap').hidden=true;
+  BED_LIGHTS.forEach(l=>{if(l.userData.i0!=null)l.intensity=l.userData.i0;});}
+/* 公開版：「通關動畫」按鈕要真的通關過一次才會出現 */
+try{if(localStorage.getItem('sky-cleared')==='1')$('chWin').hidden=false;}catch(e){}
+function startWin(){try{localStorage.setItem('sky-cleared','1');}catch(e){}$('chWin').hidden=false;buildWin();state='win';WIN.t=0;WIN.on=true;WIN.vidPrep=WIN.vidPlay=WIN.vidOn=WIN.vidDone=false;setHUD(false);closePur();if(document.exitPointerLock&&locked())document.exitPointerLock();
+  ['rustle','hum','sizzle','fan','amb'].forEach(k=>setG(A[k],0,.4));setG(A.room,.07,.6);
+  loadWinVideo();}
+/* 寫實影片：先整個抓下來變成 blob 再播放（有些主機不支援影片的分段讀取，直接用網址會播不出來）；
+   支援 H.264 就用 mp4，不支援（例如部分 Chromium）就用 webm */
+function loadWinVideo(){const v=WIN.vid;if(WIN.vidURL){if(v.src!==WIN.vidURL)v.src=WIN.vidURL;try{v.currentTime=0;}catch(e){}return;}
+  const mp4=v.canPlayType('video/mp4; codecs="avc1.42E01E"'),order=mp4?['forest.mp4','forest.webm']:['forest.webm','forest.mp4'];
+  const tryOne=i=>{if(i>=order.length)return;fetch(order[i]).then(r=>{if(!r.ok)throw 0;return r.blob();}).then(b=>{
+      const type=order[i].endsWith('mp4')?'video/mp4':'video/webm';WIN.vidURL=URL.createObjectURL(b.type?b:new Blob([b],{type}));v.src=WIN.vidURL;v.load();})
+    .catch(()=>tryOne(i+1));};
+  tryOne(0);}
+function winSetup(){ // 黑幕中把場景換成：臥室、主角躺在床上
+  hideAllProps();setThermal(false);stage='bed';showStage('bed');resetWorld();clearDust();
+  BED_LIGHTS.forEach(l=>{l.userData.i0=l.intensity;});lampLight.intensity=1.2;
+  WIN.G.visible=true;WIN.uR.value=0;WIN.sun.intensity=0;WIN.hemi.intensity=0;WIN.sky.material.uniforms.a.value=0;WIN.motes.material.opacity=0;
+  WIN.trees.forEach(T_=>{T_.tr.scale.set(1e-4,1e-4,1e-4);});roomFadeSetup();
+  HERO.root.visible=HERO.ok;heroLayer(0);if(HERO.ok){HERO.mixer.stopAllAction();heroAnim=null;footRestore();BONES.forEach(n=>boneOff(n,0,0,0));
+    boneOff('UpperArm.L',0,0,-.08);boneOff('UpperArm.R',0,0,.08);boneOff('Head',.08,0,0);
+    const fL=HERO.bones['Foot.L'],fR=HERO.bones['Foot.R'];if(fL&&fR){const z=(fL.position.z+fR.position.z)/2;fL.position.z=fR.position.z=z;}}   // 兩腳併攏伸直（原本是走路的前後腳）
+  HERO.root.rotation.set(-Math.PI/2,0,0);setFat(0);
+  // 空氣清淨機：搬到床邊、開著自動模式，房間消失以後它還留在森林裡陪著主角
+  PUR.g.position.set(WH.x+1.05,0,WH.z+.3);PUR.g.rotation.y=Math.atan2(-.55,2.4);Object.assign(PS,{on:true,auto:true,sleep:false,autoLv:1});applyPur();
+  camera.fov=45.7;camera.updateProjectionMatrix();
+  if(A.ctx&&!A.forest){A.forest={wind:loopNoise(A.noise,'lowpass',380,.6,0),leaves:loopNoise(A.noise,'bandpass',3200,.5,0)};}}
+const _wq=new T.Quaternion(),_wm=new T.Matrix4(),_wo=new T.Object3D();
+function updateWin(dt){WIN.t+=dt;const t=WIN.t,U=post.uniforms;U.k.value=0;U.flash.value=0;U.red.value=0;U.stat.value=0;
+  if(t<1.2){U.black.value=clamp(t/.8,0,1);if(t-dt<1.0&&t>=1.0)winSetup();return;}
+  const s=t-1.2;U.black.value=clamp(1-s/1.2,0,1);
+  // 主角：躺在床上，床淡掉以後慢慢降到苔蘚上
+  const sink=ease(clamp((s-8.2)/2.2,0,1));HERO.root.position.set(WH.x,lerp(BED.top+.13,.14,sink),WH.z+.8);
+  if(HERO.ok){boneOff('Chest',.02*Math.sin(s*1.4),0,0);   // 慢慢呼吸
+    const ar=1.35*ease(clamp((s-8.5)/2.5,0,1));boneOff('UpperArm.L',ar,0,-.08*(1-ar/1.35));boneOff('UpperArm.R',ar,0,.08*(1-ar/1.35));}   // 躺到苔蘚上以後，雙手慢慢攤開（跟寫實影片裡的姿勢一樣）
+  // 房間淡出
+  if(WIN.fade)WIN.fade.forEach(F=>{const a=1-clamp((s-F.delay)/1.6,0,1);F.o.visible=a>.01;F.o.castShadow=a>.9&&F.cast;
+    F.ms.forEach(m=>{const g=m.userData.fadeOrig;if(a<1){if(!m.transparent){m.transparent=true;m.needsUpdate=true;}m.opacity=g.o*a;m.depthWrite=a>.6;}});});
+  BED_LIGHTS.forEach(l=>{if(l.userData.i0!=null)l.intensity=l.userData.i0*(1-ease(clamp((s-2)/5,0,1)));});
+  // 森林長出來
+  const g=ease(clamp((s-.8)/9,0,1));WIN.uR.value=lerp(0,42,Math.pow(g,1.6));
+  WIN.sun.intensity=lerp(0,3.2,ease(clamp((s-3)/5,0,1)));WIN.hemi.intensity=lerp(0,.75,ease(clamp((s-2.5)/5,0,1)));WIN.sky.material.uniforms.a.value=ease(clamp((s-3.5)/4,0,1));
+  WIN.trees.forEach(T_=>{const k=ease(clamp((s-T_.delay)/2.4,0,1));T_.k=k;T_.tr.scale.set(T_.R*1.2*Math.max(.05,k),T_.H*Math.max(1e-4,k),T_.R*1.2*Math.max(.05,k));});
+  WIN.cl.forEach((c,i)=>{const T_=c.t,k=T_.k||0,kk=clamp((k-.35)/.65,0,1);_wo.position.set(T_.x+c.ox*kk,-.3+c.u*T_.H*k,T_.z+c.oz*kk);_wo.rotation.set(c.rx,c.ry,c.rz);_wo.scale.setScalar(Math.max(1e-4,c.s*kk));_wo.updateMatrix();WIN.inst.setMatrixAt(i,_wo.matrix);});
+  WIN.inst.instanceMatrix.needsUpdate=true;
+  WIN.xt.forEach((X,i)=>{const k=ease(clamp((s-X.delay)/2.4,0,1)),w=X.R*1.2*Math.max(.05,k);_wo.position.set(X.x,-.3,X.z);_wo.rotation.set(0,X.ry,0);_wo.scale.set(w,X.H*Math.max(1e-4,k),w);_wo.updateMatrix();WIN.xi.setMatrixAt(i,_wo.matrix);});
+  WIN.xi.instanceMatrix.needsUpdate=true;
+  WIN.fd.forEach((f,i)=>{const k=ease(clamp((s-f.delay)/1.4,0,1));_wo.position.set(f.x,.02,f.z);_wo.rotation.set(0,f.ry,0);_wo.scale.setScalar(Math.max(1e-4,f.s*k));_wo.updateMatrix();WIN.ferns.setMatrixAt(i,_wo.matrix);});
+  WIN.ferns.instanceMatrix.needsUpdate=true;WIN.ferns.count=WIN.fd.length;
+  const ra=ease(clamp((s-6)/3,0,1))*(1-ease(clamp((s-10.5)/2,0,1)));WIN.rays.forEach(r=>{r.material.opacity=r.userData.o*ra*(.75+.25*Math.sin(s*.5+r.userData.ph));});
+  WIN.motes.material.opacity=.8*ra;const mp=WIN.motes.geometry.attributes.position;for(let i=0;i<mp.count;i++){mp.setY(i,mp.getY(i)+Math.sin(s*.7+i)*.0015);mp.setX(i,mp.getX(i)+Math.cos(s*.5+i*.3)*.001);}mp.needsUpdate=true;
+  // 霧與天空色：從室內換成林間清晨
+  const fm=ease(clamp((s-2)/6,0,1));
+  // 接影片前（11～13.5 秒）霧變濃、整體壓暗一點，色調靠近寫實影片，交叉淡入時比較不會跳
+  const fv=ease(clamp((s-10.5)/3,0,1));
+  FOG.color.setRGB(lerp(lerp(.08,.72,fm),.5,fv),lerp(lerp(.09,.78,fm),.56,fv),lerp(lerp(.1,.8,fm),.6,fv));FOG.density=lerp(lerp(.045,.035,fm),.075,fv);
+  scene.background.setRGB(lerp(lerp(.05,.72,fm),.6,fv),lerp(lerp(.05,.78,fm),.66,fv),lerp(lerp(.06,.8,fm),.72,fv));
+  renderer.toneMappingExposure=lerp(lerp(.95,1.15,fm),.8,fv);
+  // 鏡頭：從床邊上方看著主角，慢慢升高到跟影片第一格一樣的位置
+  // 鏡頭：先從床邊上方看著主角、慢慢升高（0～11 秒）；接著再升高、抬頭看向林間（11～13.5 秒），
+  // 最後停在「寫實影片第 1.47 秒那一格」的同一個位置和角度——那時主角已經在畫面外，切過去不會看到他又躺一次
+  const ck=ease(clamp(s/11,0,1)),c2=ease(clamp((s-11)/2.5,0,1));
+  camera.position.set(WH.x+lerp(lerp(.4,.5,ck),.9,c2),lerp(lerp(2.05,3.1,ck),4.0,c2),WH.z+lerp(lerp(1.9,2.7,ck),3.4,c2));
+  camera.lookAt(WH.x,lerp(lerp(.55,.2,ck),2.8,c2),WH.z+lerp(-.05,-1.4,c2));
+  // 背景音：一開始是原本房間的聲音（室內低鳴＋時鐘滴答），隨著森林長出來慢慢退掉，換成輕輕的風聲、樹葉沙沙聲，偶爾幾聲鳥叫（刻意保持簡單）
+  setG(A.room,.07*(1-fm),.4);if(fm<.6&&Math.floor(s)!==Math.floor(s-dt))SFX.tick();
+  if(A.forest){setG(A.forest.wind,.045*fm,.8);setG(A.forest.leaves,.014*fm*(.75+.25*Math.sin(s*.6)),.6);}
+  if(fm>.5&&Math.random()<dt*.45)SFX.bird();
+  if(s>4.5&&s-dt<=4.5)$('winCap').hidden=false;
+  // 接寫實影片
+  const VS=13.5,VT0=1.47;   // 從影片第 1.47 秒（對應 Blender 的第 48 格關鍵影格）開始接
+  if(s>=VS-.4&&!WIN.vidPrep){WIN.vidPrep=true;const v=WIN.vid;try{v.pause();v.currentTime=VT0;}catch(e){}}
+  if(s>=VS&&!WIN.vidOn&&!WIN.vidDone){WIN.vidOn=true;const v=WIN.vid;v.hidden=false;v.style.opacity=0;}
+  if(WIN.vidOn){const k=clamp((s-VS)/.5,0,1);WIN.vid.style.opacity=k;
+    if(k>=1&&!WIN.vidPlay){WIN.vidPlay=true;const v=WIN.vid;try{v.playbackRate=.6;const p=v.play();if(p&&p.catch)p.catch(()=>{});}catch(e){}}
+    if(WIN.vid.ended||s>VS+4.0){WIN.vidOn=false;WIN.vidDone=true;WIN.on=false;winEnd();}}}
+function winEnd(){const v=WIN.vid;$('winCap').hidden=true;
+  setTimeout(()=>{if(state!=='win')return;finishDay();v.pause();v.hidden=true;renderer.toneMappingExposure=.95;camera.fov=baseFov();camera.updateProjectionMatrix();
+    if(A.forest){setG(A.forest.wind,0,.8);setG(A.forest.leaves,0,.8);}},900);}
+
 /* 錄下動作（熱成像重播用），只保留最後 20 秒 */
 function recFrame(){const f={x:player.x,z:player.z,yaw:player.yaw};
   if(stage==='kitchen')Object.assign(f,{fire:K.fire,egg:K.egg,cook:K.cook,hood:K.hood});
@@ -2722,12 +2917,24 @@ function updateTitle(){camera.position.set(LIE.x,LIE.y,LIE.z);camera.rotation.se
 let last=performance.now();
 scene.traverse(o=>{if(o.isMesh&&!o.userData.noShadow){o.castShadow=true;o.receiveShadow=true;}});
 setQuilt(0);setSheet(0);drawSky();drawTasks();drawPanel();applyQuality();showStage('bed');
+const PERF={ema:1/60,slow:0,fast:0,sh:0};
+function perfTick(raw){if(raw>.25||document.hidden)return;   // 切換分頁回來的那一下不算
+  PERF.ema+= (raw-PERF.ema)*.05;
+  if(PERF.ema>1/38){PERF.slow+=raw;PERF.fast=0;}else if(PERF.ema<1/54){PERF.fast+=raw;PERF.slow=0;}else{PERF.slow=PERF.fast=0;}
+  let ns=DSCALE;if(PERF.slow>1.5&&DSCALE>.56){ns=Math.max(.55,DSCALE-.12);PERF.slow=0;}else if(PERF.fast>5&&DSCALE<1){ns=Math.min(1,DSCALE+.08);PERF.fast=0;}
+  if(ns!==DSCALE){DSCALE=ns;const lw=Math.max(160,Math.round(BASE_RES.w*DSCALE)),lh=Math.max(90,Math.round(BASE_RES.h*DSCALE));rt.setSize(lw,lh);post.uniforms.res.value.set(lw,lh);
+    if(QUAL[qual].snap)SNAP.value.set(lw/2,lh/2);PSZ=Math.max(1,lh/360);if(pMat)pMat.size=(thermalOn?2.6:1.6)*PSZ;}}
+/* 陰影：電腦每一格都更新；手機上標準／復古每 3／5 格才更新一次，場景大多是靜止的，看不太出差別，但省很多 */
+renderer.shadowMap.autoUpdate=false;
 function frame(now){
   requestAnimationFrame(frame);
-  const dt=Math.min(.05,(now-last)/1000);last=now;time+=dt;THT.value=time;
+  const raw=(now-last)/1000;
+  const dt=Math.min(.05,raw);last=now;time+=dt;THT.value=time;if(LITE)perfTick(raw);   // 動態解析度只用在手機
+  PERF.sh++;if(!LITE||PERF.sh>=(qual==='retro'?5:3)||state==='horror'&&PERF.sh>=2){PERF.sh=0;renderer.shadowMap.needsUpdate=true;}
   if(state==='title')updateTitle();
   else if(state==='wake')updateWake(dt);
   else if(state==='play'){if(!optOpen)updatePlay(dt);}
+  else if(state==='win')updateWin(dt);
   else if(state==='horror')updateHorror(dt);
   else if(state==='fade'){stT+=dt;$('blink').style.opacity=Math.min(1,stT*2.2);if(stT>.55){state='loading';startStage(nextName);}}
   if(fadeV>0&&state!=='fade'){fadeV=Math.max(0,fadeV-dt*1.4);$('blink').style.opacity=fadeV;}
@@ -2741,12 +2948,12 @@ function frame(now){
     setG(A.hum,L?(.02+L*.013)*(PS.sleep?.5:1)/(1+d*.7):0,.25);
     if(state==='play'||state==='wake')setG(A.room,stage==='bed'?.07:.03,.3);}
   const ang=(clockMin%720)/720*Math.PI*2,mang=(clockMin%60)/60*Math.PI*2;clockH1.rotation.z=-ang;clockH2.rotation.z=-mang;
-  beam.visible=stage==='bed'&&!thermalOn;
+  beam.visible=stage==='bed'&&!thermalOn&&state!=='win';
   beamMat.uniforms.amt.value=lerp(beamMat.uniforms.amt.value,(curtOpen&&!thermalOn&&stage==='bed')?.09:0,Math.min(1,dt*3));
   const U=post.uniforms;U.time.value=time;if(state==='play'||state==='wake')U.k.value=kv;
   if(state==='title'||state==='end')U.k.value=0;
-  FOG.density=(stage==='temple'?.03:.045)+kv*.2;FOG.color.setRGB(lerp(.08,.17,kv),lerp(.09,.16,kv),lerp(.1,.1,kv));
-  if(BATH.visible&&state==='play')renderMirror();
+  if(state!=='win'){FOG.density=(stage==='temple'?.03:.045)+kv*.2;FOG.color.setRGB(lerp(.08,.17,kv),lerp(.09,.16,kv),lerp(.1,.1,kv));}
+  if(BATH.visible&&state==='play'&&(!LITE||(PERF.mir=(PERF.mir|0)+1)%2===0))renderMirror();   // 手機上鏡子隔一格才更新
   renderer.setRenderTarget(rt);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.render(postScene,postCam);
 }
 requestAnimationFrame(frame);
