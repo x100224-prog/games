@@ -7,6 +7,7 @@
   - 手機卡頓原因（量測 tests/phone_perf.mjs、phone_tris.mjs、phone_cpu.mjs、build_prof.mjs）：駕駛座每格多畫一次後照鏡；2048 柔邊影子多畫一遍城市；行道樹每棵約 420 個三角形（畫面裡最多）；看得到 1.1 km（約 29 個小格）；開到新區域建一個 500 m 小格電腦約 40 ms（建物占一半），手機約 4 倍。已改：手機第三人稱、預設順暢優先（不畫影子、解析度 1；畫質優先時影子 1024、解析度 1.25）、樹簡化（約 110 個三角形）、冷氣機少一點、樹和冷氣機不投影子、看得到約 750 m（VIEW 手機版）。
   - 走回家時車停在門口 3 m 內會一直顯示「上車」到不了家：改成離門口比較近就算到家。
   - 還沒做：建小格拆成好幾格做（開到新區域手機會頓一下）。
+- 2026-10-22 中午（線上 main 6a94fb0、artifact v19）：手機在家裡的鏡頭拉高拉遠（main.js ROOM_PHONE：直拿 5.3 m、橫拿 4.6 m、俯角約 47°，鏡頭只會被家具擋住，牆和天花板從外面看是透明的；彈琴時俯角 0.6）。測試 tests/phone_room.mjs。
 - 2026-10-22（線上 main b708b64、artifact v17）：空氣罐改成每開 200 公尺補 5%（economy.js AIR.drivePerKm 0.25；示範「壓縮空氣用完」開 245 m 從 0 補到 5.8%，tests/demo_air.mjs）。手機「翻轉」：原本是飛起來才出現在另一個位置的按鈕，飛行約 2.9 秒、翻一圈要 0.9 秒，按太晚會落地翻車、空氣不到 3% 不能翻。改成：飛起來後「飛越」同一個位置變成「翻轉」（game.html #btnFlip）；來不及翻一圈就不翻、跳提示（stunts.js landIn／canFlip、_lowT），按鈕變灰；在畫面上左右快速滑一下（450 ms 內、>50 px）往那邊翻（input.js swipeFlip／flipDir）。說明多一行手機專用（FEATURE_HELP 'touch'）。測試 tests/phone_flip.mjs。
 - 2026-10-21 下午（線上 main 52e9a9d、artifact v16）：在家配樂跳過前奏，從長笛旋律那一小節開始（music.js files.home.startAt 9.6 秒）。住處停車位二選一：economy.js 新增 curbspot「住處路邊停車位」（CURB 蛋黃區 110 萬、內湖 90 萬、其他 65 萬，遊戲設定；家門口藍色 P、住戶專用），garage「住處地下停車位」改成真的地下室：main.js buildBasement／enterBasement／basementFrame／leaveBasement —— 早上出門搭電梯到地下室上車、開出去到家門口；晚上停在家門口紫色 P 按 E 開進地下室，下車走到電梯按 E 回家。有地下停車位時路邊的不能買。測試 tests/garage2_test.mjs；map_test 改用路邊車位。
 - 2026-10-21 中午（線上 main f599f19、artifact v14）：

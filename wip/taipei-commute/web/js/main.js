@@ -785,6 +785,7 @@ function enterRoom() {
   $('loading').hidden = true; $('hud').hidden = false;
   if (input.touch) $('touch').hidden = false;
   camera.near = 0.05; camera.fov = 62; camera.updateProjectionMatrix();
+  if (input.touch) roomCamPhone();
   const mt = G.mode === 'allfly' ? '（全城飛天跑車：每台車都會飛越車陣）' : G.mode === 'alldrone' ? '（全城無人機：路上幾乎沒車，天上擠滿飛行車）' : G.mode === 'hybrid' ? '（路空總控：想飛先按 U 問總控）' : '';
   toast(`第 ${G.dayN} 天早上 7:30${mt}。走到門口出門上班（書桌的電腦可以開商店）`, 4);
   save();
@@ -804,7 +805,7 @@ function leaveRoom() {
     P.x = h.x; P.z = h.z; P.y = world.groundAt(h.x, h.z); P.yaw = Math.atan2(-(car.x - P.x), -(car.z - P.z)); tp.yaw = P.yaw;
     tp.dist = 4.4; tp.curDist = 4.4; tp.pitch = 0.22;
     G.stats.leave = G.clock;
-    camera.near = 0.15; camera.updateProjectionMatrix();
+    camera.near = 0.15; camera.fov = 62; camera.updateProjectionMatrix();
     traffic.update(0.016, P.x, P.z, [], true);
     const hb = G.homeBay;
     toast(G.atGarage ? '車停在家門口的住戶專用車位（藍色的 P），跟著藍色光柱走過去'
@@ -1154,6 +1155,15 @@ function gatherObstacles(x, z, R) {
 }
 const camBlocked = (x, y, z) => { const b = world.buildingAt(x, z); return !!(b && y < b.y0 + b.h + 1.0); };
 const groundAt = (x, z) => world.groundAt(x, z, P.y);
+// 手機在家裡：鏡頭拉高、拉遠，從斜上方往下看（房間的牆和天花板從外面看是透明的），人物不會塞滿畫面
+const ROOM_PHONE = { distPort: 5.3, distLand: 4.6, pitch: 0.82, minPitch: 0.5, fovPort: 64, fovLand: 56 };
+function roomCamPhone() {
+  const d = camera.aspect < 1 ? ROOM_PHONE.distPort : ROOM_PHONE.distLand;
+  tp.dist = d; tp.curDist = d; tp.pitch = ROOM_PHONE.pitch;
+  camera.fov = camera.aspect < 1 ? ROOM_PHONE.fovPort : ROOM_PHONE.fovLand; camera.updateProjectionMatrix();
+}
+/** 手機在家裡：鏡頭只會被家具擋住（可以在牆外、天花板上面）。 */
+const roomFurnBlocked = (x, y, z) => { for (const b of room.boxes) if (x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1 && y < b.h) return true; return false; };
 const roomBlocked = (x, y, z) => {
   const m = 0.12;
   if (x < -room.W / 2 + m || x > room.W / 2 - m || z < -room.D / 2 + m || z > room.D / 2 - m || y > room.H - 0.1) return true;
@@ -1189,7 +1199,9 @@ function roomFrame(dt) {
   }
   P.speed = Math.hypot(P.x - ox, P.z - oz) / Math.max(dt, 1e-4);
   if (avatar) { avatar.group.visible = true; avatar.update(dt, P.x, 0, P.z, P.yaw, P.speed); }
-  tp.update(dt, P.x, 0, P.z, roomBlocked, () => 0);
+  tp.minPitch = input.touch ? ROOM_PHONE.minPitch : -0.35;
+  if (input.touch) { const port = camera.aspect < 1, f = port ? ROOM_PHONE.fovPort : ROOM_PHONE.fovLand; tp.dist = port ? ROOM_PHONE.distPort : ROOM_PHONE.distLand; if (camera.fov !== f) { camera.fov = f; camera.updateProjectionMatrix(); } }
+  tp.update(dt, P.x, 0, P.z, input.touch ? roomFurnBlocked : roomBlocked, () => 0);
   const nearDoor = Math.hypot(P.x - room.door.x, P.z - room.door.z) < 1.25, nearDesk = Math.hypot(P.x - room.desk.x, P.z - room.desk.z) < 1.0;
   const nearPno = Math.hypot(P.x - room.piano.x, P.z - room.piano.z) < 0.85, nearGtr = Math.hypot(P.x - room.guitar.x, P.z - room.guitar.z) < 0.85;
   G.roomNear = G.inst ? 'inst' : nearDoor ? 'door' : nearPno || nearGtr ? 'inst' : nearDesk ? 'desk' : '';
@@ -1245,6 +1257,7 @@ function basementFrame(dt) {
   }
   P.speed = Math.hypot(P.x - ox, P.z - oz) / Math.max(dt, 1e-4);
   if (avatar) avatar.update(dt, P.x, 0, P.z, P.yaw, P.speed);
+  tp.minPitch = -0.35;
   tp.update(dt, P.x, 0, P.z, basementBlocked, () => 0);
   const nearCar = Math.hypot(P.x - B.car.x, P.z - B.car.z) < 3.0, nearLift = Math.hypot(P.x - B.lift.x, P.z - B.lift.z) < 1.4;
   G.bNear = G.phase === 'toCar' && nearCar ? 'car' : G.phase === 'toDest' && nearLift ? 'lift' : '';
@@ -1287,7 +1300,7 @@ function startInstrument(kind) {
   P.x = face.x; P.z = face.z; P.yaw = face.yaw;
   // 鏡頭：彈鋼琴從斜後方看得到琴鍵；彈吉他人轉向房間、鏡頭在前面看得到吉他
   if (kind === 'gtr') { P.yaw = face.yaw + Math.PI; tp.yaw = P.yaw + Math.PI + 0.35; } else tp.yaw = P.yaw + 0.85;
-  tp.pitch = 0.28;
+  tp.pitch = input.touch ? 0.6 : 0.28;
   save();
   audioStart();
   const ctx = music.ctx;
@@ -1337,6 +1350,7 @@ function walkFrame(dt) {
   else P.y += ((s ? s.y : world.groundAt(P.x, P.z, P.y)) - P.y) * Math.min(1, dt * 10);
   P.speed = Math.hypot(P.x - ox, P.z - oz) / Math.max(dt, 1e-4);
   if (avatar) { avatar.group.visible = true; avatar.update(dt, P.x, P.y, P.z, P.yaw, P.speed); }
+  tp.minPitch = -0.35;
   tp.update(dt, P.x, P.y, P.z, camBlocked, groundAt);
   world.update(P.x, P.z, dt); parking.update(dt, P.x, P.z); signs.update(dt, P.x, P.z);
   traffic.update(dt, P.x, P.z, [{ x: P.x, z: P.z, y: P.y, r: 0.6 }, { x: car.x, z: car.z, y: car.y, r: 2.3 }]);
