@@ -15,6 +15,7 @@ import sys, os, json, math, pickle, heapq, hashlib, time, random
 from collections import defaultdict
 import numpy as np
 import shapely
+import shapely.ops
 from shapely import wkb
 from shapely.geometry import Polygon, MultiPolygon, LineString, Point, box
 from shapely.strtree import STRtree
@@ -108,9 +109,10 @@ for r in D['roads']:
     if t.get('bridge') not in (None, 'no'):
         layer = max(1, pint(t.get('layer'), 1) or 1)
     tunnel = 1 if t.get('tunnel') not in (None, 'no', 'building_passage', 'culvert') else 0
+    passage = 1 if t.get('tunnel') == 'building_passage' or t.get('covered') in ('yes', 'arcade') else 0   # 從建物底下穿過去的路
     name = (t.get('name') or t.get('ref') or '').split(';')[0].strip()
     ways.append(dict(id=r['id'], cls=cls, name=name, en=(t.get('name:en') or '').split(';')[0].strip(), oneway=oneway, lanes=lanes, width=width, speed=speed,
-                     layer=layer, tunnel=tunnel, pts=pts, nodes=nodes))
+                     layer=layer, tunnel=tunnel, passage=passage, pts=pts, nodes=nodes))
 log("drivable ways:", len(ways))
 
 # --- 在路口切開
@@ -178,7 +180,7 @@ for w, a, b, ps in raw_edges:
             na = nb; continue
         edges.append(dict(a=na, b=nb, pts=part, cls=w['cls'], name=w['name'], en=w['en'], oneway=w['oneway'],
                           lanes=w['lanes'], width=w['width'], speed=w['speed'], layer=w['layer'],
-                          tunnel=w['tunnel'], len=LineString(part).length))
+                          tunnel=w['tunnel'], passage=w['passage'], len=LineString(part).length))
         na = nb
 N = len(node_xy)
 log("edges:", len(edges), "nodes:", N, "total km: %.0f" % (sum(e['len'] for e in edges) / 1000))
@@ -465,6 +467,102 @@ def infer_levels(x, y, area, btag):
     return vals[len(vals) // 2]
 log("buildings with real levels (for inference):", len(_lv_pts))
 
+# ---- 道路淨空：建物不可以蓋在地面道路的路面上（不然車子會被擋住、開不過去）
+# 開放地圖的建物外框常常包到騎樓或巷子（再加上路寬是用車道數估的），捷運高架車站、地下車站的外框也常畫在馬路上。
+# 做法：地面路段（高架離地 3 m 以下的引道也算）的路面 + 路口圓盤，從真實建物裡挖掉。
+# 只有資料明確寫了「在路的上方」的建物（layer≥1、min_height、building:min_level，或道路標了 building_passage／covered）
+# 才在路面上方留一段懸空的樓層（底下可以開車過去），其餘就是退縮到路邊。
+ROADCUT = os.environ.get('ROADCUT', '1') != '0'
+cut_polys, cut_pass = [], []
+if ROADCUT:
+    jr = defaultdict(float); jdeg = defaultdict(int)
+    for e in edges:
+        p, hs = e['pts'], e['h']
+        if e['tunnel']:
+            # 隧道／地下道：只有洞口附近（路面離地面不到 3 m 的引道）會碰到地面上的建物
+            if hs: continue
+            gz = T.sample(T.fin, [q_[0] for q_ in p], [q_[1] for q_ in p])
+            low = [float(gz[i]) - e['habs'][i] < 3.0 for i in range(len(p))]
+        else:
+            low = [hs is None or hs[i] < 3.0 for i in range(len(p))]
+        run = []
+        def _add(run_):
+            if len(run_) >= 2:
+                cut_polys.append(LineString(run_).buffer(e['width'] / 2 + 0.2, cap_style=2, join_style=1)); cut_pass.append(e['passage'])
+        for i in range(len(p) - 1):
+            if low[i] or low[i + 1]:
+                if not run: run = [p[i]]
+                run.append(p[i + 1])
+            else:
+                _add(run); run = []
+        _add(run)
+        for n, k in ((e['a'], 0), (e['b'], -1)):
+            if low[k]: jr[n] = max(jr[n], e['width'] / 2 + 0.2); jdeg[n] += 1
+    for n, r_ in jr.items():
+        if deg[n] >= 2: cut_polys.append(Point(node_xy[n]).buffer(r_, quad_segs=6)); cut_pass.append(0)
+    cut_tree = STRtree(cut_polys)
+    log("road clearance shapes:", len(cut_polys), "passages:", sum(cut_pass))
+n_cut = n_cut_drop = n_lift = 0
+
+def _polys(g):
+    if g.is_empty: return []
+    if isinstance(g, Polygon): return [g]
+    return [p for p in getattr(g, 'geoms', []) if isinstance(p, Polygon)]
+
+def _no_holes(p):
+    """有洞的多邊形（路被建物整個包住）沿著洞切成沒有洞的幾塊（遊戲的建物只用外框）。"""
+    out = [p]
+    for _ in range(8):
+        nxt, changed = [], False
+        for q_ in out:
+            if len(q_.interiors):
+                changed = True
+                hc = Polygon(q_.interiors[0]).representative_point(); x0, y0, x1, y1 = q_.bounds
+                parts = shapely.ops.split(q_, LineString([(hc.x, y0 - 1), (hc.x, y1 + 1)]))
+                nxt += [g for g in parts.geoms if isinstance(g, Polygon)]
+            else: nxt.append(q_)
+        out = nxt
+        if not changed: break
+    return out
+
+def _clean_piece(p, min_area=12.0):
+    """切完剩下的一塊：太小、太細（< 1.2 m 厚）的不要；有洞就只留外框（洞是被路圍起來的中庭，很少見）。"""
+    if p.area < min_area: return None
+    p = Polygon(p.exterior).simplify(0.2, preserve_topology=True)
+    if p.is_empty or not isinstance(p, Polygon) or not p.is_valid or p.area < min_area: return None
+    if 2 * p.area / p.length < 1.2: return None
+    if not shapely.is_ccw(p.exterior): p = Polygon(list(p.exterior.coords)[::-1])
+    return p
+
+def road_cut(ext, t, h):
+    """回傳 [(多邊形, 懸空高度 m)]。沒碰到路就是 [(ext, 0)]。"""
+    global n_cut, n_cut_drop, n_lift
+    if not ROADCUT: return [(ext, 0.0)]
+    hit = [i for i in cut_tree.query(ext) if cut_polys[i].intersects(ext)]
+    if not hit: return [(ext, 0.0)]
+    U = shapely.union_all([cut_polys[i] for i in hit])
+    over = ext.intersection(U)
+    if over.area < 0.3: return [(ext, 0.0)]
+    n_cut += 1
+    rest = ext.difference(U)
+    enclosed = any(len(p.interiors) for p in _polys(rest))     # 路從建物中間穿過去（被建物包住）
+    out = [(q_, 0.0) for q_ in (_clean_piece(p2) for p in _polys(rest) for p2 in _no_holes(p)) if q_ is not None]
+    # 懸空的部分：資料寫明在路的上方
+    lv = pint(t.get('layer'), 0) or 0
+    mh = pheight(t.get('min_height'))
+    ml = pheight(t.get('building:min_level'))
+    lift = None
+    if mh and mh >= 3: lift = mh
+    elif ml and ml >= 1: lift = ml * 3.3
+    elif lv >= 1: lift = 6.5 if (t.get('building') in ('train_station', 'transportation') or t.get('railway') or t.get('public_transport')) else 4.6
+    elif any(cut_pass[i] for i in hit) or (enclosed and h >= 8): lift = 4.6
+    if lift is not None and h - lift >= 2.5 and t.get('building') not in ('roof', 'carport'):
+        for p in _polys(over):
+            q_ = _clean_piece(p, 4.0)
+            if q_ is not None: out.append((q_, lift)); n_lift += 1
+    if not out: n_cut_drop += 1
+    return out
+
 bld_geoms, bld_info = [], []
 landmarks = []
 bld_recs = []
@@ -507,17 +605,20 @@ for a in D['areas']:
             elif A < 1600: h = (5 + int(r * r * 9)) * 3.2
             else: h = (4 + int(r * r * 8)) * 3.4
             if bt == 2: h *= 1.35
-        cen = ext.representative_point() if not ext.contains(ext.centroid) else ext.centroid
-        c = cell_of(cen.x, cen.y); tl = tile_of_cell(c)
-        ox, oz = tl[0] * TILE, tl[1] * TILE
-        coords = list(ext.exterior.coords)[:-1]
-        brec = [int(round(h * 10)), bt, flat(coords, ox, oz)]
-        cells[c]['b'].append(brec); bld_recs.append((brec, coords))
-        bld_geoms.append(ext); bld_info.append(dict(tags=t, id=a['id'], cen=(cen.x, cen.y), bt=bt, h=h))
         if h >= 120:
+            coords = list(ext.exterior.coords)[:-1]
             landmarks.append(dict(n=t.get('name', ''), h=round(h, 1), pts=[round(v, 1) for xy in coords for v in xy], coords=coords))
-        nb += 1
+        for piece, lift in road_cut(ext, t, h):
+            cen = piece.representative_point() if not piece.contains(piece.centroid) else piece.centroid
+            c = cell_of(cen.x, cen.y); tl = tile_of_cell(c)
+            ox, oz = tl[0] * TILE, tl[1] * TILE
+            coords = list(piece.exterior.coords)[:-1]
+            brec = [int(round(h * 10)), bt, flat(coords, ox, oz)]
+            cells[c]['b'].append(brec); bld_recs.append((brec, coords))
+            bld_geoms.append(piece); bld_info.append(dict(tags=t, id=a['id'], cen=(cen.x, cen.y), bt=bt, h=h, lift=lift))
+            nb += 1
 log("buildings:", nb, "heights inferred from nearby tagged buildings:", n_inferred)
+log("road clearance: buildings trimmed", n_cut, "removed entirely", n_cut_drop, "raised pieces over roads", n_lift)
 
 # ====================================================================== 補齊街屋
 # 開放地圖在很多地方沒畫建物（新北尤其少）。沿著一般道路兩側、沒有建物也不是綠地水域停車場的地方，
@@ -713,6 +814,7 @@ def add_home(geom, street, hn, approx=0):
 RES = {'residential', 'apartments', 'house', 'yes', 'detached', 'dormitory', 'terrace'}
 for g, info in zip(bld_geoms, bld_info):
     t = info['tags']
+    if info.get('lift'): continue
     if t.get('building') in RES and t.get('addr:street') and t.get('addr:housenumber') \
             and not t.get('amenity') and not t.get('office') and not t.get('shop') and 30 < g.area < 2500:
         add_home(g, t['addr:street'], t['addr:housenumber'])
@@ -724,7 +826,7 @@ for n in D['nodes']:
     if t.get('addr:street') and t.get('addr:housenumber') and not t.get('amenity') and not t.get('shop') \
             and not t.get('office') and not t.get('tourism') and not t.get('name') and not t.get('railway'):
         p = Point(proj(n['lon'], n['lat']))
-        hit = [i for i in bld_tree.query(p.buffer(6)) if bld_geoms[i].distance(p) < 6]
+        hit = [i for i in bld_tree.query(p.buffer(6)) if not bld_info[i].get('lift') and bld_geoms[i].distance(p) < 6]
         if hit:
             i = min(hit, key=lambda i: bld_geoms[i].distance(p))
             if bld_info[i]['bt'] in (0, 1) and 30 < bld_geoms[i].area < 2500:
@@ -736,7 +838,7 @@ rng = random.Random(20261012)
 for di in range(len(districts)):
     if len(homes[di]) >= 16: continue
     dg = districts[di]['geom']
-    cand = [i for i in bld_tree.query(dg) if bld_info[i]['bt'] in (0, 1) and 60 < bld_geoms[i].area < 900]
+    cand = [i for i in bld_tree.query(dg) if bld_info[i]['bt'] in (0, 1) and not bld_info[i].get('lift') and 60 < bld_geoms[i].area < 900]
     rng.shuffle(cand)
     added = 0
     for i in cand:
@@ -804,12 +906,12 @@ for a in D['areas']:
     if isinstance(g, MultiPolygon): g = max(g.geoms, key=lambda p: p.area)
     if isinstance(g, Polygon) and g.area > 200: add_work(Polygon(g.exterior), a['tags'])
 for g, info in zip(bld_geoms, bld_info):
-    add_work(g, info['tags'])
+    if not info.get('lift'): add_work(g, info['tags'])
 for n in D['nodes']:
     t = n['tags']
     if 'name' not in t or work_kind(t) is None: continue
     p = Point(proj(n['lon'], n['lat']))
-    hit = [i for i in bld_tree.query(p.buffer(3)) if bld_geoms[i].distance(p) < 3]
+    hit = [i for i in bld_tree.query(p.buffer(3)) if not bld_info[i].get('lift') and bld_geoms[i].distance(p) < 3]
     add_work(bld_geoms[hit[0]] if hit else p, t)
 # 太多的種類做抽樣（診所、銀行分行等），保留大型地點
 cap = {'診所': 120, '銀行': 200, '辦公室': 700, '幼兒園': 120, '超市': 150, '飯店': 200}
@@ -856,7 +958,7 @@ for n in D['nodes']:
     cat = sign_cat(t)
     if cat is None: continue
     p = Point(proj(n['lon'], n['lat']))
-    hit = [i for i in bld_tree.query(p.buffer(18)) if bld_geoms[i].distance(p) < 18]
+    hit = [i for i in bld_tree.query(p.buffer(18)) if not bld_info[i].get('lift') and bld_geoms[i].distance(p) < 18]
     if not hit: continue
     bi = min(hit, key=lambda i: bld_geoms[i].distance(p))
     g = bld_geoms[bi]
@@ -912,6 +1014,7 @@ for bi, (brec, coords) in enumerate(bld_recs):
     brec.append(mask[bi]); brec.append(mcls[bi])
 for (brec, coords), info in zip(bld_recs, bld_info):
     brec.append(1 if info.get('gen') else 0)
+    if info.get('lift'): brec.append(int(round(info['lift'] * 10)))   # [7] 懸空高度 (dm)：底下是道路，車子可以從下面過
 log("street-facing buildings:", sum(1 for m in mask if m))
 for lm in landmarks:
     xs = [p[0] for p in lm['coords']]; zs = [p[1] for p in lm['coords']]

@@ -23,9 +23,10 @@ await page.waitForFunction(() => window.__tc.G.state === 'walk', null, { timeout
 await ev(() => { const { P, car } = window.__tc; P.x = car.x - Math.cos(car.psi) * 2; P.z = car.z + Math.sin(car.psi) * 2; });
 await wait(600); await page.tap('#btnAct');
 await page.waitForFunction(() => window.__tc.G.state === 'drive', null, { timeout: 60000 }); await wait(1200);
-console.log('seat panel text:', await ev(() => [...document.querySelectorAll('#seat p')].filter(p => getComputedStyle(p).display !== 'none').map(p => p.textContent.slice(0, 40)).join(' / ')));
+// 手機開車是車外視角：不會跳出座椅調整
+console.log('phone drive view:', await ev(() => ({ cam: window.__tc.G.cam, seatPanel: !document.getElementById('seat').hidden })));
 console.log('prompt:', await ev(() => document.getElementById('prompt').innerText));
-await page.click('#seatGo'); await wait(1500);
+await ev(() => { if (window.__tc.G.seatAdj) document.getElementById('seatGo').click(); }); await wait(1500);
 const texts = await ev(() => ({ toast: document.getElementById('toast').textContent, prompt: document.getElementById('prompt').innerText, tip: !document.getElementById('tipCard').hidden && document.getElementById('tipCard').innerText.replace(/\n/g, ' | ') }));
 console.log('drive texts:', JSON.stringify(texts));
 const all = Object.values(texts).join(' ');
