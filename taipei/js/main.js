@@ -38,6 +38,9 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 const HAZE = new THREE.Color(0xd5d9d8);
+// 手機：看得到的範圍短一點（約 750 m，霧也拉近），要畫的東西少一半、開到新區域時要建的街區也少
+const PHONE = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+if (PHONE) { Object.assign(VIEW, { loadRadius: 760, unloadRadius: 1150, fogNear: 200, fogFar: 740 }); renderer.shadowMap.type = THREE.PCFShadowMap; }
 scene.fog = new THREE.Fog(HAZE, VIEW.fogNear, VIEW.fogFar);
 const camera = new THREE.PerspectiveCamera(62, 1, 0.15, 2600);
 const sky = new THREE.Mesh(new THREE.SphereGeometry(2300, 32, 16), new THREE.ShaderMaterial({
@@ -63,7 +66,7 @@ const SUN = {
 };
 const SUN_DIR = new THREE.Vector3();
 const sun = new THREE.DirectionalLight(0xffe4bd, 2.4);
-sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+sun.castShadow = true; sun.shadow.mapSize.set(PHONE ? 1024 : 2048, PHONE ? 1024 : 2048);   // 手機的影子解析度低一點
 Object.assign(sun.shadow.camera, { left: -85, right: 85, top: 85, bottom: -85, near: 10, far: 520 });
 sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.5;
 scene.add(sun); scene.add(sun.target);
@@ -226,6 +229,7 @@ if ($('btnMore')) {
   for (const b of $('moreMenu').querySelectorAll('button')) b.addEventListener('click', () => {
     const a = b.dataset.act;
     if (a === 'mirror') { mirrorBtns = !mirrorBtns; b.textContent = `後照鏡按鈕：${mirrorBtns ? '開' : '關'}`; }
+    else if (a === 'quality') { comfort.quality = comfort.quality === 'smooth' ? 'high' : 'smooth'; comfort.qUser = true; applyComfort(); toast(comfort.quality === 'smooth' ? '順暢優先：不畫影子、解析度低一點' : '畫質優先：有影子、比較清楚（比較耗電，可能會卡）', 2.5); }
     else if (a === 'music') $('btnMusic').click();
     else if (a === 'sfx') $('btnSfx').click();
     else if (a === 'land') setLandscape(!landOn());
@@ -271,7 +275,7 @@ let world, parking, traffic, signs, car, cockpit, avatar, tp, meta, nav = null, 
 let droneCity = null, droneSky = null;   // 一般：全市千分之一的無人機；全城無人機：你附近的整片天空
 let ctl = null;   // 玩法「全城無人機・路空總控」的總控中心
 const mist = new Mist(scene);   // 壓縮空氣噴出的白霧
-window.__tc = { G, P, renderer, scene, camera, econ, engine, input, THREE };
+window.__tc = { G, P, renderer, scene, camera, econ, engine, input, THREE, sun };
 if (location.hash.startsWith('#lowq')) { renderer.shadowMap.enabled = false; renderer.setPixelRatio(0.75); }
 if (location.hash.startsWith('#clip')) { renderer.setPixelRatio(1); if (location.hash.includes('ns')) renderer.shadowMap.enabled = false; if (location.hash.includes('pcf')) renderer.shadowMap.type = THREE.PCFShadowMap; }   // 錄影：解析度 1 倍
 
@@ -336,7 +340,7 @@ async function boot() {
   $('loadText').textContent = '載入台北市地圖…';
   try { const r = await fetch('data/meta.json'); if (!r.ok) throw new Error('HTTP ' + r.status); meta = await r.json(); }
   catch (err) { $('loadText').textContent = '地圖資料載入失敗'; $('loadSub').textContent = '請透過網頁伺服器開啟這個資料夾（不要直接雙擊 HTML 檔）。'; return; }
-  world = new World(scene, meta, '');
+  world = new World(scene, meta, '', { lite: PHONE });
   parking = new Parking(scene, world);
   traffic = new Traffic(scene, world);
   signs = new SignManager(scene);
@@ -471,7 +475,7 @@ function startDemo(key) {
   G.demo = { key, prevMode: G.demo ? G.demo.prevMode : G.mode };
   G.mode = D.mode || 'normal';
   econ.reset(); econ.applyMode(G.mode); for (const k of ['nav', 'roadster', 'drone']) econ.owned.add(k); econ.carKey = 'roadster'; econ.stuntFuel = 1;
-  G.cfg = D.key === 'hybrid' ? hybridDemoCfg() : demoCfg(!!D.near); G.dayN = 1; G.homeCar = null; G.towNext = null; G.cam = 'cockpit';
+  G.cfg = D.key === 'hybrid' ? hybridDemoCfg() : demoCfg(!!D.near); G.dayN = 1; G.homeCar = null; G.towNext = null; G.cam = defaultCam(); G.chase = null;
   audioStart(); $('menu').hidden = true; input.enabled = true;
   $('demoExit').hidden = false; demoUi.cap(`看示範：${D.name}　載入中…`);
   startDay();
@@ -487,7 +491,7 @@ function demoEnter() {
   if (input.touch) $('touch').hidden = false;
   if (avatar) avatar.group.visible = false;
   audioStart(); engine.ignite();
-  cockpit.lookYaw = 0; cockpit.lookPitch = 0; camera.near = 0.8; camera.updateProjectionMatrix();
+  cockpit.lookYaw = 0; cockpit.lookPitch = 0; camera.near = G.cam === 'cockpit' ? 0.8 : 0.3; camera.updateProjectionMatrix();
   seatShown = true; loadSeat(); applySeat(); planRoute();
   G.stats.leave = G.clock;
   demo = new DemoRunner(window.__tc, demoUi);
@@ -500,7 +504,7 @@ function endDemo() {
   if (G.demo) { G.mode = G.demo.prevMode; store.setMode(G.mode); G.demo = null; }
   if (flight && flight.active) { flight.active = false; flight.phase = 'off'; }
   if (stunts) stunts.reset();
-  G.cam = 'cockpit'; G.cfg = { di: -1, home: null, work: null };
+  G.cam = defaultCam(); G.cfg = { di: -1, home: null, work: null };
   econ.reset(); econ.applyMode(G.mode);
   toMenu(); applyMode(); renderModes();
   for (const p of $('distMap').querySelectorAll('path')) p.classList.remove('on');
@@ -648,12 +652,12 @@ function startGame() {
 // ===================================================================== 操作說明：一開始只教開車，買了新功能再教
 const HELP_BASE = [['W A S D', '走路／開車（油門、煞車、方向盤）'], ['滑鼠', '轉動視角（點一下畫面鎖定游標）'], ['E', '出門、上車、下車、開商店'], ['空白鍵', '手煞車'], ['M', '全市地圖']];
 const FEATURE_HELP = {
-  nav: { title: '導航', rows: [['藍線', '路面上的藍色線就是建議路線'], ['螢幕', '右下角的車內螢幕會提示下一個轉彎和距離']] },
+  nav: { title: '導航', rows: [['藍線', '路面上的藍色線就是建議路線'], ['螢幕', '導航螢幕（電腦在車內右下角，手機在畫面右側）會提示下一個轉彎和距離']] },
   ev: { title: '電動車', rows: [['充電', '可以停停車場裡的「電動車專用格」，停著就會充電']] },
   roadster: { title: '飛天跑車', rows: [['Shift', '推進器：約 1 秒破百（手機：推進）'], ['F', '垂直升空，飛越前面的車陣，約 10 台車（手機：飛越）'], ['T', '飛越時空中翻一圈，要在剛飛起來時按，落地前才轉得正（手機：翻轉）'], ['滑', '手機：飛起來之後，原本「飛越」的按鈕會變成「翻轉」，再按一下就翻；也可以在畫面上左右快速滑一下（往哪邊滑就往哪邊翻）', 'touch'], ['G', '面向大樓：吸住外牆往上開；在高架橋下：吸在橋底倒著開；再按一次脫離（手機：吸附）'], ['空氣', '特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。不用另外補氣，開車時會慢慢補回來（遊戲設定）']] },
-  drone: { title: '無人機飛行系統', rows: [['U', '開飛天跑車時按 U：旋翼伸出、升空，自動避撞飛到目的地附近降落；再按一次取消（手機：無人機）'], ['C', '飛行中切換車外／駕駛座視角']] },
+  drone: { title: '無人機飛行系統', rows: [['U', '開飛天跑車時按 U：旋翼伸出、升空，自動避撞飛到目的地附近降落；再按一次取消（手機：無人機）'], ['C', '飛行中切換車外／駕駛座視角', 'desk']] },
   ctl: { title: '路空總控', rows: [['U', '問路空總控：它比較「繼續開」和「飛起來」哪個先到。飛比較快就核准升空、排好降落時段（開著也能問，核准後慢下來停住就自動升空）（手機：問總控）'],
-    ['再按 U', '總控建議繼續開、或建議先開等時段時，10 秒內再按一次就照你的意思現在升空'], ['C', '飛行中切換車外／駕駛座視角']] },
+    ['再按 U', '總控建議繼續開、或建議先開等時段時，10 秒內再按一次就照你的意思現在升空'], ['C', '飛行中切換車外／駕駛座視角', 'desk']] },
 };
 const FEATURES_ORDER = () => ['nav', 'ev', 'roadster', G.mode === 'hybrid' ? 'ctl' : 'drone'];
 const featureOn = (k) => k === 'ctl' ? G.mode === 'hybrid' && econ.has('drone') && !!(car && car.spec.stunt)
@@ -673,7 +677,7 @@ function showTips() {
   if (!k) { $('tipCard').hidden = true; return; }
   const F = FEATURE_HELP[k];
   $('tipTitle').textContent = `新功能：${F.title}`;
-  $('tipRows').innerHTML = F.rows.filter(r => r[2] !== 'touch' || input.coarse).map(([a, b]) => `<kbd>${input.coarse ? touchKey(a) : a}</kbd><span>${input.coarse ? touchify(b) : b.replace(/（手機[：:][^）]*）/g, '')}</span>`).join('');
+  $('tipRows').innerHTML = F.rows.filter(r => input.coarse ? r[2] !== 'desk' : r[2] !== 'touch').map(([a, b]) => `<kbd>${input.coarse ? touchKey(a) : a}</kbd><span>${input.coarse ? touchify(b) : b.replace(/（手機[：:][^）]*）/g, '')}</span>`).join('');
   $('tipCard').hidden = false; $('help').hidden = true; input.releaseLock();   // 說明卡出現時先收起按鍵說明，一次只看一樣
   $('tipOk').onclick = () => { seen.push(k); try { localStorage.setItem(TIP_KEY, JSON.stringify(seen)); } catch (err) { /* ignore */ } showTips(); };
 }
@@ -817,10 +821,12 @@ function enterCar() {
     if (avatar) avatar.group.visible = false;
     audioStart(); engine.ignite();
     cockpit.lookYaw = 0; cockpit.lookPitch = 0;
-    camera.near = 0.8; camera.updateProjectionMatrix();
+    G.cam = defaultCam(); G.chase = null;
+    camera.near = G.cam === 'cockpit' ? 0.8 : 0.3; camera.updateProjectionMatrix();
     planRoute();
-    if (!seatShown) { seatShown = true; openSeat(); }
-    else { loadSeat(); applySeat(); toast(input.touch ? '地圖、後照鏡、視角在右上角「⋯」' : '按住 Z／X 看後照鏡，停車時按 V 調座椅', 2.5); showTips(); }
+    if (G.cam !== 'cockpit') { seatShown = true; loadSeat(); applySeat(); toast('地圖在右上角「⋯」', 2.5); showTips(); }   // 手機：車外（第三人稱）視角，不用調座椅
+    else if (!seatShown) { seatShown = true; openSeat(); }
+    else { loadSeat(); applySeat(); toast('按住 Z／X 看後照鏡，停車時按 V 調座椅', 2.5); showTips(); }
   });
 }
 
@@ -1345,7 +1351,8 @@ function walkFrame(dt) {
   carBeacon.position.set(car.x, car.y, car.z);
   destBeacon.visible = G.phase !== 'toCar'; destBeacon.position.set(d.x, world.groundAt(d.x, d.z), d.z);
   bayMarks.count = 0;
-  if (dCar < 3.0) { setPrompt('<kbd>E</kbd> 上車'); if (input.pressed('KeyE')) enterCar(); }
+  const atDoor = G.phase === 'toDest' && dDest < 4.5 && G.parked && G.parked.legal && dDest < dCar;   // 車停在家門口時：離門口比較近就算到家
+  if (dCar < 3.0 && !atDoor) { setPrompt('<kbd>E</kbd> 上車'); if (input.pressed('KeyE')) enterCar(); }
   else if (G.phase === 'toDest' && dDest < 4.5) {
     if (G.parked && G.parked.legal) { setPrompt(G.leg === 'am' ? '打卡中…' : '到家了', 'good'); arrive(); }
     else setPrompt('車停得離這裡太遠，回車上開近一點再停', 'warn');
@@ -1373,19 +1380,21 @@ window.__tc.setSeat = (o) => { Object.assign(seat, o); applySeat(); return Objec
 $('seatGo').onclick = () => closeSeat();
 const COMFORT_KEY = 'drive-comfort', COMFORT_DEF = { autoCenter: false, followPitch: false, quality: 'high', inch: 14, cm: 55 };
 const comfort = (() => { try { return Object.assign({}, COMFORT_DEF, JSON.parse(localStorage.getItem(COMFORT_KEY) || '{}')); } catch (err) { return Object.assign({}, COMFORT_DEF); } })();
+if (input.touch && !comfort.qUser) comfort.quality = 'smooth';   // 手機預設「順暢優先」（玩家自己選過就照玩家的）
 function applyComfort() {
   if (cockpit) { cockpit.autoCenter = comfort.autoCenter; cockpit.followPitch = comfort.followPitch; }
   const smooth = comfort.quality === 'smooth' || location.hash.startsWith('#lowq');
   sun.castShadow = !smooth;
-  renderer.setPixelRatio(location.hash.startsWith('#lowq') ? 0.75 : Math.min(window.devicePixelRatio || 1, smooth ? 1 : 1.5)); resize();
+  renderer.setPixelRatio(location.hash.startsWith('#lowq') ? 0.75 : Math.min(window.devicePixelRatio || 1, smooth ? 1 : input.touch ? 1.25 : 1.5)); resize();
   $('cfAuto').checked = comfort.autoCenter; $('cfPitch').checked = comfort.followPitch;
   for (const r of document.querySelectorAll('input[name=cfQ]')) r.checked = r.value === comfort.quality;
   $('cfInch').value = comfort.inch; $('cfCm').value = comfort.cm;
+  if ($('moreQ')) $('moreQ').textContent = comfort.quality === 'smooth' ? '畫面：順暢優先（按一下改畫質優先）' : '畫面：畫質優先（按一下改順暢優先）';
   try { localStorage.setItem(COMFORT_KEY, JSON.stringify(comfort)); } catch (err) { /* 存不了就算了 */ }
 }
 $('cfAuto').addEventListener('change', (e) => { comfort.autoCenter = e.target.checked; applyComfort(); });
 $('cfPitch').addEventListener('change', (e) => { comfort.followPitch = e.target.checked; applyComfort(); });
-for (const r of document.querySelectorAll('input[name=cfQ]')) r.addEventListener('change', () => { comfort.quality = r.value; applyComfort(); });
+for (const r of document.querySelectorAll('input[name=cfQ]')) r.addEventListener('change', () => { comfort.quality = r.value; comfort.qUser = true; applyComfort(); });
 $('cfCalc').onclick = () => {
   comfort.inch = Math.max(5, Math.min(100, +$('cfInch').value || 14)); comfort.cm = Math.max(20, Math.min(400, +$('cfCm').value || 55));
   const ar = (screen.width || 16) / (screen.height || 10), diag = comfort.inch * 2.54, h = diag / Math.sqrt(1 + ar * ar);
@@ -1408,7 +1417,7 @@ function closeSeat() {
   G.seatAdj = false; input.noLock = false; $('seat').hidden = true;
   cockpit.lookYaw = 0; cockpit.lookPitch = 0;
   if (AUTO) AUTO.t = 0;
-  toast(input.touch ? '開車囉！地圖、後照鏡、視角在右上角「⋯」' : '開車囉！按住 Z／X 看後照鏡，視線轉開了按 R 回正', 3.5);
+  toast(input.touch ? '開車囉！地圖在右上角「⋯」' : '開車囉！按住 Z／X 看後照鏡，視線轉開了按 R 回正', 3.5);
   showTips();
 }
 
@@ -1424,11 +1433,43 @@ function glance(dt) {
     if (Math.abs(cockpit.lookYaw) < 0.01) { cockpit.lookYaw = 0; cockpit.lookPitch = 0; G.glance = false; }
   }
 }
+/** 開車的預設視角：電腦是駕駛座（第一人稱），手機是車外（第三人稱，跟在車子後面）。 */
+function defaultCam() { return input.touch ? 'chase' : 'cockpit'; }
+/**
+ * 車外視角（第三人稱）：跟在車子後上方。
+ *  ・跟著車頭方向轉（平滑），轉彎時鏡頭會慢慢繞到車後面；倒車時不會轉到車前面
+ *  ・鏡頭跟車子之間有建物擋住就拉近（拉近快、退回慢），不會鑽進房子裡
+ *  ・手機直拿（畫面窄）時鏡頭高一點、遠一點，看得到前面的路；地下道、隧道裡放低
+ */
+function chaseCam(c, dt) {
+  c.body.visible = true;
+  const port = camera.aspect < 1, tun = !!(c.edge && c.edge.tunnel);
+  const back = tun ? 6.2 : port ? 8.4 : 7.2, up = tun ? 2.1 : port ? 3.4 : 2.9;
+  const yawT = Math.atan2(c.fwdX, c.fwdZ);
+  let ch = G.chase;
+  if (!ch || !Number.isFinite(ch.yaw)) ch = G.chase = { yaw: yawT, y: c.y, d: back };
+  let dy = yawT - ch.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  ch.yaw += dy * Math.min(1, dt * (Math.abs(c.v) > 2 ? 3.2 : 1.6));
+  ch.y += (c.y - ch.y) * Math.min(1, dt * 6);
+  const ex = -Math.sin(ch.yaw), ez = -Math.cos(ch.yaw), py = ch.y + 1.6;
+  // 從車頂往鏡頭的方向找第一個被建物擋住的地方
+  let free = back;
+  for (let i = 1; i <= 14; i++) {
+    const d = back * i / 14, x = c.x + ex * d, z = c.z + ez * d, y = py + (up - 1.6) * i / 14;
+    if (camBlocked(x, y, z)) { free = Math.max(2.4, back * (i - 1) / 14 - 0.3); break; }
+  }
+  if (free < ch.d) ch.d = Math.max(free, ch.d - 25 * dt); else ch.d = Math.min(free, ch.d + 2.5 * dt);
+  const f = ch.d / back, cx = c.x + ex * ch.d, cz = c.z + ez * ch.d;
+  let cy = py + (up - 1.6) * f;
+  const gy = world.groundAt(cx, cz, cy); if (cy < gy + 0.6) cy = gy + 0.6;
+  camera.position.set(cx, cy, cz);
+  camera.lookAt(c.x - ex * 3.0, ch.y + 1.25, c.z - ez * 3.0);
+}
 function driveFrame(dt) {
   const c = car;
   if (input.pressed('KeyC')) {
     if (flight && flight.active) G.droneView = G.droneView === 'cockpit' ? 'ext' : 'cockpit';   // 飛行中：車外／駕駛座
-    else { G.cam = G.cam === 'cockpit' ? 'chase' : 'cockpit'; camera.near = G.cam === 'cockpit' ? 0.8 : 0.3; camera.updateProjectionMatrix(); }
+    else if (!input.touch) { G.cam = G.cam === 'cockpit' ? 'chase' : 'cockpit'; G.chase = null; camera.near = G.cam === 'cockpit' ? 0.8 : 0.3; camera.updateProjectionMatrix(); }   // 手機固定車外視角
   }
   // 無人機飛行：U 升空／取消；飛行中按 C 切換車外／駕駛座
   if (input.pressed('KeyU') && !G.seatAdj) {
@@ -1451,7 +1492,7 @@ function driveFrame(dt) {
   if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
   if (G.seatAdj && input.pressed('Enter')) closeSeat();
   else if (!$('tipCard').hidden && input.pressed('Enter')) $('tipOk').click();   // 新功能說明卡：Enter 關掉
-  if (!G.seatAdj && input.pressed('KeyV') && Math.abs(c.v) < 0.3) openSeat();
+  if (!G.seatAdj && input.pressed('KeyV') && Math.abs(c.v) < 0.3 && G.cam === 'cockpit') openSeat();
   if (input.pressed('KeyR') && G.cam === 'cockpit') cockpit.recenter();
   const fw = G.seatAdj ? 0 : input.forward;
   const pedals = G.seatAdj ? { throttle: 0, brake: 1, steer: 0, handbrake: true } : { throttle: Math.max(0, Math.min(1, fw > 0.15 ? fw : 0)) || input.tGas, brake: Math.max(0, Math.min(1, fw < -0.15 ? -fw : 0)) || input.tBrake,
@@ -1480,13 +1521,7 @@ function driveFrame(dt) {
   if (G.camMode === 'drone') { c.body.visible = true; flight.camera(camera, dt); }
   else if (G.camMode === 'stunt') { c.body.visible = true; stunts.camera(camera, dt); }
   else if (G.camMode === 'cockpit') { cockpit.look(input.lookX, input.lookY, dt, Math.abs(c.v) > 1 && !G.seatAdj); glance(dt); cockpit.applyTo(camera, c); c.body.visible = false; }
-  else {
-    c.body.visible = true;
-    const back = 7.5, up = 3.0, tx = c.x - c.fwdX * back, tz = c.z - c.fwdZ * back, ty = c.y + up, k = Math.min(1, dt * 5);
-    if (!G.chase) G.chase = { x: tx, y: ty, z: tz };
-    G.chase.x += (tx - G.chase.x) * k; G.chase.y += (ty - G.chase.y) * k; G.chase.z += (tz - G.chase.z) * k;
-    camera.position.set(G.chase.x, G.chase.y, G.chase.z); camera.lookAt(c.x, c.y + 1.2, c.z);
-  }
+  else chaseCam(c, dt);
   P.x = c.x; P.z = c.z; P.y = c.y;
   tunnelLight(dt, c.edge);
   const d = dest(), dDest = dist(c, d);
@@ -1521,8 +1556,10 @@ function driveFrame(dt) {
   setPrompt(pr, cls);
   if (input.pressed('KeyE')) { if (G.seatAdj) { closeSeat(); if (!input.touch) exitCar(); } else exitCar(); }
   const ni = navTick(dt);
-  if (G.camMode === 'cockpit') {
-    cockpit.drawDash(c, dt);
+  // 手機車外視角：導航畫面（下一個轉彎、距離）一樣貼在畫面角落
+  const navOn = G.camMode === 'cockpit' || (input.touch && G.camMode === 'chase');
+  if (navOn) {
+    if (G.camMode === 'cockpit') cockpit.drawDash(c, dt);
     if (frameN % 4 === 0) {
       const ang = Math.atan2(d.x - c.x, -(d.z - c.z)), heading = Math.atan2(c.fwdX, -c.fwdZ);
       const info = { title: G.leg === 'am' ? d.n : '回家', dist: fmtDist(dDest), bearing: ang - heading, kmh: Math.round(c.kmh), energy: (c.spec.electric ? '電量 ' : '油量 ') + Math.round(c.energy / c.spec.capacity * 100) + '%' };
@@ -1532,7 +1569,7 @@ function driveFrame(dt) {
   }
   // 螢幕直的（手機直拿）：左右看得比較窄，車內的中控螢幕在視野外面 → 把同一個畫面貼在畫面右下角
   // 手機橫的：車內的中控螢幕會被右下的按鈕擋住 → 也貼一份在右上角
-  const mini = $('navMini'), wantMini = G.camMode === 'cockpit' && (camera.aspect < 0.9 || input.touch) && !G.seatAdj;
+  const mini = $('navMini'), wantMini = navOn && (camera.aspect < 0.9 || input.touch) && !G.seatAdj;
   if (mini.hidden === wantMini) mini.hidden = !wantMini;
   mini.classList.toggle('wide', camera.aspect >= 0.9);
   if (wantMini && frameN % 4 === 0) mini.getContext('2d').drawImage(cockpit.navCv, 0, 0);
@@ -1664,7 +1701,7 @@ function hud(dt) {
   if (placeT <= 0 && G.state !== 'room' && G.state !== 'basement') { placeT = 0.6; const o = {}, e = world.nearestEdge(P.x, P.z, 40, null, o); $('placeRoad').textContent = (e && e.name) || '　'; $('placeDist').textContent = world.districtAt(P.x, P.z) || '臺北市外'; }
   else if (G.state === 'room' || G.state === 'basement') { $('placeRoad').textContent = G.state === 'room' ? '家裡' : '地下室'; $('placeDist').textContent = districtName(G.cfg.di); }
   // 小地圖：買了導航才有；開車在駕駛座時導航改在車內螢幕上。還沒買導航只能按 M 看全螢幕地圖
-  const showMini = econ.has('nav') && !(G.state === 'drive' && G.camMode === 'cockpit');
+  const showMini = econ.has('nav') && !(G.state === 'drive' && (G.camMode === 'cockpit' || (input.touch && G.camMode === 'chase')));
   if ($('mini').hidden === showMini) $('mini').hidden = !showMini;
   miniT -= dt; if (miniT <= 0 && showMini) { miniT = 0.1; drawMini(); }
 }

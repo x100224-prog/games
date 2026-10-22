@@ -254,7 +254,7 @@ export class DemoRunner {
     this.cam((cam) => { const fx = car.fwdX, fz = car.fwdZ; cam.up.set(0, 1, 0); cam.position.set(car.x - fx * 9, car.y + 3.2, car.z - fz * 9); cam.lookAt(car.x + fx * 40, car.y + 16, car.z + fz * 40); });
     this.cap(`總控每秒比較「開車」和「飛」哪個快來分配：現在全市 ${Math.round(ctl.p * 100)}% 的車在飛，其他的在路上開`);
     await this.each(() => { this.keys(car.v > 9 ? '' : 'KeyW'); }, 7);
-    this.cam(null); G.cam = 'cockpit';
+    this.cam(null); G.cam = this.T.input.touch ? 'chase' : 'cockpit';   // 手機：車外視角
     this.cap('按 U 問總控：現在飛比較快嗎？（開著也能問）'); await this.sleep(1.2);
     this.press('KeyU'); await this.sleep(0.4);
     const C = G.ctl; if (!C || !C.ev) { this.cap('總控還沒準備好'); await this.sleep(3); return; }

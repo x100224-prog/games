@@ -107,12 +107,12 @@ function addCyl(g, cx, y0, cz, r, h, col, seg = 10) {
   for (let k = 0; k < seg; k++) { const a = k / seg * Math.PI * 2, a2 = (k + 1) / seg * Math.PI * 2; const i1 = g.v(cx + Math.cos(a) * r, y0 + h, cz + Math.sin(a) * r, 0, 1, 0, col), i2 = g.v(cx + Math.cos(a2) * r, y0 + h, cz + Math.sin(a2) * r, 0, 1, 0, col); g.i.push(c, i2, i1); }
 }
 /** 行道樹：樹幹＋幾團樹冠（頂點顏色有深淺變化）。高約 7 m。 */
-function makeTreeGeo() {
+function makeTreeGeo(lite) {   // lite（手機）：樹冠用比較少的面（約 110 個三角形，原本約 420）
   const g = new Geo();
-  addCyl(g, 0, 0, 0, 0.16, 2.6, srgb(0.36, 0.27, 0.2), 7);
+  addCyl(g, 0, 0, 0, 0.16, 2.6, srgb(0.36, 0.27, 0.2), lite ? 5 : 7);
   const blobs = [[0, 4.2, 0, 1.9], [0.9, 3.7, 0.4, 1.4], [-0.8, 3.9, -0.5, 1.5], [0.2, 5.3, -0.2, 1.4], [-0.4, 3.4, 0.9, 1.2]];
   for (const [bx, by, bz, br] of blobs) {
-    const ico = new THREE.IcosahedronGeometry(br, 1).toNonIndexed(), p = ico.attributes.position, n = ico.attributes.normal;
+    const ico = new THREE.IcosahedronGeometry(br * (lite ? 1.06 : 1), lite ? 0 : 1).toNonIndexed(), p = ico.attributes.position, n = ico.attributes.normal;
     for (let i = 0; i < p.count; i += 3) {
       const t = hash2(Math.round(p.getX(i) * 100 + bx * 7), Math.round(p.getY(i) * 100 + by * 13));
       const col = srgb(0.20 + t * 0.12, 0.36 + t * 0.16, 0.16 + t * 0.06);
@@ -137,8 +137,9 @@ function makeACGeo() {
 }
 
 export class World {
-  constructor(scene, meta, base) {
+  constructor(scene, meta, base, opt = {}) {
     this.scene = scene; this.meta = meta; this.base = base;
+    this.lite = !!opt.lite;   // 手機：樹簡化、冷氣機少一點、樹和冷氣機不投影子
     this.CELL = meta.cell; this.TC = meta.tileCells; this.TILE = this.CELL * this.TC;
     this.cells = new Map(); this.tiles = new Map();
     this.tileSet = new Set(meta.tiles.map(t => t[0] + '_' + t[1]));
@@ -272,7 +273,7 @@ float boxm(vec2 f, vec2 lo, vec2 hi){ return step(lo.x, f.x) * step(f.x, hi.x) *
     const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.ClampToEdgeWrapping;
     tex.anisotropy = 4;
     this.matWalk = new THREE.MeshLambertMaterial({ map: tex, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-    this._treeGeo = makeTreeGeo(); this._acGeo = makeACGeo();
+    this._treeGeo = makeTreeGeo(this.lite); this._acGeo = makeACGeo();
     this.matTree = new THREE.MeshLambertMaterial({ vertexColors: true });
   }
 
@@ -344,7 +345,7 @@ float boxm(vec2 f, vec2 lo, vec2 hi){ return step(lo.x, f.x) * step(f.x, hi.x) *
         const db = ((b.cx + 0.5) * C - px) ** 2 + ((b.cz + 0.5) * C - pz) ** 2;
         return da - db;
       });
-      for (const lm of this.landmarks) lm.mesh.visible = (lm.x - px) ** 2 + (lm.z - pz) ** 2 > 1250 * 1250;
+      const lmR = VIEW.fogFar + 200; for (const lm of this.landmarks) lm.mesh.visible = (lm.x - px) ** 2 + (lm.z - pz) ** 2 > lmR * lmR;
     }
     const t0 = performance.now();
     for (let k = 0; k < this.queue.length;) {
@@ -505,14 +506,14 @@ float boxm(vec2 f, vec2 lo, vec2 hi){ return step(lo.x, f.x) * step(f.x, hi.x) *
     if (acs.length) {
       const nA = acs.length / 4, im = new THREE.InstancedMesh(this._acGeo, this.matDeco, nA), mm = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
       for (let k = 0; k < nA; k++) { e.set(0, acs[k * 4 + 3], 0); q.setFromEuler(e); v.set(acs[k * 4] - cell.ox, acs[k * 4 + 1], acs[k * 4 + 2] - cell.oz); mm.compose(v, q, one); im.setMatrixAt(k, mm); }
-      im.castShadow = true; im.receiveShadow = true; group.add(im);
+      im.castShadow = !this.lite; im.receiveShadow = true; group.add(im);
     }
     // 行道樹與公園樹
     this._parkTrees(cell, d, trees);
     if (trees.length) {
       const nT = trees.length / 4, im = new THREE.InstancedMesh(this._treeGeo, this.matTree, nT), mm = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
       for (let k = 0; k < nT; k++) { const s2 = trees[k * 4 + 3]; e.set(0, s2 * 40, 0); q.setFromEuler(e); v.set(trees[k * 4] - cell.ox, trees[k * 4 + 1], trees[k * 4 + 2] - cell.oz); sc.set(s2, s2, s2); mm.compose(v, q, sc); im.setMatrixAt(k, mm); }
-      im.castShadow = true; im.receiveShadow = true; group.add(im);
+      im.castShadow = !this.lite; im.receiveShadow = true; group.add(im);
     }
     cell.group = group; this.root.add(group);
     cell.state = 'ready'; this.loadedCount++;
@@ -949,7 +950,7 @@ float boxm(vec2 f, vec2 lo, vec2 hi){ return step(lo.x, f.x) * step(f.x, hi.x) *
 
   _bldGeo(b, ox, oz, cell, g, deco, acs, signs) {
     const h = b[0] / 10, bt = b[1], flat = b[2], n = flat.length / 2, y0 = (b[3] || 0) / 10, yt = y0 + h;
-    const mask = b[4] || 0, gen = b[6] || 0;
+    const mask = b[4] || 0, gen = b[6] || 0, lift = (b[7] || 0) / 10, yb = y0 + lift;   // lift：懸空在道路上方的樓層（底下可以開車過去）
     if (n < 3) return;
     const pts = new Float32Array(n * 2);
     let minx = 1e9, minz = 1e9, maxx = -1e9, maxz = -1e9;
@@ -973,17 +974,18 @@ float boxm(vec2 f, vec2 lo, vec2 hi){ return step(lo.x, f.x) * step(f.x, hi.x) *
       const ax = pts[i * 2], az = pts[i * 2 + 1], bx = pts[j * 2], bz = pts[j * 2 + 1];
       const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz);
       if (L < 0.05) continue;
-      const nx = dz / L, nz = -dx / L, street = i < 30 && (mask >> i) & 1 ? 1 : 0;
+      const nx = dz / L, nz = -dx / L, street = !lift && i < 30 && (mask >> i) & 1 ? 1 : 0;
       const top = yt + para;
-      const A = g.v(ax, y0, az, nx, 0, nz, wc), B = g.v(bx, y0, bz, nx, 0, nz, wc), C = g.v(bx, top, bz, nx, 0, nz, wc), D = g.v(ax, top, az, nx, 0, nz, wc);
+      const A = g.v(ax, yb, az, nx, 0, nz, wc), B = g.v(bx, yb, bz, nx, 0, nz, wc), C = g.v(bx, top, bz, nx, 0, nz, wc), D = g.v(ax, top, az, nx, 0, nz, wc);
       g.i.push(A, C, B, A, D, C);
       const vt = h + para;
-      g.extra.wuv.push(u, 0, wbt, street, u + L, 0, wbt, street, u + L, vt, wbt, street, u, vt, wbt, street);
+      g.extra.wuv.push(u, lift, wbt, street, u + L, lift, wbt, street, u + L, vt, wbt, street, u, vt, wbt, street);
       g.extra.seed.push(sd, h, sd, h, sd, h, sd, h);
       // 冷氣室外機
-      if (!plain && !curtain && L > 3 && acs.length < 2600) {
+      if (!plain && !curtain && L > 3 && acs.length < (this.lite ? 1000 : 2600)) {
         const bays = Math.floor(L / 2.7), floors = Math.min(Math.floor(h / 3.2), 11);
         for (let fy = 1; fy < floors; fy++) for (let k = 0; k < bays; k++) {
+          if (fy * 3.2 < lift + 0.5) continue;
           const r = hash2(Math.floor(sd * 1e5) + i * 131 + k * 7, fy * 17 + 3);
           if (r > (street ? 0.2 : 0.12)) continue;
           const t = (k + 0.5) / bays, px = ax + dx * t + nx * 0.2, pz = az + dz * t + nz * 0.2;
@@ -1028,6 +1030,16 @@ float boxm(vec2 f, vec2 lo, vec2 hi){ return step(lo.x, f.x) * step(f.x, hi.x) *
         const up = (bb.y - a.y) * (c.x - a.x) - (bb.x - a.x) * (c.y - a.y);
         if (up > 0) g.i.push(base + t[0], base + t[1], base + t[2]); else g.i.push(base + t[0], base + t[2], base + t[1]);
       }
+      if (lift) {
+        // 懸空樓層的底面（從路上往上看到的天花板）
+        const b2 = g.count, under = [wc[0] * 0.55, wc[1] * 0.55, wc[2] * 0.55];
+        for (let i = 0; i < n; i++) { g.v(pts[i * 2], yb, pts[i * 2 + 1], 0, -1, 0, under); g.extra.wuv.push(0, 0, -1, 0); g.extra.seed.push(sd, h); }
+        for (const t of tris) {
+          const a = contour[t[0]], bb = contour[t[1]], c = contour[t[2]];
+          const up = (bb.y - a.y) * (c.x - a.x) - (bb.x - a.x) * (c.y - a.y);
+          if (up > 0) g.i.push(b2 + t[0], b2 + t[2], b2 + t[1]); else g.i.push(b2 + t[0], b2 + t[1], b2 + t[2]);
+        }
+      }
     }
     // 屋頂上的東西：水塔、鐵皮加蓋、機房
     if (!plain && h < 60) {
@@ -1057,6 +1069,7 @@ float boxm(vec2 f, vec2 lo, vec2 hi){ return step(lo.x, f.x) * step(f.x, hi.x) *
         }
       }
     }
+    if (lift) return;   // 懸空的部分只畫出來：不擋車、不擋人，也不當成可以降落的屋頂
     const rec = { pts, minx, minz, maxx, maxz, h, y0, cell, stamp: 0 };
     cell.blds.push(rec);
     this._gridInsert(this.bldGrid, cell, rec, minx, minz, maxx, maxz);
