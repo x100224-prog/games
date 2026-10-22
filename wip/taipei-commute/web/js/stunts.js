@@ -77,7 +77,7 @@ export class Stunts {
     this.thrust = 0; this.down = 0; this.suction = 0; this.side = 0; this.front = 0;   // 各方向噴氣的強度（0..1；side：正＝右側噴、負＝左側噴）
     const c = this.car, ox = c.x, oz = c.z;
     if (this.mode !== 'ground') { c.thrF = ctl.throttle || 0; c.brkF = ctl.brake || 0; }
-    this._emptyT = Math.max(0, (this._emptyT || 0) - dt); this._lockT = Math.max(0, (this._lockT || 0) - dt);
+    this._emptyT = Math.max(0, (this._emptyT || 0) - dt); this._lockT = Math.max(0, (this._lockT || 0) - dt); this._lowT = Math.max(0, (this._lowT || 0) - dt);
     switch (this.mode) {
       case 'ground': {
         // 特殊功能停用中（被檢舉）：在地面不能開始任何特技；已經在空中、牆上的照常做完，才不會半空中摔下來
@@ -156,9 +156,10 @@ export class Stunts {
     const kl = Math.max(0, 1 - dt * 1.5);
     v.x = fx * along + latX * kl; v.z = fz * along + latZ * kl;
     v.y -= g * dt;
-    // 空中翻轉
+    // 空中翻轉（離地太近、翻一圈之前就會落地的話不翻，免得沒轉正就落地翻車）
     if (keys.flip && !this.flip && !this.att) {
-      if (this.h.burn(STUNT.flipFuel)) this.flip = { t: 0, dir: (ctl.steer || 0) > 0.1 ? -1 : 1 };
+      if (this.landIn() < STUNT.flipTime + 0.15) { if (!(this._lowT > 0)) { this._lowT = 1.5; this.h.toast('太低了，來不及翻一圈：要在剛飛起來的時候按', 2.5); } }
+      else if (this.h.burn(STUNT.flipFuel)) this.flip = { t: 0, dir: keys.flipDir || ((ctl.steer || 0) > 0.1 ? -1 : 1) };
       else this._empty('壓縮空氣不夠，不能翻轉');
     }
     if (this.flip) {
@@ -580,6 +581,14 @@ export class Stunts {
   }
 
   /** 各方向噴氣的強度（給白霧用）。 */
+  /** 飛越中：大約還有幾秒落地（照現在的高度、往上的速度算）。 */
+  landIn() {
+    if (this.mode !== 'air') return 0;
+    const p = this.pos, below = this._below(p.x, p.z, p.y), h = Math.max(0, p.y - below.y), vy = this.vel.y, g = STUNT.g;
+    return (vy + Math.sqrt(vy * vy + 2 * g * h)) / g;
+  }
+  /** 現在按「翻轉」翻得了嗎（給手機按鈕變灰用）。 */
+  canFlip() { return this.mode === 'air' && !this.flip && !this.att && this.landIn() >= STUNT.flipTime + 0.15 && this.h.fuel() >= STUNT.flipFuel - 1e-6; }
   jets() { return { rear: this.thrust, down: this.down, left: this.side < 0 ? -this.side : 0, right: this.side > 0 ? this.side : 0, front: this.front }; }
   _visual(dt) {
     const c = this.car, f = c.flames; if (!f) return;

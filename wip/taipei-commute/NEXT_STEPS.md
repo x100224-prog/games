@@ -1,6 +1,7 @@
-# 台北上班路：進度（2026-10-21 中午更新）
+# 台北上班路：進度（2026-10-22 更新）
 
 ## 已完成
+- 2026-10-22（線上 main b708b64、artifact v17）：空氣罐改成每開 200 公尺補 5%（economy.js AIR.drivePerKm 0.25；示範「壓縮空氣用完」開 245 m 從 0 補到 5.8%，tests/demo_air.mjs）。手機「翻轉」：原本是飛起來才出現在另一個位置的按鈕，飛行約 2.9 秒、翻一圈要 0.9 秒，按太晚會落地翻車、空氣不到 3% 不能翻。改成：飛起來後「飛越」同一個位置變成「翻轉」（game.html #btnFlip）；來不及翻一圈就不翻、跳提示（stunts.js landIn／canFlip、_lowT），按鈕變灰；在畫面上左右快速滑一下（450 ms 內、>50 px）往那邊翻（input.js swipeFlip／flipDir）。說明多一行手機專用（FEATURE_HELP 'touch'）。測試 tests/phone_flip.mjs。
 - 2026-10-21 下午（線上 main 52e9a9d、artifact v16）：在家配樂跳過前奏，從長笛旋律那一小節開始（music.js files.home.startAt 9.6 秒）。住處停車位二選一：economy.js 新增 curbspot「住處路邊停車位」（CURB 蛋黃區 110 萬、內湖 90 萬、其他 65 萬，遊戲設定；家門口藍色 P、住戶專用），garage「住處地下停車位」改成真的地下室：main.js buildBasement／enterBasement／basementFrame／leaveBasement —— 早上出門搭電梯到地下室上車、開出去到家門口；晚上停在家門口紫色 P 按 E 開進地下室，下車走到電梯按 E 回家。有地下停車位時路邊的不能買。測試 tests/garage2_test.mjs；map_test 改用路邊車位。
 - 2026-10-21 中午（線上 main f599f19、artifact v14）：
   - 在家配樂：原創「小巷裡的祕密」（tools/town_render.js 離線算、tests/render_town.mjs 存成 web/audio/home.mp3），照使用者描述的 90 年代日式 RPG 城鎮曲：長笛、電貝斯、電鋼琴、鐵琴、弦樂、輕鼓、超任音色；使用者要求拿掉木吉他。D 多利亞、A A' B A'、100 BPM；第 6～38 小節無縫循環（每小節固定亂數，接縫差 0）。music.js 改成通用的音檔播放（files.cyber / files.home），音檔沒載入前用即時合成的備用版。

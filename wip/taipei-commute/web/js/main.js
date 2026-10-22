@@ -650,7 +650,7 @@ const HELP_BASE = [['W A S D', '走路／開車（油門、煞車、方向盤）
 const FEATURE_HELP = {
   nav: { title: '導航', rows: [['藍線', '路面上的藍色線就是建議路線'], ['螢幕', '右下角的車內螢幕會提示下一個轉彎和距離']] },
   ev: { title: '電動車', rows: [['充電', '可以停停車場裡的「電動車專用格」，停著就會充電']] },
-  roadster: { title: '飛天跑車', rows: [['Shift', '推進器：約 1 秒破百（手機：推進）'], ['F', '垂直升空，飛越前面的車陣，約 10 台車（手機：飛越）'], ['T', '飛越時空中翻轉，落地前要轉正（手機：翻轉）'], ['G', '面向大樓：吸住外牆往上開；在高架橋下：吸在橋底倒著開；再按一次脫離（手機：吸附）'], ['空氣', '特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。不用另外補氣，開車時會慢慢補回來（遊戲設定）']] },
+  roadster: { title: '飛天跑車', rows: [['Shift', '推進器：約 1 秒破百（手機：推進）'], ['F', '垂直升空，飛越前面的車陣，約 10 台車（手機：飛越）'], ['T', '飛越時空中翻一圈，要在剛飛起來時按，落地前才轉得正（手機：翻轉）'], ['滑', '手機：飛起來之後，原本「飛越」的按鈕會變成「翻轉」，再按一下就翻；也可以在畫面上左右快速滑一下（往哪邊滑就往哪邊翻）', 'touch'], ['G', '面向大樓：吸住外牆往上開；在高架橋下：吸在橋底倒著開；再按一次脫離（手機：吸附）'], ['空氣', '特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。不用另外補氣，開車時會慢慢補回來（遊戲設定）']] },
   drone: { title: '無人機飛行系統', rows: [['U', '開飛天跑車時按 U：旋翼伸出、升空，自動避撞飛到目的地附近降落；再按一次取消（手機：無人機）'], ['C', '飛行中切換車外／駕駛座視角']] },
   ctl: { title: '路空總控', rows: [['U', '問路空總控：它比較「繼續開」和「飛起來」哪個先到。飛比較快就核准升空、排好降落時段（開著也能問，核准後慢下來停住就自動升空）（手機：問總控）'],
     ['再按 U', '總控建議繼續開、或建議先開等時段時，10 秒內再按一次就照你的意思現在升空'], ['C', '飛行中切換車外／駕駛座視角']] },
@@ -660,7 +660,7 @@ const featureOn = (k) => k === 'ctl' ? G.mode === 'hybrid' && econ.has('drone') 
   : econ.has(k) && (k === 'nav' || (k === 'ev' ? !!(car && car.spec.electric) : !!(car && car.spec.stunt)));
 function renderHelp() {
   const rows = [...HELP_BASE];
-  for (const k of FEATURES_ORDER()) if (featureOn(k)) rows.push(...FEATURE_HELP[k].rows);
+  for (const k of FEATURES_ORDER()) if (featureOn(k)) rows.push(...FEATURE_HELP[k].rows.filter(r => r[2] !== 'touch'));
   $('help').innerHTML = rows.map(([k, v]) => `<kbd>${k}</kbd><span>${v.replace(/（手機[：:][^）]*）/g, '')}</span>`).join('') +
     '<kbd>H</kbd><span>收起／打開這張說明</span><span class="more">其他：Shift 走路時跑步・C 車外視角・Z／X 後照鏡・V 調座椅・N／B 配樂／引擎聲</span>';
 }
@@ -673,7 +673,7 @@ function showTips() {
   if (!k) { $('tipCard').hidden = true; return; }
   const F = FEATURE_HELP[k];
   $('tipTitle').textContent = `新功能：${F.title}`;
-  $('tipRows').innerHTML = F.rows.map(([a, b]) => `<kbd>${input.coarse ? touchKey(a) : a}</kbd><span>${input.coarse ? touchify(b) : b.replace(/（手機[：:][^）]*）/g, '')}</span>`).join('');
+  $('tipRows').innerHTML = F.rows.filter(r => r[2] !== 'touch' || input.coarse).map(([a, b]) => `<kbd>${input.coarse ? touchKey(a) : a}</kbd><span>${input.coarse ? touchify(b) : b.replace(/（手機[：:][^）]*）/g, '')}</span>`).join('');
   $('tipCard').hidden = false; $('help').hidden = true; input.releaseLock();   // 說明卡出現時先收起按鍵說明，一次只看一樣
   $('tipOk').onclick = () => { seen.push(k); try { localStorage.setItem(TIP_KEY, JSON.stringify(seen)); } catch (err) { /* ignore */ } showTips(); };
 }
@@ -1460,7 +1460,7 @@ function driveFrame(dt) {
   const obs = gatherObstacles(c.x, c.z, 14);
   if (flying) flight.update(dt, TIME.scale / 60, drones, statics);
   else if (stunts) {
-    const sk = G.seatAdj ? {} : { boost: input.has('ShiftLeft', 'ShiftRight'), jump: input.pressed('KeyF'), grip: input.pressed('KeyG'), flip: input.pressed('KeyT') };
+    const sk = G.seatAdj ? {} : { boost: input.has('ShiftLeft', 'ShiftRight'), jump: input.pressed('KeyF'), grip: input.pressed('KeyG'), flip: input.pressed('KeyT'), flipDir: input.pressed('KeyT') ? input.flipDir : 0 }; input.flipDir = 0;
     stunts.update(dt, pedals, sk, obs, traffic);
   } else c.update(dt, pedals, obs);
   if (flight) flight.animate(dt);   // 旋翼展開／收回的動畫（不影響開車）
@@ -2085,7 +2085,8 @@ function frame(dt) {
     G.gripT = (G.gripT || 0) - dt;
     if (G.gripT <= 0) { G.gripT = 0.3; G.gripOk = !!(stn && sm === 'ground' && (stunts._deckAbove(car.x, car.z, car.y, 3.9) || stunts._wallAhead(car.x, car.z, car.psi, 5.5, car.y))); }
     const vis = { btnBoost: stn && sm === 'ground', btnJump: stn && ((sm === 'ground' && slowNow) || sm === 'roof'), btnFlip: stn && sm === 'air', btnGrip: stn && (G.gripOk || ['wall', 'under', 'roof'].includes(sm)) };
-    for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (!el) continue; if (el.hidden === vis[id]) el.hidden = !vis[id]; el.classList.toggle('off', airOut || skillBanned() || (id === 'btnJump' && econ.stuntFuel < 1 / AIR.jumpsPerTank - 1e-6)); }
+    for (const id of ['btnBoost', 'btnJump', 'btnGrip', 'btnFlip']) { const el = $(id); if (!el) continue; if (el.hidden === vis[id]) el.hidden = !vis[id]; el.classList.toggle('off', airOut || skillBanned() || (id === 'btnJump' && econ.stuntFuel < 1 / AIR.jumpsPerTank - 1e-6) || (id === 'btnFlip' && !(stunts && stunts.canFlip()))); }
+    input.swipeFlip = !!(stn && sm === 'air');
     const hyb = G.mode === 'hybrid' && !!ctl;   // 路空總控：開著也能問總控
     const dbt = $('btnDrone'), showDr = st === 'drive' && !G.seatAdj && econ.has('drone') && car.spec.key === 'roadster' && (flyingNow || hyb || Math.abs(car.v) < 3);
     if (dbt) {
