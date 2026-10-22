@@ -4,7 +4,7 @@ export class Input {
     this.keys = new Set(); this.hit = new Set();
     this.lookX = 0; this.lookY = 0;
     this.joyX = 0; this.joyY = 0; this.tGas = 0; this.tBrake = 0;
-    this.touch = false; this.locked = false; this.enabled = false; this.rot = 0; this.runOn = false;   // runOn：手機的「跑步」按鈕（按一下開、再按一下關）   // rot 90：整個畫面轉了 90 度（手機橫向玩），手指的方向要轉回來
+    this.touch = false; this.locked = false; this.enabled = false; this.rot = 0; this.runOn = false; this.swipeFlip = false; this.flipDir = 0;   // swipeFlip：飛越中在畫面上左右快速滑一下＝翻轉   // runOn：手機的「跑步」按鈕（按一下開、再按一下關）   // rot 90：整個畫面轉了 90 度（手機橫向玩），手指的方向要轉回來
     // 手機、平板（主要用手指點）：一開始就知道，選單上的說明不寫電腦按鍵
     this.coarse = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches); if (this.coarse) document.body.classList.add('coarse');
     const down = (e) => {
@@ -27,12 +27,12 @@ export class Input {
     window.addEventListener('mousemove', (e) => { if (this.locked || dragging) { this.lookX += e.movementX || 0; this.lookY += e.movementY || 0; } });
     // 觸控
     const joy = touchRoot.querySelector('#joy'), knob = touchRoot.querySelector('#joyKnob');
-    let joyId = null, lookId = null, lx = 0, ly = 0, jx0 = 0, jy0 = 0;
+    let joyId = null, lookId = null, lx = 0, ly = 0, jx0 = 0, jy0 = 0, sw = null;   // sw：這一次手指在畫面上滑的總量（遊戲座標）和開始時間
     const showTouch = () => { if (!this.touch) { this.touch = true; this.coarse = true; touchRoot.hidden = false; document.body.classList.add('touch', 'coarse'); } };
     if (this.coarse) { this.touch = true; document.body.classList.add('touch'); }   // 手機：一開始就用觸控介面（按鈕在進房間、上車時出現）
     canvas.addEventListener('touchstart', (e) => {
       showTouch();
-      for (const t of e.changedTouches) if (lookId === null) { lookId = t.identifier; lx = t.clientX; ly = t.clientY; }
+      for (const t of e.changedTouches) if (lookId === null) { lookId = t.identifier; lx = t.clientX; ly = t.clientY; sw = { x: 0, y: 0, t: performance.now() }; }
       e.preventDefault();
     }, { passive: false });
     joy.addEventListener('touchstart', (e) => { showTouch(); const t = e.changedTouches[0]; joyId = t.identifier; const r = joy.getBoundingClientRect(); jx0 = r.left + r.width / 2; jy0 = r.top + r.height / 2; move(t); e.preventDefault(); }, { passive: false });
@@ -47,14 +47,19 @@ export class Input {
         if (t.identifier === joyId) move(t);
         else if (t.identifier === lookId) {
           let mx = t.clientX - lx, my = t.clientY - ly; if (this.rot === 90) { const o = mx; mx = my; my = -o; }
-          this.lookX += mx * 2.2; this.lookY += my * 2.2; lx = t.clientX; ly = t.clientY;
+          this.lookX += mx * 2.2; this.lookY += my * 2.2; lx = t.clientX; ly = t.clientY; if (sw) { sw.x += mx; sw.y += my; }
         }
       }
     }, { passive: true });
     const end = (e) => {
       for (const t of e.changedTouches) {
         if (t.identifier === joyId) { joyId = null; this.joyX = this.joyY = 0; knob.style.transform = ''; }
-        if (t.identifier === lookId) lookId = null;
+        if (t.identifier === lookId) {
+          lookId = null;
+          // 飛越中：很快地左右滑一下＝翻轉，往哪邊滑就往哪邊翻
+          if (sw && this.swipeFlip && performance.now() - sw.t < 450 && Math.abs(sw.x) > 50 && Math.abs(sw.x) > Math.abs(sw.y) * 1.3) { this.hit.add('KeyT'); this.flipDir = sw.x > 0 ? -1 : 1; }
+          sw = null;
+        }
       }
     };
     window.addEventListener('touchend', end); window.addEventListener('touchcancel', end);
