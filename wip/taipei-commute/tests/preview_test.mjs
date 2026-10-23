@@ -39,20 +39,23 @@ await page.waitForFunction(() => window.__tc.G.state === 'preview', null, { time
 console.log('preview started: total', await ev(() => Math.round(window.__tc.G.preview.total)), 'm, nodes', await ev(() => window.__tc.G.preview.nodes.length));
 await ev(() => { document.querySelector('#pvCtl [data-sp="4"]').click(); });
 // 跑：大部分不畫畫面，路名牌出現時拍幾張
-const seen = [], shots = []; let lastSign = '', t0 = Date.now(), maxStall = 0, stall = 0, lastS = 0;
+const seen = [], marks = [], shots = []; let lastSign = '', lastMark = '', markShot = false, t0 = Date.now(), maxStall = 0, stall = 0, lastS = 0;
 for (let k = 0; k < 4000; k++) {
   const r = await ev(() => { const T = window.__tc; T.manual = true; T.advance(1 / 30, 15); T.manual = false; T.noRender = true;   // 15 格遊戲邏輯，只畫最後一格
     const pv = T.G.preview, sg = document.getElementById('pvSign'), h = document.getElementById('pvHint');
-    return { state: T.G.state, s: pv ? Math.round(pv.s) : -1, total: pv ? Math.round(pv.total) : -1, sign: sg.hidden ? '' : document.getElementById('pvArrow').textContent + ' ' + document.getElementById('pvName').textContent + (document.getElementById('pvEn').textContent ? ' / ' + document.getElementById('pvEn').textContent : ''), hint: h.hidden ? '' : h.textContent, road: document.getElementById('pvRoad').textContent, ghostSpeed: pv ? Math.round(pv.v * 3.6) : 0 }; });
+    return { state: T.G.state, s: pv ? Math.round(pv.s) : -1, total: pv ? Math.round(pv.total) : -1, sign: sg.hidden ? '' : document.getElementById('pvArrow').textContent + ' ' + document.getElementById('pvName').textContent + (document.getElementById('pvEn').textContent ? ' / ' + document.getElementById('pvEn').textContent : ''), hint: h.hidden ? '' : h.textContent, mark: document.getElementById('pvMark').hidden ? '' : document.getElementById('pvMark').innerText.replace(/\n/g, ' '), road: document.getElementById('pvRoad').textContent, ghostSpeed: pv ? Math.round(pv.v * 3.6) : 0 }; });
   if (r.state !== 'preview') { console.log('preview ended, state', r.state); break; }
-  if (process.env.QUICK && shots.length >= 2) break;
+  if (process.env.QUICK && shots.length >= 1 && markShot) break;
   if (k % 25 === 0) console.log('progress', k, r.s, '/', r.total, 'm |', r.hint, '|', r.road, Math.round((Date.now() - t0) / 1000) + 's');
   if (r.s === lastS) stall++; else { maxStall = Math.max(maxStall, stall); stall = 0; } lastS = r.s;
+  if (r.mark && r.mark !== lastMark) { marks.push(`${r.s} m  ${r.mark}`); lastMark = r.mark;
+    if (!markShot && /前方 \d+ m/.test(r.mark)) { markShot = true; await ev(() => { window.__tc.noRender = false; }); await wait(2500); await page.screenshot({ path: `shots/preview_${tag}_mark.png` }); await ev(() => { window.__tc.noRender = true; }); } }
   if (r.sign && r.sign !== lastSign) { seen.push(`${r.s}/${r.total} m  [${r.sign}]  ${r.hint}  (${r.road}, ${r.ghostSpeed} km/h)`); lastSign = r.sign;
-    if (shots.length < 3 && /前方 [4-9]\d m/.test(r.hint)) { await ev(() => { window.__tc.noRender = false; }); await wait(2500); const f = `shots/preview_${tag}_${shots.length}.png`; await page.screenshot({ path: f }); shots.push(f); await ev(() => { window.__tc.noRender = true; }); } }
+    if (shots.length < 2 && /前方 [4-9]\d m/.test(r.hint)) { await ev(() => { window.__tc.noRender = false; }); await wait(2500); const f = `shots/preview_${tag}_${shots.length}.png`; await page.screenshot({ path: f }); shots.push(f); await ev(() => { window.__tc.noRender = true; }); } }
 }
 if (process.env.QUICK) await ev(() => window.__tc.endPreview());
 console.log('signs seen:\n  ' + seen.join('\n  '));
+console.log('landmarks seen:\n  ' + marks.join('\n  '));
 console.log('longest wait (loading):', maxStall, 'steps; real time', Math.round((Date.now() - t0) / 1000), 's');
 await page.waitForFunction(() => window.__tc.G.state === 'drive', null, { timeout: 120000 });
 await ev(() => { window.__tc.noRender = false; }); await wait(2000);

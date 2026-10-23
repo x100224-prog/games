@@ -654,7 +654,7 @@ function startGame() {
 const HELP_BASE = [['W A S D', '走路／開車（油門、煞車、方向盤）'], ['滑鼠', '轉動視角（點一下畫面鎖定游標）'], ['E', '出門、上車、下車、開商店'], ['空白鍵', '手煞車'], ['M', '全市地圖']];
 const FEATURE_HELP = {
   nav: { title: '導航', rows: [['藍線', '路面上的藍色線就是建議路線'], ['螢幕', '導航螢幕（電腦在車內右下角，手機在畫面右側）會提示下一個轉彎和距離']] },
-  preview: { title: '路線預覽', rows: [['P', '停在車上時按 P：用車外視角把今天的路線先開一次給你看，不花遊戲時間（手機：⋯ → 預覽路線）'], ['路名牌', '經過的路口用大的路名牌顯示路名，要轉彎時會提早告訴你往哪邊轉'], ['速度', '預覽中可以切換 1×／2×／4×、暫停；按「結束預覽」（或 Esc）回到車上']] },
+  preview: { title: '路線預覽', rows: [['P', '停在車上時按 P：用車外視角把今天的路線先開一次給你看，不花遊戲時間（手機：⋯ → 預覽路線）'], ['路名牌', '要轉彎的路口前，用大的路名牌顯示要轉進哪條路、往哪邊轉；直走的路口不打擾你'], ['地標', '沿路經過的捷運站、火車站、學校、大學、醫院、公園、百貨、博物館、市府／區公所、超高大樓（例如台北 101），會告訴你在左邊還是右邊，畫面上也會標出來'], ['速度', '預覽中可以切換 1×／2×／4×、暫停；按「結束預覽」（或 Esc）回到車上']] },
   ev: { title: '電動車', rows: [['充電', '可以停停車場裡的「電動車專用格」，停著就會充電']] },
   roadster: { title: '飛天跑車', rows: [['Shift', '推進器：約 1 秒破百（手機：推進）'], ['F', '垂直升空，飛越前面的車陣，約 10 台車（手機：飛越）'], ['T', '飛越時空中翻一圈，要在剛飛起來時按，落地前才轉得正（手機：翻轉）'], ['滑', '手機：飛起來之後，原本「飛越」的按鈕會變成「翻轉」，再按一下就翻；也可以在畫面上左右快速滑一下（往哪邊滑就往哪邊翻）', 'touch'], ['G', '面向大樓：吸住外牆往上開；在高架橋下：吸在橋底倒著開；再按一次脫離（手機：吸附）'], ['空氣', '特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。不用另外補氣，開車時會慢慢補回來（遊戲設定）']] },
   drone: { title: '無人機飛行系統', rows: [['U', '開飛天跑車時按 U：旋翼伸出、升空，自動避撞飛到目的地附近降落；再按一次取消（手機：無人機）'], ['C', '飛行中切換車外／駕駛座視角', 'desk']] },
@@ -1613,10 +1613,10 @@ function startPreview() {
     const pv = G.preview; if (!pv) return;
     pvGhost = car.group.clone(true);
     const bi = car.group.children.indexOf(car.body); if (bi >= 0) pvGhost.children[bi].visible = true;
-    scene.add(pvGhost);
+    scene.add(pvGhost); car.group.visible = false;   // 自己的車先藏起來（不然開頭兩台車疊在一起）
     traffic.clear(); traffic.factor = 0;
     G.state = 'preview'; G.chase = null; camera.near = 0.3; camera.updateProjectionMatrix();
-    $('hud').hidden = true; $('touch').hidden = true; $('moreMenu').hidden = true; $('pv').hidden = false; $('pvSign').hidden = true; $('pvHint').hidden = true;
+    $('hud').hidden = true; $('touch').hidden = true; $('moreMenu').hidden = true; $('pv').hidden = false; $('pvSign').hidden = true; $('pvHint').hidden = true; $('pvMark').hidden = true;
     setPrompt(''); pvButtons(); input.releaseLock(); input.noLock = true;   // 電腦：放開滑鼠，才按得到下面的按鈕
   });
 }
@@ -1630,7 +1630,7 @@ function pvSetPoly() {
   pv.poly = poly; pv.cum = cum; pv.total = cum[n - 1];
   let i0 = 0;
   for (const nd of pv.nodes) { const pr = polyProgress(poly, nd.x, nd.z, i0, 6000); nd.s = sOf(pr); nd.d = pr.d; if (pr.d < 40) i0 = pr.i; }
-  G.routePoly = poly;
+  G.routePoly = poly; pv.marks = null;   // 地標的位置跟著新折線重算
 }
 function pvAt(s) {
   const pv = G.preview, c = pv.cum, p = pv.poly, n = c.length; s = Math.max(0, Math.min(pv.total, s));
@@ -1658,6 +1658,22 @@ function pvEnglish(name, x, z) {
   }
   return en;
 }
+/** 影子車現在在路線的哪一段路（nav／world 共用的路段編號）。 */
+function pvRouteEdge() {
+  const pv = G.preview, ns = pv.nodes; let k = G.route.steps[0].k;
+  for (let j = 0; j < ns.length; j++) { const n = ns[j]; if (n.d > 40) continue; if (n.s > pv.s) break; k = n.next; }
+  return k;
+}
+/** 某段路在 (x,z) 的路面高度（找最近的線段內插）。 */
+function edgeHeightAt(e, x, z) {
+  const p = e.pts, n = p.length / 2; let bd = 1e18, h = null;
+  for (let i = 0; i + 1 < n; i++) {
+    const ax = p[i * 2], az = p[i * 2 + 1], dx = p[i * 2 + 2] - ax, dz = p[i * 2 + 3] - az, L2 = dx * dx + dz * dz || 1e-6;
+    let t = ((x - ax) * dx + (z - az) * dz) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const d2 = (x - ax - dx * t) ** 2 + (z - az - dz * t) ** 2; if (d2 < bd) { bd = d2; h = e.hs[i] + (e.hs[i + 1] - e.hs[i]) * t; }
+  }
+  return bd < 25 * 25 ? h : null;
+}
 /** 在路口要做什麼：直走、左轉、右轉、迴轉（比較進路口前 15 m 和出路口後 15 m 的方向）。 */
 function pvTurnAt(s) {
   const a = pvAt(s - 15), b = pvAt(s), c = pvAt(s + 15);
@@ -1676,7 +1692,8 @@ function previewFrame(dt) {
   if (world.loadedCount !== pv.loadedSeen) { pv.loadedSeen = world.loadedCount; pvSetPoly(); }
   const a = pvAt(pv.s), ahead = pvAt(pv.s + 130);
   const ready = world.readyAround(a.x, a.z, 150) && world.readyAround(ahead.x, ahead.z, 120);
-  const sf = world.surfaceAt(a.x, a.z, pv.y + 0.8, _pvS), e = sf ? sf.edge : null;
+  // 現在走的是路線上的哪一段路（用路線自己的路段，不用「最近的路」：高架、匝道疊在一起時不會認錯）
+  const rk = pvRouteEdge(), re = world.edges.get(rk), sf = re && !re.dead ? null : world.surfaceAt(a.x, a.z, pv.y + 0.8, _pvS), e = re && !re.dead ? re : sf ? sf.edge : null;
   // 速度：大馬路約 50、一般道路 40、巷子 30 km/h；轉彎前、快到的時候放慢
   const turn = nextTurn(pv.poly, { i: a.i * 2, t: a.t }, 250);
   let vT = e ? (e.cls <= 3 ? 13.9 : e.cls === 4 ? 11.1 : 8.3) : 9.7;
@@ -1691,48 +1708,119 @@ function previewFrame(dt) {
   const offT = e && !e.oneway ? Math.min(e.hw * 0.5, 1.8) : 0; pv.off += (offT - pv.off) * Math.min(1, dt * 2);
   const x = p.x - dz * pv.off, z = p.z + dx * pv.off;
   let dpsi = Math.atan2(-dx, -dz) - pv.psi; dpsi = Math.atan2(Math.sin(dpsi), Math.cos(dpsi)); pv.psi += dpsi * Math.min(1, dm * 5);
-  const s2 = world.surfaceAt(x, z, pv.y + 0.8, _pvS2), ty = s2 ? s2.y : world.groundAt(x, z, pv.y); pv.y += (ty - pv.y) * Math.min(1, dt * 10);
+  const hy = e && e === re ? edgeHeightAt(e, x, z) : null, s2 = hy === null ? world.surfaceAt(x, z, pv.y + 0.8, _pvS2) : null;
+  const ty = hy !== null ? hy : s2 ? s2.y : world.groundAt(x, z, pv.y); pv.y += (ty - pv.y) * Math.min(1, dt * 10);
   pv.pos.x = x; pv.pos.z = z; pv.i = p.i * 2;
   if (pvGhost) { pvGhost.position.set(x, pv.y, z); pvGhost.rotation.set(0, pv.psi, 0); }
   chaseCam({ x, y: pv.y, z, fwdX: -Math.sin(pv.psi), fwdZ: -Math.cos(pv.psi), v: pv.v * pv.mult, edge: e, body: {} }, dt, { back: 10.5, up: 4.6, backPort: 11.5, upPort: 5.4 });
   // 藍色路線（路面上）跟著影子車更新
   pv.meshT -= dt; if (pv.meshT <= 0 && econ.has('nav')) { pv.meshT = 1.5; G.routeIdx = p.i * 2; buildRouteMesh(x, z, pv.y); }
-  // ---- 畫面上的路名牌
+  // ---- 只在要轉彎（變換方向）的路口說路名；沿路經過的明顯地標也告訴你在哪一邊
   const curName = (e && e.name) || '';
   $('pvRoad').textContent = curName ? `現在：${curName}` : '現在：沒有路名的巷子';
   $('pvRest').textContent = `剩 ${fmtDist(Math.max(0, rest))}・${pv.pause ? '暫停' : pv.mult + '×'}`;
-  let nd = null;
-  for (const n of pv.nodes) { if (n.d > 40 || n.s < pv.s - 3) continue; if (n.s - pv.s > 170) break; const wn = world.nodes.get(n.id); if (!wn) continue;
-    const t = pvTurnAt(n.s); const nextE = world.edges.get(n.next), curE = world.edges.get(n.cur);
-    const nextName = nextE ? nextE.name : '', cur0 = curE ? curE.name : curName;
-    // 交叉的路：不列迴轉道、匝道、快速道路，也不列不像路名的服務道路（例如「某某校區」）
-    const cross = [...new Set(wn.edges.filter(q => q.name && q.name !== cur0 && q.name !== nextName && q.cls !== 0 && q.cls !== 7 && !/迴轉道|匝道/.test(q.name) && (q.cls <= 5 || /(路|街|段|巷|弄|橋)$/.test(q.name))).map(q => q.name))];
-    if (t === 'straight' && !cross.length) continue;   // 沒有路名的小巷口不顯示
-    nd = { n, t, nextName, cross, cur0 }; break; }
-  const sign = $('pvSign'), hint = $('pvHint');
+  const tn = pvNextTurn(6000), sign = $('pvSign'), hint = $('pvHint');
   if (!ready) { sign.hidden = true; hint.hidden = false; hint.className = ''; hint.textContent = '載入前面的路…'; }
   else if (rest < 2) {
     sign.hidden = true; hint.hidden = false; hint.className = 'turn'; hint.textContent = `到了：${G.leg === 'am' ? dest().n : '家'}附近，接下來自己找車位停`;
     pv.endT += dt; if (pv.endT > 2.2) endPreview();
-  } else if (nd) {
-    if (nd.t !== 'straight' && /迴轉道/.test(nd.nextName)) nd.t = 'uturn';   // 轉進迴轉道＝迴轉
-    const turning = nd.t !== 'straight', name = turning ? (nd.nextName || '巷子') : nd.cross.slice(0, 2).join('／');
-    sign.hidden = false; $('pvArrow').textContent = PV_ARROW[nd.t]; $('pvName').textContent = name;
-    if (nd.n.en === undefined || nd.n.enFor !== name) { nd.n.enFor = name; nd.n.en = turning || nd.cross.length === 1 ? pvEnglish(name, nd.n.x, nd.n.z) : ''; }
-    $('pvEn').textContent = nd.n.en || ''; $('pvEn').hidden = !nd.n.en;
-    const d = Math.max(0, Math.round(nd.n.s - pv.s));
-    hint.hidden = false; hint.className = turning ? 'turn' : '';
-    const where = d > 3 ? `前方 ${d} m 的路口` : '這個路口';
-    hint.textContent = turning ? `${where}${PV_WORD[nd.t]}${nd.nextName ? `，進入${nd.nextName}` : ''}` : `${where}（${name}）直走${nd.cur0 ? `，繼續走${nd.cur0}` : ''}`;
+  } else if (tn && tn.n.s - pv.s < 250) {
+    const name = tn.name || '巷子', d = Math.max(0, Math.round(tn.n.s - pv.s));
+    sign.hidden = false; $('pvArrow').textContent = PV_ARROW[tn.t]; $('pvName').textContent = name;
+    if (tn.n.enFor !== name) { tn.n.enFor = name; tn.n.en = tn.name ? pvEnglish(name, tn.n.x, tn.n.z) : ''; }
+    $('pvEn').textContent = tn.n.en || ''; $('pvEn').hidden = !tn.n.en;
+    hint.hidden = false; hint.className = 'turn';
+    hint.textContent = `${d > 3 ? `前方 ${d} m 的路口` : '這個路口'}${PV_WORD[tn.t]}${tn.name ? `，進入${tn.name}` : ''}`;
   } else {
-    sign.hidden = true; hint.hidden = !turn; hint.className = '';
-    if (turn) hint.textContent = `沿著${curName || '這條路'}直走 ${fmtDist(turn.dist)}`;
+    sign.hidden = true; hint.hidden = false; hint.className = '';
+    const road = curName || '這條路';
+    hint.textContent = tn ? `沿著${road}直走 ${fmtDist(tn.n.s - pv.s)}，然後${PV_WORD[tn.t]}${tn.name ? `進入${tn.name}` : ''}` : `沿著${road}直走 ${fmtDist(rest)} 就到了`;
   }
+  pvMarks();
+}
+/** 下一個要轉彎的路口（路口要有 3 條以上的路，路自己彎過去不算）。轉進迴轉道就是迴轉，路名用迴轉後那條路。 */
+function pvNextTurn(maxAhead) {
+  const pv = G.preview, ns = pv.nodes;
+  for (let k = 0; k < ns.length; k++) {
+    const n = ns[k]; if (n.d > 40 || n.s < pv.s - 3 || n.skip) continue; if (n.s - pv.s > maxAhead) break;
+    let t = pvTurnAt(n.s); if (t === 'straight') continue;
+    const wn = world.nodes.get(n.id), deg = wn ? wn.edges.length : nav.off[n.id + 1] - nav.off[n.id];
+    if (deg < 3) continue;
+    const nextE = world.edges.get(n.next); let name = nextE ? nextE.name : '';
+    if (/迴轉道/.test(name)) {   // 左轉進迴轉道、再轉出來＝迴轉
+      t = 'uturn';
+      for (let j = k + 1; j < ns.length && ns[j].s - n.s < 90; j++) { if (ns[j].d > 40 || pvTurnAt(ns[j].s) === 'straight') continue; const e2 = world.edges.get(ns[j].next); name = e2 ? e2.name : ''; if (ns[j].s < pv.s + 1) ns[j].skip = true; ns[j].afterU = true; break; }
+    }
+    if (n.afterU) continue;
+    return { n, t, name };
+  }
+  return null;
+}
+// ---- 沿路地標：捷運站、火車站、學校、大學、醫院、公園、百貨、博物館、市府／區公所、超高大樓
+const PV_MARK = { mrt: ['捷運', '#0070bd'], train: ['火車', '#4a5966'], school: ['學校', '#2f8f4e'], univ: ['大學', '#2f8f4e'], hospital: ['醫院', '#c8352b'], park: ['公園', '#3a9a3a'],
+  mall: ['百貨', '#b0548f'], museum: ['博物館', '#8a6d3b'], gov: ['政府', '#56606b'], tower: ['地標', '#d08a00'] };
+/** 預覽開始／路線更新時：找出路線旁邊的地標，算出在路線上的位置和在左邊還是右邊。 */
+function pvMarkSetup() {
+  const pv = G.preview, poly = pv.poly, cum = pv.cum, list = [];
+  let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+  for (let i = 0; i < poly.length; i += 2) { x0 = Math.min(x0, poly[i]); x1 = Math.max(x1, poly[i]); z0 = Math.min(z0, poly[i + 1]); z1 = Math.max(z1, poly[i + 1]); }
+  for (const m of meta.marks || []) {
+    const [kind, name, x, z, r] = m, far = kind === 'tower' ? 700 : r + 70;
+    if (x < x0 - far || x > x1 + far || z < z0 - far || z > z1 + far) continue;
+    const pr = polyProgress(poly, x, z, 0, poly.length), k = pr.i >> 1, sAt = cum[k] + pr.t * ((cum[k + 1] ?? cum[k]) - cum[k]);
+    const ok = kind === 'tower' ? pr.d < 700 : kind === 'mrt' || kind === 'train' ? pr.d < 90 : pr.d - r < 45;
+    if (!ok || sAt < 5) continue;
+    const a = pvAt(sAt - 3), b = pvAt(sAt + 3), q = pvAt(sAt), tx = b.x - a.x, tz = b.z - a.z;
+    const side = (-tz * (x - q.x) + tx * (z - q.z)) > 0 ? '右' : '左';
+    list.push({ kind, name, x, z, s: sAt, d: pr.d, side, shown: false });
+  }
+  list.sort((p1, p2) => p1.s - p2.s);
+  pv.marks = list;
+}
+let pvPin = null;
+function pvPinFor(m) {
+  if (!pvPin) {
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128;
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    pvPin = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, sizeAttenuation: false, transparent: true }));
+    pvPin.renderOrder = 999; pvPin.userData.cv = cv; scene.add(pvPin);
+  }
+  if (pvPin.userData.name !== m.name) {
+    const cv = pvPin.userData.cv, g = cv.getContext('2d'), [lab, col] = PV_MARK[m.kind];
+    g.clearRect(0, 0, cv.width, cv.height);
+    g.font = '900 52px "Noto Sans TC", sans-serif'; const w = Math.min(cv.width - 8, g.measureText(m.name).width + 150);
+    const x0 = (cv.width - w) / 2;
+    g.fillStyle = 'rgba(10,13,16,.88)'; g.beginPath(); g.roundRect(x0, 8, w, 88, 18); g.fill();
+    g.beginPath(); g.moveTo(cv.width / 2 - 16, 94); g.lineTo(cv.width / 2 + 16, 94); g.lineTo(cv.width / 2, 124); g.fill();
+    g.fillStyle = col; g.beginPath(); g.roundRect(x0 + 10, 20, 116, 64, 12); g.fill();
+    g.fillStyle = '#fff'; g.font = '900 34px "Noto Sans TC", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(lab, x0 + 68, 53);
+    g.font = '900 46px "Noto Sans TC", sans-serif'; g.textAlign = 'left'; g.fillText(m.name, x0 + 140, 54, w - 150);
+    pvPin.material.map.needsUpdate = true; pvPin.userData.name = m.name;
+  }
+  // 標示放在路邊靠地標的那一側（地標中心可能在校園深處）；超高大樓標在大樓上方
+  let px = m.x, pz = m.z;
+  if (m.kind !== 'tower') { const q = pvAt(m.s), k = Math.min(1, 22 / Math.max(1, m.d)); px = q.x + (m.x - q.x) * k; pz = q.z + (m.z - q.z) * k; }
+  const gy = world.groundAt(px, pz), h = m.kind === 'tower' ? 120 : 8;
+  pvPin.position.set(px, gy + h, pz); pvPin.scale.set(0.34, 0.085, 1); pvPin.visible = true;
+}
+/** 畫面上：快經過的地標（前方 180 m 到剛經過 20 m；超高大樓從 600 m 外就說看得到）。 */
+function pvMarks() {
+  const pv = G.preview, box = $('pvMark'); if (!pv.marks) pvMarkSetup();
+  const near = pv.marks.filter(m => m.s - pv.s < (m.kind === 'tower' ? 600 : 180) && m.s - pv.s > -20).slice(0, 2);
+  if (!near.length) { box.hidden = true; if (pvPin) pvPin.visible = false; return; }
+  box.hidden = false;
+  const html = near.map(m => { const [lab, col] = PV_MARK[m.kind], ds = m.s - pv.s;
+    const where = m.kind === 'tower' ? `${m.side}前方看得到：` : ds > 25 ? `前方 ${Math.round(ds)} m ${m.side}邊：` : `${m.side}邊就是`;
+    return `<div class="pvm"><span class="pvk" style="background:${col}">${lab}</span><span>${where}<b>${m.name}</b></span></div>`; }).join('');
+  if (box.innerHTML !== html) box.innerHTML = html;
+  pvPinFor(near[0]);
 }
 function endPreview() {
   const pv = G.preview; if (!pv || pv.ending) return; pv.ending = true;
   fadeThen(() => {
     if (pvGhost) { scene.remove(pvGhost); pvGhost = null; }
+    if (pvPin) pvPin.visible = false;
+    car.group.visible = true;
     $('pv').hidden = true; input.noLock = false;
     traffic.factor = pv.tf ?? 1;
     G.preview = null; G.chase = null;

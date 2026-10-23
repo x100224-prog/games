@@ -923,6 +923,61 @@ for k, lst in bykind.items():
     works += lst[:cap.get(k, 100000)]
 log("workplaces:", len(works), {k: len(v) for k, v in bykind.items()})
 
+# ====================================================================== 沿路地標（路線預覽用）
+# [種類, 名稱, x, z, 半徑 m]。種類：mrt 捷運站、train 火車站、school 學校、univ 大學、hospital 醫院、park 公園、
+# mall 百貨商場、museum 博物館、gov 市政府／區公所、tower 超高大樓（有名字的）。不用亂數，不影響其他資料。
+marks, _mk_seen = [], {}
+def add_mark(kind, name, x, z, r):
+    name = (name or '').split(';')[0].strip()
+    if not name or len(name) > 20: return
+    if not city.buffer(200).contains(Point(x, z)): return
+    for (k2, x2, z2) in _mk_seen.get(name, []):
+        if k2 == kind and math.hypot(x2 - x, z2 - z) < 400: return
+    _mk_seen.setdefault(name, []).append((kind, x, z))
+    marks.append([kind, name, round(x, 1), round(z, 1), int(round(max(8, min(300, r))))])
+for n in D['nodes']:
+    t = n['tags']
+    if t.get('railway') == 'station' or t.get('public_transport') == 'station':
+        kind = 'mrt' if t.get('station') in ('subway', 'light_rail', 'monorail') else 'train' if t.get('railway') == 'station' else None
+        if kind:
+            x, z = proj(n['lon'], n['lat']); nm = t.get('name') or ''
+            if kind == 'mrt' and not nm.endswith('站'): nm = '捷運' + nm + '站'
+            elif kind == 'train' and not nm.endswith('站'): nm = nm + '車站'
+            add_mark(kind, nm, x, z, 40)
+MK_AREA = {('campus', 'school'): 'school', ('campus', 'college'): 'school', ('campus', 'university'): 'univ', ('campus', 'hospital'): 'hospital'}
+for a in D['areas']:
+    t = a['tags']; nm = t.get('name')
+    if not nm: continue
+    kind = MK_AREA.get((a['kind'], t.get('amenity')))
+    if kind is None:
+        if a['kind'] == 'green' and t.get('leisure') == 'park': kind = 'park'
+        elif t.get('shop') in ('mall', 'department_store'): kind = 'mall'
+        elif t.get('tourism') == 'museum': kind = 'museum'
+        elif t.get('amenity') == 'townhall' and '里' not in nm: kind = 'gov'
+        elif a['kind'] == 'building' and t.get('amenity') == 'hospital': kind = 'hospital'
+        else: continue
+    try: g = proj_geom(wkb.loads(a['geom']))
+    except Exception: continue
+    if not g.is_valid: g = g.buffer(0)
+    if g.is_empty: continue
+    if kind == 'park' and g.area < 20000: continue
+    c = g.representative_point(); add_mark(kind, nm, c.x, c.y, math.sqrt(g.area / math.pi))
+for n in D['nodes']:
+    t = n['tags']; nm = t.get('name'); kind = None
+    if not nm: continue
+    if t.get('amenity') == 'hospital': kind = 'hospital'
+    elif t.get('amenity') in ('school', 'college'): kind = 'school'
+    elif t.get('amenity') == 'university': kind = 'univ'
+    elif t.get('shop') in ('mall', 'department_store'): kind = 'mall'
+    elif t.get('tourism') == 'museum': kind = 'museum'
+    elif t.get('amenity') == 'townhall' and '里' not in nm: kind = 'gov'
+    if kind:
+        x, z = proj(n['lon'], n['lat']); add_mark(kind, nm, x, z, 30)
+for lm in landmarks:
+    if lm['n'] and lm['h'] >= 150:
+        xs, zs = lm['pts'][0::2], lm['pts'][1::2]; add_mark('tower', lm['n'], sum(xs) / len(xs), sum(zs) / len(zs), 30)
+log("route marks:", len(marks), dict(__import__('collections').Counter(m[0] for m in marks)))
+
 # ====================================================================== 真實店家招牌
 # 有店名的 POI → 掛在最近那棟建物、面向馬路的那一面
 BRANDS = ['7-ELEVEN', '7-11', '統一超商', '全家', 'FamilyMart', '萊爾富', 'OK', '全聯', '家樂福', '麥當勞', '肯德基', '摩斯',
@@ -1071,6 +1126,7 @@ meta = dict(
     homes=homes_out,
     mission=mission,
     landmarks=landmarks,
+    marks=marks,
     works=works,
     stats=dict(edges=len(edges), nodes=N, road_km=round(sum(e['len'] for e in edges) / 1000),
                buildings=nb, signals=len(signals), parking_lots=npk, tiles=len(tile_index), bytes=total),
