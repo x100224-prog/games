@@ -124,6 +124,27 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
 .fk-modes button[aria-pressed="true"]{background:linear-gradient(#c9a227,#8a6a10);color:#111}
 .fk-modes button:disabled{opacity:.35}
 
+.mom{align-items:center;z-index:6}
+.momph{width:min(86vw,330px);background:#f3f0e9;border:7px solid #17191c;border-radius:30px;padding:14px 14px 16px;display:flex;flex-direction:column;gap:10px;color:#1e1e1e;font-family:"Noto Sans TC",sans-serif;box-shadow:0 18px 50px rgba(0,0,0,.55)}
+.momtop{display:flex;align-items:center;gap:9px;padding-bottom:9px;border-bottom:1px solid #d9d4ca}
+.momav{width:34px;height:34px;border-radius:50%;background:#e39a52;color:#fff;display:grid;place-items:center;font-weight:700;flex:none}
+.momtop b{font-size:1.05rem}.momtop small{margin-left:auto;color:#8a857c;font-size:.85rem}
+.momchat{display:flex;flex-direction:column;gap:8px;min-height:150px;padding:4px 0}
+.mombub{align-self:flex-start;max-width:88%;background:#fff;border-radius:16px 16px 16px 4px;padding:10px 12px;font-size:1rem;line-height:1.55;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.mombub[hidden]{display:none}
+#momOk{border:0;border-radius:999px;background:#2f8a66;color:#fff;font:700 1rem "Noto Sans TC",sans-serif;padding:12px;cursor:pointer;pointer-events:auto}
+#momOk:focus-visible{outline:3px solid #f0c060;outline-offset:2px}
+.par{background:#e7e4de}.par-av{background:#4a4a4a}
+.parchat{max-height:min(48dvh,330px);min-height:170px;overflow:auto}
+.mombub.red{background:#fff1f0;color:#a3161a;font-weight:700}
+.partype{font-size:.85rem;color:#8a857c;min-height:1.2em}
+#parOk{border:0;border-radius:999px;background:#8a2a22;color:#fff;font:700 1rem "Noto Sans TC",sans-serif;padding:12px;cursor:pointer}
+#parOk:focus-visible{outline:3px solid #f0c060;outline-offset:2px}
+#madB{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:4}
+#madB .mb{position:absolute;background:#fff;color:#151515;border-radius:14px 14px 14px 4px;padding:6px 11px;font:700 clamp(12px,min(3.4vw,4.2vh),18px) "Noto Sans TC",sans-serif;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,.45);animation:mbIn .22s ease-out}
+#madB .mb.red{background:#ffe9e8;color:#b0121a}
+@keyframes mbIn{from{opacity:0;scale:.6}to{opacity:1;scale:1}}
+@media (prefers-reduced-motion:reduce){#madB .mb{animation:none}}
 #slides{position:fixed;inset:0;background:#0b0c0d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:12px max(12px,env(safe-area-inset-right,0px)) max(12px,env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));cursor:pointer;z-index:5}
 #slides[hidden]{display:none}
 #winVid{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:transparent;z-index:4;transition:none}
@@ -208,6 +229,24 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
     </div></div>
   </div>
 </div>
+
+<div class="purwrap mom" id="momUI" hidden>
+  <div class="momph" role="dialog" aria-modal="true" aria-labelledby="momT">
+    <div class="momtop"><span class="momav" aria-hidden="true">媽</span><b id="momT">媽媽</b><small>07:53</small></div>
+    <div class="momchat"><div class="mombub">早安～出門上班了嗎？</div><div class="mombub" id="momB2">上班前先繞去福安宮拜拜，捐點香油錢，保佑你工作順順利利喔 🙏</div></div>
+    <button type="button" id="momOk">好，知道了</button>
+  </div>
+</div>
+
+<div class="purwrap mom" id="parUI" hidden>
+  <div class="momph par" role="dialog" aria-modal="true" aria-labelledby="parT">
+    <div class="momtop"><span class="momav par-av" aria-hidden="true">家</span><b id="parT">子豪媽媽（家長）</b><small>08:31</small></div>
+    <div class="momchat parchat" id="parChat" aria-live="polite"></div>
+    <div class="partype" id="parType">對方正在輸入……</div>
+    <button type="button" id="parOk" hidden>關掉手機</button>
+  </div>
+</div>
+<div id="madB" hidden aria-hidden="true"></div>
 
 <div class="purwrap" id="purUI" hidden>
   <div class="pur" role="dialog" aria-modal="true" aria-labelledby="purT">
@@ -890,12 +929,14 @@ function poseWork(t,kind,p,act){if(HERO.ok)footRestore();
   // 右臂繞 z 正轉＝往前抬、左臂繞 z 負轉＝往前抬（休息姿勢手臂是垂下的）
   let up=0,ry=0,ly=0,lup=null;
   if(kind==='cook'){up=.75*a;ry=Math.sin(t*5)*.3*a;lup=.35*a;}            // 一手拿鍋鏟翻動
-  else if(kind==='donate'){up=1.0*a;lup=.15*a;}                             // 手伸向香油錢箱
+  else if(kind==='donate'){up=1.0*a;lup=.15*a;}
+  else if(kind==='pray'){up=1.25*a;lup=1.25*a;}                              // 雙手拿香舉到胸前                             // 手伸向香油錢箱
   else if(kind==='teach'){up=(1.85+.1*Math.sin(t*3))*a;ry=Math.sin(t*2)*.2*a;lup=.1*a;}   // 舉手在黑板上寫
   else if(kind==='q'){const arc=Math.sin(clamp(p,0,1)*Math.PI);up=(.55+1.05*arc)*a;}   // 抓起角 → 舉高 → 往回放下
   else if(kind==='s'){const sw=Math.sin(t*7);up=.7*a;ry=sw*.5*a;ly=sw*.5*a;          // 雙手在床面上來回撫平
     boneOff('Torso',.08+.2*a,sw*.1*a,0);}
   boneOff('UpperArm.R',0,ry,up);boneOff('UpperArm.L',0,ly,-(lup==null?up:lup));boneOff('LowerArm.R',0,0,0);boneOff('LowerArm.L',0,0,0);
+  if(kind==='pray'){boneOff('Abdomen',.1+.55*p,0,0);boneOff('Torso',.05+.3*p,0,0);boneOff('Head',.1+.25*p,0,0);}   // 拜：彎腰
 }
 
 /* =========================================================
@@ -1067,6 +1108,7 @@ function aInit(){
   A.hor=ctx.createGain();A.hor.gain.value=0;A.hor.connect(A.master);
   A.therm=loopNoise(A.noise,'highpass',5000,.5,0);
   A.slime=loopNoise(A.noise,'bandpass',850,1.6,0);A.sizzle=loopNoise(A.noise,'bandpass',5200,.9,0);A.fan=loopNoise(A.noise,'lowpass',420,.7,0);A.amb=loopNoise(A.brown,'bandpass',320,.6,0);
+  A.traffic=loopNoise(A.brown,'lowpass',420,.6,0);A.city=loopNoise(A.noise,'lowpass',240,.4,0);
   const ws=ctx.createWaveShaper(),cv=new Float32Array(256);for(let i=0;i<256;i++){const x=i/128-1;cv[i]=Math.tanh(x*6);}ws.curve=cv;A.dist=ws;ws.connect(A.master);
   // 房間殘響（程式產生的脈衝響應），讓咳嗽聲像在室內
   const irL=Math.floor(ctx.sampleRate*.9),ir=ctx.createBuffer(2,irL,ctx.sampleRate);
@@ -1253,6 +1295,10 @@ const SFX={
   crack(){nb({type:'highpass',f:2500,a:.001,d:.04,v:.5});nb({type:'bandpass',f:900,a:.002,d:.08,v:.3,at:.05});nb({type:'bandpass',f:4500,q:.6,a:.05,d:.6,v:.25,at:.12});},
   ignite(){nb({f:600,f2:2400,q:.7,a:.05,d:.25,v:.25});nb({type:'highpass',f:3000,a:.001,d:.02,v:.3});},
   ding(){tn({f:1568,a:.002,d:1.2,v:.15});tn({f:2093,a:.002,d:1.0,v:.08});},
+  vib(){for(let i=0;i<2;i++)tn({type:'square',f:140,a:.01,d:.17,v:.06,filt:380,at:i*.24});},
+  laugh(){for(let i=0;i<6;i++){const f=rnd(250,330)*(1-i*.05);tn({type:'sawtooth',f,f2:f*.78,a:.012,d:.13,v:.1,filt:1100,ft:'bandpass',q:3,at:i*.16});nb({f:rnd(800,1100),q:2,a:.01,d:.09,v:.07,at:i*.16});}},
+  ping(){tn({f:1320,a:.003,d:.14,v:.07});tn({f:1980,a:.003,d:.26,v:.06,at:.09});},
+  bird(){const f=rnd(2800,4000);tn({f,f2:f*1.35,a:.01,d:.07,v:.025});tn({f:f*1.1,f2:f*.85,a:.01,d:.07,v:.02,at:.12});tn({f:f*1.2,f2:f*1.4,a:.01,d:.05,v:.018,at:.24});},
   coin(){tn({type:'triangle',f:rnd(2400,3000),a:.001,d:.25,v:.12});tn({type:'triangle',f:rnd(3400,4000),a:.001,d:.2,v:.06,at:.04});},
   chime(){[880,1109,1319].forEach((f,i)=>tn({f,a:.004,d:.5,v:.12,at:i*.1}));},
   buzz(){tn({type:'square',f:140,a:.005,d:.35,v:.08,filt:900});},
@@ -1314,7 +1360,7 @@ function purPress(id){
     else if(id==='circ'){PS.circ=!PS.circ;}}
   applyPur();}
 /* 放大的操作面板（照你的「控制面板特寫」模型） */
-const PV={};let purOpen=false;
+const PV={};let purOpen=false,momOpen=false,momTimer=0,parOpen=false;const PAR={done:false,timers:[]};
 function initPanelView(){
   if(PV.r)return;
   const cv=$('purCv');PV.r=new T.WebGLRenderer({canvas:cv,antialias:true,alpha:true});
@@ -1349,7 +1395,23 @@ function sizePanelView(){const st=$('purStage'),w=st.clientWidth,h=st.clientHeig
   PV.cam.fov=w/h<1.6?40:32;PV.cam.updateProjectionMatrix();}
 function openPur(){purOpen=true;$('purUI').hidden=false;if(document.exitPointerLock&&locked())document.exitPointerLock();
   mouseHeld=false;btnHeld=false;initPanelView();sizePanelView();SFX.click();applyPur();$('purClose').focus({preventScroll:true});}
-function closePur(){if(!purOpen)return;purOpen=false;fakeOpen=false;$('fkZoom').hidden=true;$('purUI').hidden=true;$('fakeUI').hidden=true;}
+function closePur(){if(!purOpen)return;purOpen=false;fakeOpen=false;$('fkZoom').hidden=true;$('purUI').hidden=true;$('fakeUI').hidden=true;
+  if(parOpen){parOpen=false;PAR.timers.forEach(clearTimeout);PAR.timers=[];$('parUI').hidden=true;if(state==='play'&&stage==='school'&&PAR.done)startMad();}
+  if(momOpen){momOpen=false;clearTimeout(momTimer);$('momUI').hidden=true;if(state==='play'&&stage==='street'){ST.msg=true;say('先去福安宮拜拜，再去學校。',2.8);}}}
+/* 媽媽傳來的訊息（街道上手機震動後跳出來） */
+function openMom(){purOpen=true;momOpen=true;$('momUI').hidden=false;$('momB2').hidden=true;SFX.ping();if(document.exitPointerLock&&locked())document.exitPointerLock();
+  clearTimeout(momTimer);momTimer=setTimeout(()=>{if(momOpen){$('momB2').hidden=false;SFX.ping();}},900);setTimeout(()=>{if(momOpen)$('momOk').focus();},50);}
+$('momOk').addEventListener('click',()=>closePur());
+/* 沒去廟裡拜拜就直接到學校：家長的騷擾訊息一則接一則 */
+const PAR_MSG=[['老師早安。',600],['我家子豪說你昨天上課的時候瞪了他一眼，是什麼意思？',1300],['我已經截圖了。',1100],['你今天穿灰色外套對吧？我在校門口有看到你。',1500],['為什麼已讀不回？',1300,1]];
+function openPar(){purOpen=true;parOpen=true;PAR.done=false;const ch=$('parChat');ch.innerHTML='';$('parOk').hidden=true;$('parType').hidden=false;$('parUI').hidden=false;
+  if(document.exitPointerLock&&locked())document.exitPointerLock();SFX.ping();
+  const add=(txt,red)=>{const d=document.createElement('div');d.className='mombub'+(red?' red':'');d.textContent=txt;ch.appendChild(d);ch.scrollTop=ch.scrollHeight;SFX.ping();};
+  let t=0;PAR_MSG.forEach(([m,g,r])=>{t+=g;PAR.timers.push(setTimeout(()=>add(m,r),t));});
+  for(let i=0;i<14;i++){t+=Math.max(110,420-i*30);PAR.timers.push(setTimeout(()=>add(i%5===4?'老師？':'為什麼已讀不回？',1),t));}
+  t+=900;PAR.timers.push(setTimeout(()=>add('我現在就在你們教室外面。',1),t));
+  t+=700;PAR.timers.push(setTimeout(()=>{PAR.done=true;$('parType').hidden=true;$('parOk').hidden=false;$('parOk').focus();},t));}
+$('parOk').addEventListener('click',()=>closePur());
 $('purClose').addEventListener('click',closePur);
 $('purUI').addEventListener('pointerdown',e=>{if(e.target.id==='purUI')closePur();});
 
@@ -1422,7 +1484,7 @@ drawView();
    ========================================================= */
 const keys={};let mouseHeld=false,btnHeld=false,pressEdge=false;
 let drag=null;const joy={x:0,y:0,id:null};
-addEventListener('keydown',e=>{if(purOpen){if(e.code==='Escape'||e.code==='KeyE')closePur();return;}
+addEventListener('keydown',e=>{if(purOpen){if(parOpen&&!PAR.done)return;if(e.code==='Escape'||e.code==='KeyE'||((momOpen||parOpen)&&(e.code==='Enter'||e.code==='Space'))){e.preventDefault();closePur();}return;}
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();
   if(!keys[e.code]&&(e.code==='KeyE'||e.code==='Space'))pressEdge=true;keys[e.code]=true;});
 addEventListener('keyup',e=>{keys[e.code]=false;});
@@ -1529,7 +1591,7 @@ function doClick(a){
    15. 其他場景：廚房、廟宇、學校（各自放在遠處，同一時間只顯示一個）
    ========================================================= */
 let stage='bed';
-const KX=30,TX=60,CX=100,RX=130,BX=160;
+const KX=30,TX=60,CX=100,RX=130,BX=160,SX=200;
 const KIT=new T.Group(),TEM=new T.Group(),SCH=new T.Group(),BATH=new T.Group();KIT.visible=TEM.visible=SCH.visible=BATH.visible=false;scene.add(KIT,TEM,SCH,BATH);
 const BED_LIGHTS=[hemi,winLight,fill,lampLight,purLight];
 const tileTex=(c1,c2,n,rep)=>ctex(128,128,x=>{x.fillStyle=c1;x.fillRect(0,0,128,128);x.strokeStyle=c2;x.lineWidth=2;const k=128/n;for(let i=0;i<=n;i++){x.beginPath();x.moveTo(i*k,0);x.lineTo(i*k,128);x.stroke();x.beginPath();x.moveTo(0,i*k);x.lineTo(128,i*k);x.stroke();}
@@ -1756,7 +1818,7 @@ const TLIGHT=new T.Group();TEM.add(TLIGHT);
 const BURNER=new T.Vector3(TX,1.15,-.5);
 const BOXES=[{x:-1.4,z:-.9},{x:-4.0,z:-2.6},{x:4.0,z:-2.6},{x:4.0,z:2.0}];   // 第 4 個（入口右邊、清淨機旁）才有效
 const GOOD_BOX=3;
-let PUR_T,PUR_S;
+let PUR_T,PUR_S,INC_TABLE,INC_FLAME,BURNER_MESH,STUCK;
 {
   addRoomBox(TEM,10,9,4.2,std({map:tileTex('#8f8a80','#6e6a62',3,[5,4.5]),roughness:.7}),std({color:0x8e3a2a,roughness:.8}),std({color:0x5a2a1c,roughness:.8}),['front']);
   TLIGHT.add(new T.HemisphereLight(0xffd9b0,0x2a1a10,.35));
@@ -1792,10 +1854,20 @@ let PUR_T,PUR_S;
   PUR_T=makePurifier();PUR_T.g.position.set(4.45,0,2.75);PUR_T.g.rotation.y=-2.3;PUR_T.g.userData.act='purifier';PUR_T.g.userData.heat=.35;TEM.add(PUR_T.g);
   // 另一台雜牌清淨機：放在第 3 個香油錢箱（右後方）旁邊，看起來也一直開著
   FT=makeFakeTower();FT.g.position.set(4.45,0,-1.85);FT.g.rotation.y=-1.3;FT.g.userData.act='fakepur';TEM.add(FT.g);
+  // 香案（入口左邊）：一對蠟燭、一筒香，在這裡點香
+  const tab=new T.Group();tab.position.set(-2.2,0,2.5);tab.userData.act='incense';tab.userData.heat=.25;
+  tab.add(mesh(rbox(1.0,.8,.5,.02),red,0,.4,0),mesh(rbox(1.04,.04,.54,.01),gold,0,.82,0));
+  [-.36,.36].forEach(x=>{tab.add(mesh(new T.CylinderGeometry(.03,.03,.22,12),std({color:0xd8241c,emissive:0x400000}),x,.95,0,.6));const fl=mesh(new T.ConeGeometry(.018,.05,8),bas({color:0xffc060}),x,1.09,0,1);tab.add(fl);if(x>0)INC_FLAME=fl;});
+  tab.add(mesh(new T.CylinderGeometry(.07,.07,.16,16),std({color:0x8a6a3a,roughness:.5}),0,.92,0));
+  for(let i=0;i<14;i++)tab.add(mesh(new T.CylinderGeometry(.004,.004,.38,4),std({color:0xc84a2a}),rnd(-.04,.04),1.12,rnd(-.04,.04)));
+  TEM.add(tab);INC_TABLE=tab;
+  bur.userData.act='burner';BURNER_MESH=bur;
+  STUCK=new T.Group();TEM.add(STUCK);
 }
 function emitIncense(n){for(let k=0;k<n;k++){const a=rnd(0,6.28),r=rnd(0,.4);emitAt(BURNER.x+Math.cos(a)*r,BURNER.y+.3,BURNER.z+Math.sin(a)*r,.55);}}
 const TP={};
-function resetTemple(){Object.assign(TP,{don:-1,donT:0,donSky:100,paid:false,fatMsg:0,boxDone:-1,lastBox:-1});donHand.visible=false;if(DH.bill)DH.bill.visible=false;}
+function resetTemple(){Object.assign(TP,{don:-1,donT:0,donSky:100,paid:false,fatMsg:0,boxDone:-1,lastBox:-1,ph:'',phT:0,lit:false,bows:0,bowed:false,prayed:false,dip:0});
+  IH.visible=false;IH.userData.tipM.color.setHex(0x3a2418);while(STUCK.children.length)STUCK.remove(STUCK.children[0]);donHand.visible=false;if(DH.bill)DH.bill.visible=false;}
 /* 投香油錢的第一人稱手：袖子＋手掌＋捏著的千元鈔（摺成一半），會伸到箱子投入口把錢塞進去 */
 const billTex=ctex(256,128,x=>{x.fillStyle='#4f6fa8';x.fillRect(0,0,256,128);x.fillStyle='#7f9cd0';x.fillRect(8,8,240,112);
   x.strokeStyle='#2c4478';x.lineWidth=3;x.strokeRect(14,14,228,100);x.fillStyle='#2c4478';x.font='700 44px serif';x.fillText('1000',20,64);x.font='700 18px sans-serif';x.fillText('中華民國',150,40);
@@ -1842,6 +1914,195 @@ function updateDonation(t,fat){
   DH.arm.position.copy(sh).addScaledVector(d,.5);DH.arm.quaternion.setFromUnitVectors(_dup,d.normalize());const fw=1+fat*1.4;DH.arm.scale.set(fw,len,fw);
   DH.hand.scale.setScalar(1+fat*.35);
   if(t>=1.7&&!TP.billSnd){TP.billSnd=true;SFX.paper();}}
+
+/* 拜拜：香案點香 → 對神明拜三拜 → 把香插進大香爐（第一人稱拿著三炷香） */
+const IH=new T.Group();IH.visible=false;scene.add(IH);
+const PH_DUR={light:2.1,bow:5.1,ins:1.9};
+{const skinM=std({color:0x9a6448,roughness:.85,envMapIntensity:.15});
+  IH.add(mesh(rbox(.075,.085,.065,.022),skinM,0,0,0));   // 握著香的手
+  const stickM=std({color:0x9a3a22,roughness:.7}),handleM=std({color:0xc8241c,roughness:.6}),tipM=new T.MeshBasicMaterial({color:0x3a2418});
+  IH.userData.tipM=tipM;
+  [-.013,0,.013].forEach(x=>{IH.add(mesh(new T.CylinderGeometry(.0032,.0032,.3,5),stickM,x,.19,0),mesh(new T.CylinderGeometry(.0042,.0042,.1,5),handleM,x,-.02,0),mesh(new T.SphereGeometry(.0042,6,4),tipM,x,.342,0));});}
+const _pv=new T.Vector3(),_pf=new T.Vector3(),_pr=new T.Vector3(),_pu=new T.Vector3(),_ia=new T.Vector3(),_ib=new T.Vector3(),_qI=new T.Quaternion();
+/* 把玩家的視線慢慢轉向某一點（改 yaw／pitch，結束後不會突然跳回去） */
+function aimAt(tx,ty,tz,k){const dx=tx-player.x,dz=tz-player.z,h=Math.hypot(dx,dz)||1;
+  let d=Math.atan2(-dx,-dz)-player.yaw;d=Math.atan2(Math.sin(d),Math.cos(d));player.yaw+=d*k;
+  player.pitch+=(clamp(Math.atan2(ty-1.6,h),-1.2,1.2)-player.pitch)*k;}
+/* 拿香的手放在畫面中下方，香往前微傾 */
+function placeIH(lift){_pf.set(0,0,-1).applyQuaternion(camera.quaternion);_pr.set(1,0,0).applyQuaternion(camera.quaternion);_pu.set(0,1,0).applyQuaternion(camera.quaternion);
+  IH.position.copy(camera.position).addScaledVector(_pf,.36).addScaledVector(_pr,.08).addScaledVector(_pu,-.21+lift);
+  IH.quaternion.copy(camera.quaternion);IH.rotateX(-.25);}
+/* 鏡頭往目標靠近（彎腰湊過去），a=0～1 */
+function leanTo(tx,tz,a,keep,down){const dx=tx-camera.position.x,dz=tz-camera.position.z,dl=Math.hypot(dx,dz)||1,l=Math.min(1.3,Math.max(0,dl-keep))*a;
+  camera.position.x+=dx/dl*l;camera.position.z+=dz/dl*l;camera.position.y-=down*a;}
+function smokeIH(dt){emitN(n=>{for(let i=0;i<n;i++){IH.localToWorld(_pv.set(rnd(-.014,.014),.35,0));emitAt(_pv.x,_pv.y,_pv.z,.3);}},9*dt);}
+function updatePray(dt){
+  const holding=TP.lit&&!TP.prayed&&TP.ph!=='ins'||TP.ph==='light'||(TP.ph==='ins'&&TP.phT<1.45);
+  TP.dip=0;
+  if(TP.ph){TP.phT+=dt;const t=TP.phT,k=Math.min(1,dt*6);
+    if(TP.ph==='light'){INC_FLAME.getWorldPosition(_ia);aimAt(_ia.x,_ia.y,_ia.z,k);
+      const a=ease(clamp(t/.5,0,1))*(1-ease(clamp((t-1.65)/.45,0,1)));leanTo(_ia.x,_ia.z,a,.62,.3);
+      placeIH(0);_ib.copy(IH.position);_pu.set(0,.343,0).applyQuaternion(IH.quaternion);
+      const r=ease(clamp((t-.35)/.6,0,1))*(1-ease(clamp((t-1.5)/.5,0,1)));IH.position.lerpVectors(_ib,_pv.copy(_ia).sub(_pu),r);
+      if(t>=1.05&&!TP.lit){TP.lit=true;IH.userData.tipM.color.setHex(0xff6a20);SFX.ignite();}
+      if(t>=PH_DUR.light){TP.ph='';say('香點好了。走到大香爐前，向神明拜三拜。',3);}}
+    else if(TP.ph==='bow'){aimAt(TX,1.9,-3.7,k);
+      for(let i=0;i<3;i++){const st=.5+i*1.5,u=(t-st)/1.25;if(u>0&&u<1)TP.dip=Math.sin(Math.PI*u);if(t-dt<st&&t>=st)SFX.bowl();if(t-dt<st+1.25&&t>=st+1.25)TP.bows=i+1;}
+      camera.position.y-=.24*TP.dip;camera.rotation.x-=.6*TP.dip;placeIH(.09);
+      if(t>=PH_DUR.bow){TP.ph='';TP.bowed=true;TP.bows=3;say('拜完了。把香插進香爐。',2.6);}}
+    else if(TP.ph==='ins'){aimAt(BURNER.x,BURNER.y,BURNER.z,k);
+      const a=ease(clamp(t/.45,0,1))*(1-ease(clamp((t-1.5)/.4,0,1)));leanTo(BURNER.x,BURNER.z,a,.85,.15);
+      placeIH(0);_ib.copy(IH.position);
+      const top=_ia.set(BURNER.x+.08,1.36,BURNER.z+.12),low=_pv.set(BURNER.x+.08,1.13,BURNER.z+.12);
+      if(t<1.0){const f=ease(clamp((t-.25)/.75,0,1));IH.position.lerpVectors(_ib,top,f);IH.quaternion.slerp(_qI,f);}
+      else{IH.position.lerpVectors(top,low,ease(clamp((t-1.0)/.4,0,1)));IH.quaternion.copy(_qI);}
+      if(t-dt<1.45&&t>=1.45){IH.updateMatrixWorld(true);
+        [-.013,0,.013].forEach(x=>{IH.localToWorld(_ib.set(x,.13,0));STUCK.add(mesh(new T.CylinderGeometry(.0032,.0032,.3,5),std({color:0x9a3a22}),_ib.x-TX,_ib.y,_ib.z),mesh(new T.SphereGeometry(.0055,6,4),bas({color:0xff6a20}),_ib.x-TX,_ib.y+.153,_ib.z));});
+        SFX.grab();}
+      if(t>=PH_DUR.ins){TP.ph='';TP.prayed=true;say('香插好了。去投香油錢吧。',2.6);}}}
+  IH.visible=holding&&state==='play';
+  if(IH.visible){if(!TP.ph)placeIH(0);if(TP.lit)smokeIH(dt);}
+  else if(TP.prayed&&Math.random()<dt*6&&STUCK.children.length){const c=STUCK.children[1];c.getWorldPosition(_pv);emitAt(_pv.x,_pv.y,_pv.z,.3);}}
+
+/* ---------- 街道：家 → 福安宮 → 學校（純過場，不扣 sky）
+   x 沿著街；玩家走在近側的人行道／騎樓（z 1.85～4.9），馬路在 z -6～1.6，對面還有一排房子 ---------- */
+const STR=new T.Group();STR.visible=false;STR.position.set(SX,0,0);scene.add(STR);
+const ST={leg:1,msg:false,ringT:-1,veh:[],birdT:3,skip:false};
+const STR_BG=0xc4d3df;
+let STR_TEMPLE=null,STR_SCHOOL=null;const STR_COLL=[];
+function signTex(w,h,bg,fg,txt,vert){return ctex(w,h,x=>{x.fillStyle=bg;x.fillRect(0,0,w,h);x.fillStyle=fg;x.textAlign='center';x.textBaseline='middle';
+  const ch=[...txt];
+  if(vert){const fs=Math.min(w*.7,h/ch.length*.8);x.font=`900 ${fs}px "Noto Sans TC",sans-serif`;ch.forEach((c,i)=>x.fillText(c,w/2,h*(i+.5)/ch.length));}
+  else{const fs=Math.min(h*.6,w/ch.length*.86);x.font=`900 ${fs}px "Noto Sans TC",sans-serif`;x.fillText(txt,w/2,h/2+fs*.04);}
+  x.strokeStyle=fg;x.lineWidth=Math.max(3,Math.min(w,h)*.04);x.strokeRect(5,5,w-10,h-10);});}
+const FAC_POOL={};
+function facadeTex(ci,floors){const key=ci+'_'+floors;if(FAC_POOL[key])return FAC_POOL[key];
+  const base=['#d8cfc0','#c9c2b6','#e3d9cb','#bcc3c6','#d9c7b6','#cdbfac'][ci],win=['#7d97a8','#8aa0ad','#6f8796'][ci%3];
+  return FAC_POOL[key]=ctex(256,256,x=>{x.fillStyle=base;x.fillRect(0,0,256,256);
+    for(let i=0;i<500;i++){x.fillStyle=`rgba(0,0,0,${rnd(0,.05)})`;x.fillRect(rnd(0,256),rnd(0,256),rnd(1,6),rnd(1,6));}
+    const fh=256/floors;for(let f=0;f<floors;f++)for(let k=0;k<2;k++){const wx=22+k*122,wy=f*fh+fh*.2;
+      x.fillStyle='#2b3238';x.fillRect(wx,wy,92,fh*.52);x.fillStyle=win;x.fillRect(wx+4,wy+4,40,fh*.52-8);x.fillRect(wx+48,wy+4,40,fh*.52-8);
+      x.fillStyle='#8f9497';for(let b=0;b<7;b++)x.fillRect(wx-4,wy-2+b*fh*.09,100,2);x.fillRect(wx-4,wy-4,2,fh*.58);x.fillRect(wx+96,wy-4,2,fh*.58);   // 鐵窗
+      if((f+k+ci)%3===0){x.fillStyle='#e9e6df';x.fillRect(wx+58,wy+fh*.56,32,fh*.17);x.fillStyle='#9a9a96';x.beginPath();x.arc(wx+74,wy+fh*.645,fh*.06,0,7);x.fill();}}   // 冷氣室外機
+    x.fillStyle='rgba(60,50,40,.18)';for(let i=0;i<6;i++)x.fillRect(rnd(0,256),0,rnd(2,5),256);});}
+const SHOP_POOL=[];
+function shopTex(i){if(SHOP_POOL[i])return SHOP_POOL[i];
+  const kind=i%4===3?'shutter':'glass',col=['#f6efe0','#e9f2ec','#eef2f6','#f4e8e0'][i%4];
+  return SHOP_POOL[i]=ctex(256,192,x=>{x.fillStyle='#3a3c3e';x.fillRect(0,0,256,192);
+    if(kind==='shutter'){for(let y=0;y<192;y+=6){x.fillStyle=y%12?'#9ea4a8':'#888e92';x.fillRect(8,y,240,6);}x.fillStyle='#6a6f72';x.fillRect(8,180,240,12);}
+    else{x.fillStyle=col;x.fillRect(10,10,236,172);
+      for(let r=0;r<3;r++){x.fillStyle='#7a6a58';x.fillRect(18,72+r*42,220,5);for(let j=0;j<11;j++){x.fillStyle=`hsl(${(i*47+j*33+r*71)%360},45%,${50+(j*7%20)}%)`;x.fillRect(22+j*19.5,50+r*42,14,22);}}
+      x.fillStyle='rgba(255,255,255,.28)';x.beginPath();x.moveTo(10,10);x.lineTo(110,10);x.lineTo(40,182);x.lineTo(10,182);x.fill();
+      x.strokeStyle='#26282a';x.lineWidth=6;x.strokeRect(10,10,236,172);x.beginPath();x.moveTo(128,10);x.lineTo(128,182);x.stroke();}});}
+/* 機車（車頭朝 +x），rider=有沒有人騎 */
+function makeScooter(col,rider,helmet){const g=new T.Group();const m=std({color:col,roughness:.35,metalness:.15}),blk=std({color:0x1c1c1c,roughness:.8}),gr=std({color:0x8a8e92,metalness:.6,roughness:.4});
+  const wg=new T.CylinderGeometry(.22,.22,.09,14).rotateX(Math.PI/2);
+  g.add(mesh(wg,blk,.6,.22,0),mesh(wg,blk,-.55,.22,0));
+  g.add(mesh(rbox(.75,.1,.34,.03),blk,0,.36,0),mesh(rbox(.62,.42,.38,.08),m,-.36,.58,0),mesh(rbox(.6,.1,.32,.04),blk,-.34,.84,0));
+  const sh=mesh(rbox(.16,.72,.42,.05),m,.42,.7,0);sh.rotation.z=-.28;g.add(sh);
+  g.add(mesh(new T.BoxGeometry(.06,.06,.62),gr,.52,1.1,0),mesh(new T.CylinderGeometry(.03,.03,.52,8),gr,.56,.82,0),mesh(new T.SphereGeometry(.06,10,8),bas({color:0xfff6dc}),.62,.98,0));
+  if(rider){const shirt=std({color:[0x3a5a8a,0x6a6a6a,0xa84a3a,0x2f6a4a][Math.random()*4|0],roughness:.8}),pants=std({color:0x2a2e38,roughness:.8});
+    const body=mesh(rbox(.3,.56,.4,.08),shirt,-.22,1.2,0);body.rotation.z=-.18;g.add(body);
+    g.add(mesh(new T.SphereGeometry(.16,14,10),std({color:helmet,roughness:.3,metalness:.1}),-.14,1.62,0),mesh(new T.BoxGeometry(.04,.08,.24),bas({color:0x222222}),.0,1.6,0));
+    [-.17,.17].forEach(z=>{const ar=mesh(new T.BoxGeometry(.52,.08,.08),shirt,.16,1.25,z);ar.rotation.z=-.35;g.add(ar);const lg=mesh(new T.BoxGeometry(.4,.13,.13),pants,-.08,.9,z*1.1);g.add(lg);});}
+  return g;}
+function makeCar(col){const g=new T.Group();const m=std({color:col,roughness:.3,metalness:.3}),gl=std({color:0x22303a,roughness:.15,metalness:.5}),blk=std({color:0x1a1a1a,roughness:.8});
+  g.add(mesh(rbox(3.9,.62,1.72,.14),m,0,.6,0),mesh(rbox(2.1,.56,1.56,.16),gl,-.2,1.16,0),mesh(rbox(2.0,.06,1.5,.02),m,-.2,1.45,0));
+  const wg=new T.CylinderGeometry(.32,.32,.2,16).rotateX(Math.PI/2);[[1.25,.8],[1.25,-.8],[-1.25,.8],[-1.25,-.8]].forEach(([x,z])=>g.add(mesh(wg,blk,x,.32,z)));
+  [.6,-.6].forEach(z=>g.add(mesh(new T.BoxGeometry(.04,.12,.3),bas({color:0xfff4d8}),1.96,.72,z),mesh(new T.BoxGeometry(.04,.1,.28),bas({color:0xb02018}),-1.96,.72,z)));
+  return g;}
+{ const L=96;
+  STR.add(new T.HemisphereLight(0xeaf1f8,0x6e665a,.95));
+  const sun=new T.DirectionalLight(0xfff0d6,1.15);sun.position.set(-14,24,14);sun.target.position.set(0,0,0);sun.castShadow=!LITE;
+  Object.assign(sun.shadow.camera,{left:-34,right:34,top:34,bottom:-34,near:1,far:80});sun.shadow.camera.updateProjectionMatrix();sun.shadow.mapSize.set(2048,2048);sun.shadow.bias=-.0015;STR.add(sun,sun.target);
+  // 馬路、標線
+  const road=mesh(new T.PlaneGeometry(L,7.6),std({map:ctex(128,128,x=>{x.fillStyle='#55575a';x.fillRect(0,0,128,128);for(let i=0;i<900;i++){const g=70+Math.random()*50|0;x.fillStyle=`rgb(${g},${g},${g+4})`;x.fillRect(Math.random()*128,Math.random()*128,1.5,1.5);}},[32,3]),roughness:.95}),0,0,-2.2);road.rotation.x=-Math.PI/2;STR.add(road);
+  const paint=bas({color:0xe6e4da}),yel=bas({color:0xe2b434});
+  for(let x=-L/2;x<L/2;x+=5){const d=mesh(new T.PlaneGeometry(2.4,.13),paint,x+1.2,.006,-2.2);d.rotation.x=-Math.PI/2;STR.add(d);}
+  [1.25,-5.65].forEach(z=>{const e=mesh(new T.PlaneGeometry(L,.12),paint,0,.006,z);e.rotation.x=-Math.PI/2;STR.add(e);});
+  {const e=mesh(new T.PlaneGeometry(L,.1),yel,0,.007,1.48);e.rotation.x=-Math.PI/2;STR.add(e);}
+  for(let i=0;i<7;i++){const zb=mesh(new T.PlaneGeometry(.5,6.6),paint,9+i*.9,.007,-2.2);zb.rotation.x=-Math.PI/2;STR.add(zb);}   // 斑馬線
+  // 人行道、騎樓地板、路緣
+  const walkM=std({map:tileTex('#bbb4a8','#9e978c',4,[48,2]),roughness:.85});
+  const nw=mesh(new T.PlaneGeometry(L,4.4),walkM,0,.08,3.8);nw.rotation.x=-Math.PI/2;STR.add(nw);
+  const fw=mesh(new T.PlaneGeometry(L,2.6),walkM,0,.08,-7.3);fw.rotation.x=-Math.PI/2;STR.add(fw);
+  const curbM=std({color:0x9c9c98,roughness:.8});STR.add(mesh(new T.BoxGeometry(L,.1,.16),curbM,0,.05,1.66),mesh(new T.BoxGeometry(L,.1,.16),curbM,0,.05,-6.04));
+  // 近側：騎樓街屋（一樓店面往內縮，樓上蓋在騎樓上面）
+  const shops=[['晨光早餐','#c0392b'],['安心藥局','#1e7a4c'],['大同文具','#1d4f91'],['阿明機車行','#333333'],['好鮮水果行','#d35400'],['老王麵店','#8e2a1a'],['佳美髮廊','#a03070'],['全日便利商店','#1f6fb2'],['永福五金','#5a4a2a'],['綠葉咖啡','#2e6b3a'],['小林眼鏡','#24406a'],['金玉銀樓','#9a6a10']];
+  const arcCeil=std({color:0xd8d2c6,roughness:.9}),pillarM=std({color:0xd2cabc,roughness:.8}),sideM=std({color:0xbdb5a8,roughness:.85});let si=0;
+  for(let x0=-48;x0<48;x0+=4){const cx=x0+2;if(Math.abs(cx)<4||(cx>12&&cx<24))continue;
+    const fl=3+(si*7%3),hgt=fl*3,ci=si%6;
+    STR.add(mesh(new T.BoxGeometry(4,hgt,2.8),std({map:facadeTex(ci,fl),roughness:.85}),cx,3.3+hgt/2,4.6));
+    {const c=mesh(new T.PlaneGeometry(4,2.8),arcCeil,cx,3.29,4.6);c.rotation.x=Math.PI/2;STR.add(c);}   // 騎樓天花板
+    const sh=shops[si%shops.length];
+    const front=mesh(new T.PlaneGeometry(3.7,3.3),std({map:shopTex(si%8),roughness:.6}),cx,1.65,6.0);front.rotation.y=Math.PI;STR.add(front);
+    STR.add(mesh(new T.BoxGeometry(.12,3.3,1.0),sideM,x0,1.65,5.5));   // 店面之間的隔牆（只在騎樓後半，不擋路）
+    STR.add(mesh(new T.BoxGeometry(.42,3.3,.42),pillarM,x0,1.65,3.42));STR_COLL.push([SX+x0-.24,SX+x0+.24,3.18,3.66]);
+    const hs=mesh(new T.PlaneGeometry(3.5,.62),std({map:signTex(512,92,sh[1],'#ffffff',sh[0]),roughness:.5}),cx,2.92,3.19);hs.rotation.y=Math.PI;STR.add(hs);
+    if(si%2===0){const vs=mesh(new T.BoxGeometry(.1,2.6,.8),std({map:signTex(128,416,'#ffffff',sh[1],sh[0],true),roughness:.5}),x0+.5,5.0,2.8);STR.add(vs);}
+    si++;}
+  [-4,12].forEach(x=>STR.add(mesh(new T.BoxGeometry(.12,3.3,1.0),sideM,x,1.65,5.5)));   // 廟、學校兩邊的騎樓收邊
+  // 對面一排房子
+  for(let x0=-50;x0<50;x0+=5){const fl=3+((x0/5+20)*5%3|0),ci=(x0/5+30)%6|0,hgt=fl*3+1;
+    STR.add(mesh(new T.BoxGeometry(5,hgt,6),std({map:facadeTex(ci,fl),roughness:.85}),x0+2.5,hgt/2+.08,-11.6));
+    const fr=mesh(new T.PlaneGeometry(4.6,2.9),std({map:shopTex((x0/5+40)%8|0),roughness:.6}),x0+2.5,1.6,-8.58);STR.add(fr);
+    const sh=shops[(x0/5+40)%shops.length|0];const hs=mesh(new T.PlaneGeometry(4.2,.7),std({map:signTex(512,92,sh[1],'#ffffff',sh[0]),roughness:.5}),x0+2.5,3.35,-8.56);STR.add(hs);}
+  // 電線桿、電線
+  const poleM=std({color:0x8c8c88,roughness:.7}),wireM=new T.LineBasicMaterial({color:0x26282a});const poles=[];
+  for(let x=-44;x<=44;x+=11){if(Math.abs(x)<3.5)continue;STR.add(mesh(new T.CylinderGeometry(.11,.15,9,10),poleM,x,4.5,1.95),mesh(new T.BoxGeometry(.1,.1,1.5),poleM,x,8.4,1.95));
+    if(x%22===0)STR.add(mesh(new T.CylinderGeometry(.22,.22,.6,12),std({color:0x6a7a70}),x,7.4,2.25));
+    STR_COLL.push([SX+x-.2,SX+x+.2,1.75,2.15]);poles.push(x);}
+  [-.6,0,.6].forEach(dz=>{const pts=[];for(let i=0;i<poles.length-1;i++){const a=poles[i],b=poles[i+1];for(let k=0;k<=8;k++){const u=k/8;pts.push(new T.Vector3(lerp(a,b,u),8.45-Math.sin(Math.PI*u)*.35,1.95+dz));}}
+    STR.add(new T.Line(new T.BufferGeometry().setFromPoints(pts),wireM));});
+  // 行道樹
+  const trunkM=std({color:0x6a5444,roughness:.9}),leafM=std({color:0x4f7a3a,roughness:.9}),leafM2=std({color:0x5f8a44,roughness:.9});
+  [-30,-16,-8,7,26,36].forEach(x=>{STR.add(mesh(new T.CylinderGeometry(.09,.13,2.4,8),trunkM,x,1.2,2.2),mesh(new T.SphereGeometry(1.05,12,9),leafM,x,3.1,2.1),mesh(new T.SphereGeometry(.8,12,9),leafM2,x+.5,3.6,2.3));STR_COLL.push([SX+x-.2,SX+x+.2,2.0,2.4]);});
+  // 停在人行道上的機車（車頭朝馬路）
+  const pc=[0xd8d8d4,0x2a3a5a,0xb83a2a,0x1a1a1a,0x6a8aa0,0xe0c060,0x8a9a8a];
+  [-17,-16.2,-12.5,-11.7,-10.9,-6,-5.2,5.4,6.2,10.5,11.3,22.5,27,27.8].forEach((x,i)=>{const sc=makeScooter(pc[i%pc.length],false);sc.position.set(x,.08,2.55);sc.rotation.y=Math.PI/2;sc.rotation.z=.04;STR.add(sc);STR_COLL.push([SX+x-.28,SX+x+.28,1.8,3.25]);});
+  // 福安宮（街道中段，近側）：牌樓、廟埕、正殿
+  {const redM=std({color:0xa8241c,roughness:.5}),gold=std({color:0xc9a23a,metalness:.6,roughness:.4}),roofM=std({color:0xc0602a,roughness:.55}),ridgeM=std({color:0x2f7a5a,roughness:.5}),
+      stone=std({map:tileTex('#aaa398','#8e877c',3,[4,4]),roughness:.8});
+    const pl=mesh(new T.PlaneGeometry(7.7,10),stone,0,.085,10.8);pl.rotation.x=-Math.PI/2;STR.add(pl);
+    [-2.3,2.3].forEach(x=>STR.add(mesh(new T.CylinderGeometry(.2,.22,4.3,16),redM,x,2.15,5.6),mesh(new T.BoxGeometry(.62,.42,.62),std({color:0x8a8478}),x,.21,5.6)));
+    STR.add(mesh(new T.BoxGeometry(5.4,.45,.5),redM,0,4.25,5.6),mesh(new T.BoxGeometry(6.6,.12,1.5),roofM,0,4.58,5.6),mesh(new T.BoxGeometry(5.4,.22,.24),ridgeM,0,4.74,5.6));
+    [-1,1].forEach(sg=>{const e=mesh(new T.BoxGeometry(.9,.12,.3),ridgeM,sg*3.0,4.86,5.6);e.rotation.z=sg*.45;STR.add(e);});
+    const pq=mesh(new T.PlaneGeometry(2.0,.72),std({map:signTex(320,116,'#1c1208','#e8c25a','福安宮'),roughness:.4}),0,3.66,5.33);pq.rotation.y=Math.PI;STR.add(pq);
+    [-1,1].forEach(sg=>STR.add(mesh(new T.BoxGeometry(1.5,2.6,.3),std({color:0x9a4a36,roughness:.8}),sg*3.15,1.3,5.8)));
+    [-1,1].forEach(sg=>STR.add(mesh(new T.BoxGeometry(.3,2.6,10.4),std({color:0x9a4a36,roughness:.8}),sg*3.9,1.3,11.0)));
+    // 正殿
+    STR.add(mesh(new T.BoxGeometry(7.4,4.2,4.4),redM,0,2.1+.08,16.2));
+    const door=mesh(new T.PlaneGeometry(2.2,2.8),std({color:0x3a160c,roughness:.6}),0,1.5,13.98);door.rotation.y=Math.PI;STR.add(door);
+    [-1.6,1.6].forEach(x=>STR.add(mesh(new T.SphereGeometry(.26,14,10).scale(1,1.3,1),std({color:0xd8281e,emissive:0x5a0c06,roughness:.5}),x,3.0,13.7)));
+    const rg=new T.CylinderGeometry(1,1,8.8,3);rg.rotateZ(Math.PI/2);rg.rotateX(-Math.PI/2);const rf=mesh(rg,roofM,0,5.0,16.2);rf.scale.set(1,1.2,3.1);STR.add(rf);
+    STR.add(mesh(new T.BoxGeometry(8.6,.26,.3),ridgeM,0,6.25,16.2));
+    [-1,1].forEach(sg=>{const e=mesh(new T.BoxGeometry(1.1,.16,.34),ridgeM,sg*4.6,6.45,16.2);e.rotation.z=sg*.5;STR.add(e);});
+    STR.add(mesh(new T.CylinderGeometry(.45,.38,.7,16),std({color:0x6b5230,metalness:.7,roughness:.4}),0,.43,11.2));   // 廟埕的香爐
+    const hit=mesh(new T.PlaneGeometry(4.2,3.6),new T.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}),0,1.8,5.45);hit.rotation.y=Math.PI;hit.userData.act='sttemple';hit.userData.noShadow=true;STR.add(hit);STR_TEMPLE=hit;}
+  // 青山國小（街尾）：圍牆、校門、操場、校舍
+  {const wallM=std({color:0xe8e0cc,roughness:.85}),brick=std({color:0x9a4a3a,roughness:.85}),fenceM=std({color:0x2f5a46,roughness:.6,metalness:.3});
+    [[12.1,16.0],[20.0,24.0]].forEach(([a,b])=>{STR.add(mesh(new T.BoxGeometry(b-a,1.3,.3),wallM,(a+b)/2,.65,5.8));for(let x=a+.2;x<b;x+=.25)STR.add(mesh(new T.BoxGeometry(.04,.9,.04),fenceM,x,1.75,5.8));STR.add(mesh(new T.BoxGeometry(b-a,.05,.06),fenceM,(a+b)/2,2.18,5.8));});
+    [16.2,19.8].forEach(x=>STR.add(mesh(new T.BoxGeometry(.5,3.0,.5),brick,x,1.5,5.8)));
+    STR.add(mesh(new T.BoxGeometry(4.1,.6,.32),brick,18,3.0,5.8));
+    const pq=mesh(new T.PlaneGeometry(2.6,.52),std({map:signTex(400,80,'#f4efe2','#1c3a6a','青山國小'),roughness:.4}),18,3.0,5.63);pq.rotation.y=Math.PI;STR.add(pq);
+    const fld=mesh(new T.PlaneGeometry(12,14),std({color:0x9a5a44,roughness:.95}),18,.05,13.0);fld.rotation.x=-Math.PI/2;STR.add(fld);
+    const grass=mesh(new T.PlaneGeometry(8,9),std({color:0x5f8a46,roughness:.95}),18,.06,13.0);grass.rotation.x=-Math.PI/2;STR.add(grass);
+    STR.add(mesh(new T.BoxGeometry(14,9.5,3.2),std({map:facadeTex(2,3),color:0xfff6e6,roughness:.85}),18,4.8,22.0));
+    STR.add(mesh(new T.CylinderGeometry(.05,.06,8,8),std({color:0xcfd2d4,metalness:.7,roughness:.3}),13.4,4,8.5));
+    const hit=mesh(new T.PlaneGeometry(3.2,2.8),new T.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}),18,1.4,5.65);hit.rotation.y=Math.PI;hit.userData.act='stschool';hit.userData.noShadow=true;STR.add(hit);STR_SCHOOL=hit;}
+  // 會動的車流：近車道往 +x、遠車道往 -x
+  const HC=[0xf2f2ee,0xd83a2a,0x2a5ab0,0xf0c030,0x1a1a1a];
+  [[-30,-.1,1,8.5,'s'],[-8,-.4,1,7.2,'s'],[16,-.2,1,9.5,'c'],[30,-.3,1,8,'s'],[-36,-3.9,-1,7.8,'s'],[-6,-4.2,-1,9.2,'c'],[12,-3.7,-1,8.4,'s'],[38,-4.0,-1,7,'s']].forEach(([x,z,dir,sp,k],i)=>{
+    const g=k==='c'?makeCar([0xe8e8e4,0x5a6a7a,0x9a2a24][i%3]):makeScooter([0xd8d8d4,0x2a3a5a,0xb83a2a,0x6a8aa0][i%4],true,HC[i%HC.length]);
+    g.position.set(x,0,z);g.rotation.y=dir>0?0:Math.PI;STR.add(g);ST.veh.push({g,dir,sp});});
+}
+function updateStreet(dt){
+  let near=99;ST.veh.forEach(v=>{const p=v.g.position;p.x+=v.dir*v.sp*dt;if(p.x>50)p.x=-50;else if(p.x<-50)p.x=50;const d=Math.hypot(SX+p.x-player.x,p.z-player.z);if(d<near)near=d;});
+  setG(A.traffic,.06+.32/(1+near*near*.06),.12);setG(A.city,.05,.5);setG(A.amb,0,.3);
+  ST.birdT-=dt;if(ST.birdT<0){ST.birdT=rnd(4,9);SFX.bird();}
+  if(ST.leg===1&&!ST.msg&&!momOpen){
+    if(ST.ringT<0){if(player.x>SX-13){ST.ringT=0;SFX.vib();say('手機震動了一下。',1.6);}}
+    else{ST.ringT+=dt;if(ST.ringT>.6&&ST.ringT-dt<=.6)SFX.vib();if(ST.ringT>1.25)openMom();}}}
 
 /* ---------- 學校：走廊與教室 ---------- */
 SCH.position.set(0,0,0);
@@ -2169,12 +2430,13 @@ const STAGE_INFO={
   bed:{clock:7*60+12,day:'第一天・早晨',fail:'鼻涕擤個不停，擤出一大堆鼻涕蟲，爬滿了你身邊的地板。',retry:'再醒來一次'},
   bath:{clock:7*60+20,day:'第一天・浴室',fail:'沒蓋馬桶蓋就沖水，大腸桿菌跟著水花噴了出來。你上吐下瀉。',retry:'重新挑戰：上廁所'},
   kitchen:{clock:7*60+30,day:'第一天・早餐',fail:'鍋子冒出的油煙變成一條蛇，把你整個人纏住，喘不過氣。',retry:'重新挑戰：做早餐'},
+  street:{clock:7*60+52,day:'第一天・街道',fail:'',retry:''},
   temple:{clock:8*60+5,day:'第一天・廟宇',fail:'你胖到走不動，脂肪細胞怪物壓在你身旁，香煙還在繚繞。',retry:'重新挑戰：香油錢'},
   school:{clock:8*60+40,day:'第一天・學校',fail:'快篩兩條線。你確診了。',retry:'重新挑戰：數學課'}};
-let REC=[],fadeV=0,lastFail=false;
-function hideAllProps(){heroLayer(0);if(HERO.ok)footRestore();pyHide();snotHide();HERO.root.visible=false;[donHand,DH.bill,MITE.g,LUNG.g,VIRUS.g,FAT.g,ECOLI.g,SLUG.g,SLUG.trail,swab,rtest,handTissue,brushHand,phone].forEach(o=>o.visible=false);bathHideHorror();drips.forEach(d=>d.visible=false);faceLight.intensity=0;
+let REC=[],fadeV=0,lastFail=false,lastMad=false;
+function hideAllProps(){heroLayer(0);if(HERO.ok)footRestore();pyHide();snotHide();HERO.root.visible=false;[IH,donHand,DH.bill,MITE.g,LUNG.g,VIRUS.g,FAT.g,ECOLI.g,SLUG.g,SLUG.trail,swab,rtest,handTissue,brushHand,phone].forEach(o=>o.visible=false);bathHideHorror();drips.forEach(d=>d.visible=false);faceLight.intensity=0;
   while(tissues.children.length)tissues.remove(tissues.children[0]);setFat(0);if(HERO.ok){HERO.mixer.stopAllAction();heroAnim=null;BONES.forEach(n=>{if(HERO.bones[n])HERO.bones[n].quaternion.copy(HERO.rest[n]);});}}
-function showStage(n){room.visible=n==='bed';BED_LIGHTS.forEach(l=>l.visible=n==='bed');KIT.visible=n==='kitchen';BATH.visible=n==='bath';TEM.visible=n==='temple';SCH.visible=n==='school';}
+function showStage(n){room.visible=n==='bed';BED_LIGHTS.forEach(l=>l.visible=n==='bed');KIT.visible=n==='kitchen';BATH.visible=n==='bath';TEM.visible=n==='temple';SCH.visible=n==='school';STR.visible=n==='street';}
 function commonReset(n){
   if(WIN.fade||WIN.on)roomRestore();renderer.toneMappingExposure=.95;scene.background.set(0x0c0d0f);
   FK.on=false;FK.ever=false;FK.mode=0;
@@ -2182,8 +2444,8 @@ function commonReset(n){
   Object.assign(PS,{on:false,level:1,auto:false,sleep:false,circ:false,autoLv:1,sensed:0,hold:0});closePur();applyPur();
   hideAllProps();showStage(n);clockMin=STAGE_INFO[n].clock;handle.visible=false;grab=null;settle=null;
   for(const k of ['k','flash','red','black','stat'])post.uniforms[k].value=0;
-  horrorStop();$('end').hidden=true;$('slides').hidden=true;$('therm').hidden=true;setHUD(true);$('lockHint').hidden=true;
-  ['sizzle','fan','amb'].forEach(k=>setG(A[k],0,.1));}
+  horrorStop();$('madB').hidden=true;$('madB').innerHTML='';$('end').hidden=true;$('slides').hidden=true;$('therm').hidden=true;setHUD(true);$('lockHint').hidden=true;
+  ['sizzle','fan','amb','traffic','city'].forEach(k=>setG(A[k],0,.1));}
 function startStage(n){
   if(n==='bed'){commonReset('bed');resetWorld();state='wake';stT=0;drawTasks();return;}
   commonReset(n);fadeV=1;state='play';
@@ -2196,10 +2458,15 @@ function startStage(n){
   if(n==='temple'){resetTemple();PS.on=true;PS.auto=true;PS.autoLv=2;applyPur();
     COLL=[[TX-.75,TX+.75,-1.3,.3],[TX-1.8,TX+1.8,-4.5,-3.1],...BOXES.map(b=>[TX+b.x-.32,TX+b.x+.32,b.z-.27,b.z+.27]),[TX+4.3,TX+4.6,-2.0,-1.7],[TX+4.15,TX+4.75,2.45,3.05]];
     [[-3.6,-3.2],[3.6,-3.2],[-3.6,.5],[3.6,.5],[-3.6,3.6],[3.6,3.6]].forEach(p=>COLL.push([TX+p[0]-.22,TX+p[0]+.22,p[1]-.22,p[1]+.22]));
-    BOUNDS=[TX-4.9,TX+4.9,-4.4,4.4];CEIL=4.1;TARGETS=[...BOXES.map(b=>b.g),TEM.children.find(o=>o.userData.act==='tgate'),PUR_T.g,FT.g];INTAKE.set(TX+4.45,.45,2.75);
+    COLL.push([TX-2.75,TX-1.65,2.2,2.8]);
+    BOUNDS=[TX-4.9,TX+4.9,-4.4,4.4];CEIL=4.1;TARGETS=[INC_TABLE,BURNER_MESH,...BOXES.map(b=>b.g),TEM.children.find(o=>o.userData.act==='tgate'),PUR_T.g,FT.g];INTAKE.set(TX+4.45,.45,2.75);
     for(let i=0;i<900;i++)emitIncense(1);for(let k=0;k<60;k++)updateDust(1/15,purLevel(),null);
     player.x=TX;player.z=3.7;player.yaw=0;player.pitch=-.05;say('到廟裡投香油錢。',3);}
-  if(n==='school'){resetSchool();enterCorridor();say('去三年二班上數學課。',3);}
+  if(n==='street'){ST.msg=ST.leg===2;if(ST.leg===1)ST.skip=false;ST.ringT=-1;ST.birdT=2;scene.background.setHex(STR_BG);clockMin=ST.leg===1?7*60+52:8*60+28;
+    COLL=STR_COLL;BOUNDS=[SX-20.5,SX+21,1.85,4.9];CEIL=20;TARGETS=[STR_TEMPLE,STR_SCHOOL];INTAKE.set(SX,-5,0);
+    player.x=ST.leg===1?SX-19.5:SX;player.z=ST.leg===1?4.3:4.55;player.yaw=-Math.PI/2;player.pitch=0;
+    say(ST.leg===1?'出門上班囉。沿著騎樓往前走。':'拜完了，走去學校上課。',3);}
+  if(n==='school'){resetSchool();enterCorridor();SC.parT=0;SC.parSeen=false;say(ST.skip?'到學校了。':'去三年二班上數學課。',3);}
   drawTasks();drawSky();}
 function enterCorridor(){SC.sub='corridor';COLL=[];BOUNDS=[CX-6.9,CX+6.9,-1.15,1.15];CEIL=2.95;TARGETS=COR.children.filter(o=>/^cls/.test(o.userData.act||''));
   player.x=CX-6.2;player.z=0;player.yaw=-Math.PI/2;player.pitch=0;}
@@ -2209,11 +2476,11 @@ function enterClass(){SC.sub='class';fadeV=1;
   player.x=RX+1.2;player.z=-2.6;player.yaw=Math.PI*.25;player.pitch=-.05;
   if(!KIDS.length)buildKids();KIDS.forEach(k=>k.root.visible=true);say('點黑板開始上課。',3);}
 $('start').addEventListener('click',()=>{aInit();applyPur();$('title').hidden=true;startStage('bed');});
-document.querySelectorAll('[data-ch]').forEach(b=>b.addEventListener('click',()=>{aInit();applyPur();$('title').hidden=true;if(b.dataset.ch==='win'){stage='bed';startWin();}else startStage(b.dataset.ch);}));
-$('again').addEventListener('click',()=>{aInit();startStage(lastFail?stage:'bed');});
+document.querySelectorAll('[data-ch]').forEach(b=>b.addEventListener('click',()=>{aInit();applyPur();$('title').hidden=true;if(b.dataset.ch==='win'){stage='bed';startWin();}else if(b.dataset.ch==='temple'){ST.leg=1;startStage('street');}else{ST.skip=false;startStage(b.dataset.ch);}}));
+$('again').addEventListener('click',()=>{aInit();if(lastMad){lastMad=false;ST.leg=1;startStage('street');}else startStage(lastFail?stage:'bed');});
 /* 回到主選單：清掉這一關的狀態，回到標題畫面（可以重新選章節） */
-$('menu').addEventListener('click',()=>{$('slides').hidden=true;if(WIN.fade||WIN.on)roomRestore();commonReset('bed');resetWorld();setHUD(false);state='title';$('end').hidden=true;$('title').hidden=false;$('blink').style.opacity=0;fadeV=0;
-  ['rustle','hum','sizzle','fan','amb','room'].forEach(k=>setG(A[k],0));});
+$('menu').addEventListener('click',()=>{ST.skip=false;lastMad=false;$('slides').hidden=true;if(WIN.fade||WIN.on)roomRestore();commonReset('bed');resetWorld();setHUD(false);state='title';$('end').hidden=true;$('title').hidden=false;$('blink').style.opacity=0;fadeV=0;
+  ['rustle','hum','sizzle','fan','amb','room','traffic','city'].forEach(k=>setG(A[k],0));});
 function finishDay(){state='end';lastFail=false;setHUD(false);closePur();if(document.exitPointerLock&&locked())document.exitPointerLock();
   $('endBig').textContent='SKY '+Math.ceil(sky);$('endBig').classList.remove('red');
   $('endDay').textContent='第一天　完成';$('endText').textContent='你撐過了今天的空氣。明天，它還會再來。';
@@ -2248,12 +2515,17 @@ function stageTasks(){
   if(stage==='bed'){const d1=q>=4,d2=s>=1;return [['折棉被',`${Math.floor(q)}/4`,d1,!d1],['拉平床單',`${Math.floor(s*100)}%`,d2,d1&&!d2],['去浴室',' ',false,d1&&d2]];}
   if(stage==='kitchen'){const e=K.egg>=3,t=K.toast>=3,o=K.oil>=2;return [['加油',K.oil===1?'倒':'',o,!o],['煎蛋',K.egg===0?'':K.egg===1?Math.floor(K.cook*100)+'%':K.egg===2?'熟了':'好了',e,!e],['烤吐司',K.toast===1?'烤':K.toast===2?'好了':'',t,!t],['做成煎蛋吐司','',K.done,e&&t&&!K.done],['吃早餐',K.eatT>=0&&!K.ate?`${K.bites}/3`:'',K.ate,K.done&&!K.ate],['出門','',false,K.ate]];}
   if(stage==='bath')return [['刷牙','',B.brushed,!B.brushed],['上廁所','',B.sat,B.brushed&&!B.sat],['沖馬桶','',B.flushed,B.sat&&!B.flushed],['去廚房','',false,B.flushed]];
-  if(stage==='temple')return [['投香油錢','',TP.paid,!TP.paid],['去學校','',false,TP.paid]];
+  if(stage==='temple')return [['點香','',TP.lit,!TP.lit],['拜三拜',TP.bows&&!TP.bowed?`${TP.bows}/3`:'',TP.bowed,TP.lit&&!TP.bowed],['插香','',TP.prayed,TP.bowed&&!TP.prayed],['投香油錢','',TP.paid,TP.prayed&&!TP.paid],['去學校','',false,TP.paid]];
+  if(stage==='street')return ST.leg===2?[['走到學校','',false,true]]:ST.msg?[['看媽媽的訊息','',true,false],['去福安宮','',false,true]]:[['出門上班','',false,true]];
   if(stage==='school'){const inC=SC.sub==='class';return [['到三年二班','',inC,!inC],['上數學課',inC&&SC.q>=0?`${Math.min(SC.q,5)}/5`:'',SC.done,inC&&!SC.done]];}
   return [];}
 
 /* 各關的點擊 */
 function stageClick(a){
+  if(stage==='street'){
+    if(a==='sttemple'){if(ST.leg===2)say('已經拜過了，去學校吧。',2);else if(!ST.msg)say('先去上班吧。',1.6);else nextStage('temple');}
+    else if(a==='stschool'){if(ST.leg===1&&!ST.msg)say('還早，先往前走。',2.2);else{ST.skip=ST.leg===1;nextStage('school');}}
+    return;}
   if(stage==='bath'){const busy=B.brushT>=0||B.sitT>=0;
     if(a==='brush'){if(busy)return;if(B.brushed)say('牙刷過了。',1.6);else{B.brushT=0;B.camFrom=camera.position.clone();B.qFrom=camera.quaternion.clone();SFX.grab();}}
     else if(a==='toilet'){if(busy)return;if(!B.brushed)say('先刷牙。',1.8);else if(B.sat)say('已經上過了。',1.6);
@@ -2275,11 +2547,13 @@ function stageClick(a){
     else if(a==='plate'){if(K.egg>=3&&K.toast>=3&&!K.done){K.done=true;plateEgg.position.y=.04;SFX.flop();say('煎蛋吐司做好了，吃早餐吧。',2.6);}
       else if(K.done&&!K.ate&&K.eatT<0){K.eatT=0;K.camFrom=camera.position.clone();K.qFrom=camera.quaternion.clone();}
       else if(!K.done)say('還缺東西。',1.6);}
-    else if(a==='kdoor'){if(K.ate)nextStage('temple');else{SFX.rattle();say(K.done?'先把早餐吃完。':'還沒做好早餐。',2);}}
+    else if(a==='kdoor'){if(K.ate){ST.leg=1;nextStage('street');}else{SFX.rattle();say(K.done?'先把早餐吃完。':'還沒做好早餐。',2);}}
   }
   else if(stage==='temple'){
-    if(/^box/.test(a)){const i=+a.slice(3);if(TP.paid){say('香油錢已經投過了。',1.8);return;}if(TP.don<0){TP.don=i;TP.lastBox=i;TP.donT=0;TP.donSky=sky;TP.billSnd=false;SFX.grab();}}
-    else if(a==='tgate'){if(TP.paid)nextStage('school');else say('還沒投香油錢。',2);}
+    if(/^box/.test(a)){const i=+a.slice(3);if(TP.paid){say('香油錢已經投過了。',1.8);return;}if(TP.ph)return;if(!TP.prayed){say(TP.lit?'先拜完、把香插進香爐。':'先點香拜拜，再投香油錢。',2.2);return;}if(TP.don<0){TP.don=i;TP.lastBox=i;TP.donT=0;TP.donSky=sky;TP.billSnd=false;SFX.grab();}}
+    else if(a==='tgate'){if(TP.paid){ST.leg=2;nextStage('street');}else say(TP.prayed?'還沒投香油錢。':'還沒拜拜。',2);}
+    else if(a==='incense'){if(TP.ph||TP.don>=0)return;if(TP.lit)say(TP.prayed?'香已經插好了。':'香已經點好了。',1.6);else{TP.ph='light';TP.phT=0;SFX.grab();}}
+    else if(a==='burner'){if(TP.ph||TP.don>=0)return;if(!TP.lit)say('先去香案點香。',1.8);else if(TP.prayed)say('香已經插好了。',1.6);else{TP.ph=TP.bowed?'ins':'bow';TP.phT=0;TP.bows=TP.bowed?3:0;}}
     else if(a==='purifier'){say('這台是廟裡的清淨機，一直開著。',2.2);}
     else if(a==='fakepur')showTempleFake();
   }
@@ -2307,6 +2581,7 @@ function boardPick(){ray.setFromCamera({x:lastNDC[0],y:lastNDC[1]},camera);const
 
 /* 各關每幀 */
 function stageUpdate(dt){
+  if(stage==='street'){updateStreet(dt);return;}
   if(stage==='bath')updateBath(dt);
   else if(stage==='kitchen'){
     if(K.fire&&K.egg===1){K.cook=Math.min(1,K.cook+dt/T_EGG);setEggLook(egg,K.cook);
@@ -2322,6 +2597,7 @@ function stageUpdate(dt){
     emitN(emitIncense,75*dt);
     const dB=Math.hypot(player.x-BURNER.x,player.z-BURNER.z),dP=Math.hypot(player.x-(TX+4.45),player.z-2.75);
     let rate=.25+1.3*Math.exp(-dB/2.2);if(dP<1.8&&PS.on)rate*=.12;
+    updatePray(dt);
     if(TP.don>=0){TP.donT+=dt;
       if(TP.don===GOOD_BOX)sky=Math.max(0,sky-.2*dt);
       else sky=Math.max(0,TP.donSky*(1-Math.min(1,TP.donT/2.6)));   // 投錯箱子：投完的那一刻 sky 歸零
@@ -2335,6 +2611,7 @@ function stageUpdate(dt){
     setG(A.amb,.05,.3);
     if(Math.random()<dt*.12)SFX.bowl();}
   else if(stage==='school'){
+    if(ST.skip&&!SC.parSeen&&!purOpen){SC.parT+=dt;if(SC.parT>.8&&SC.parT-dt<=.8){SFX.vib();say('手機一直在震動……',1.8);}if(SC.parT>1.4&&SC.parT-dt<=1.4)SFX.vib();if(SC.parT>1.9){SC.parSeen=true;openPar();}}
     setG(A.amb,SC.sub==='class'?.035:.02,.3);
     if(SC.sub!=='class')return;
     KIDS.forEach(k=>{if(k.cough>0)k.cough=Math.max(0,k.cough-dt*1.6);poseKid(k,time);});
@@ -2620,7 +2897,7 @@ function winEnd(){const v=WIN.vid;$('winCap').hidden=true;
 /* 錄下動作（熱成像重播用），只保留最後 20 秒 */
 function recFrame(){const f={x:player.x,z:player.z,yaw:player.yaw};
   if(stage==='kitchen')Object.assign(f,{fire:K.fire,egg:K.egg,cook:K.cook,hood:K.hood});
-  if(stage==='temple')Object.assign(f,{don:TP.don,fat:HERO.fat||0});
+  if(stage==='temple')Object.assign(f,{don:TP.don,fat:HERO.fat||0,pr:TP.ph==='bow'?2:TP.ph?1:0,bw:TP.dip||0});
   if(stage==='bath')Object.assign(f,{br:B.brushT>.7&&B.brushT<5.4?1:0,sit:B.sitT>.9&&B.sitT<9.2?1:0,fl:B.flushT>=0&&B.flushOpen?B.flushT:-1,lid:B.lidOpen?1:0});
   if(stage==='school'){f.ev=SC.recEv==null?-1:SC.recEv;SC.recEv=null;f.lv=purLevel();}
   REC.push(f);if(REC.length>300)REC.shift();}
@@ -2655,12 +2932,13 @@ function updateWake(dt){
 const ACT_NAMES={purifier:'清淨機',fakepur:'清淨機',lamp:'檯燈',curtain:'窗簾',wardrobe:'衣櫃',door:'出門',pillow:'枕頭',plateEat:'吃早餐',
   knob:'爐火',pan:'鍋子',egg:'打蛋',hood:'抽油煙機',toaster:'烤吐司',plate:'盤子',kdoor:'出門',
   brush:'刷牙',toilet:'上廁所',flush:'沖水',lid:'馬桶蓋',bdoor:'出門',
-  oil:'加油',box0:'投香油錢',box1:'投香油錢',box2:'投香油錢',box3:'投香油錢',tgate:'出發',board:'黑板',cls0:'這間教室',cls1:'這間教室',cls2:'這間教室',cls3:'這間教室'};
+  oil:'加油',box0:'投香油錢',box1:'投香油錢',box2:'投香油錢',box3:'投香油錢',tgate:'出發',incense:'點香',burner:'香爐',sttemple:'進廟',stschool:'進學校',board:'黑板',cls0:'這間教室',cls1:'這間教室',cls2:'這間教室',cls3:'這間教室'};
 let actLabel='';
 function updateActLabel(atHandle,tgt){let t='';
   if(grab)t='按住<br>繼續折';else if(atHandle)t='按住<br>折棉被';
   else if(tgt==='sheet')t=q>=4&&s<1?'按住<br>拉床單':'';
   else if(tgt==='plate'&&stage==='kitchen'&&K.done&&!K.ate)t='吃早餐';
+  else if(tgt==='burner')t=stage==='temple'&&TP.lit&&!TP.prayed&&!TP.ph?(TP.bowed?'插香':'拜拜'):'香爐';
   else if(tgt&&ACT_NAMES[tgt])t=ACT_NAMES[tgt];
   const show=t||'互動';if(show!==actLabel){actLabel=show;act.innerHTML=show;act.classList.toggle('ready',!!t);}}
 /* 手機：可以點的地方要明顯——
@@ -2682,7 +2960,8 @@ function markerTargets(){const L=[];
     if(!K.fire&&K.egg<3)L.push([stoveKnob,'knob']);if(K.oil===0)L.push([oilBottle,'oil']);if(K.oil===2&&K.egg===0)L.push([carton,'egg']);
     if(K.egg===2)L.push([pan,'pan']);if(K.toast===0||K.toast===2)L.push([toaster,'toaster']);
     if((K.egg>=3&&K.toast>=3&&!K.done)||(K.done&&!K.ate))L.push([plate,'plate']);if(K.ate)L.push([kdoor,'kdoor']);}
-  else if(stage==='temple'){if(!TP.paid&&TP.don<0)BOXES.forEach((b,i)=>L.push([b.g,'box'+i]));if(TP.paid)L.push([TEM.children.find(o=>o.userData.act==='tgate'),'tgate']);}
+  else if(stage==='temple'){if(TP.ph||TP.don>=0)return L;if(!TP.lit)L.push([INC_TABLE,'incense']);else if(!TP.prayed)L.push([BURNER_MESH,'burner']);else if(!TP.paid)BOXES.forEach((b,i)=>L.push([b.g,'box'+i]));if(TP.paid)L.push([TEM.children.find(o=>o.userData.act==='tgate'),'tgate']);}
+  else if(stage==='street'){if(ST.leg===1&&ST.msg)L.push([STR_TEMPLE,'sttemple']);L.push([STR_SCHOOL,'stschool']);}
   else if(stage==='school'){if(SC.sub==='corridor')COR.children.filter(o=>/^cls/.test(o.userData.act||'')).forEach(o=>L.push([o,o.userData.act]));else if(!SC.done)L.push([board,'board']);}
   return L;}
 const _bx=new T.Box3();
@@ -2710,7 +2989,7 @@ function updatePlay(dt){
   let mx=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0)+joy.x;
   let mz=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0)-joy.y;
   const ml=Math.hypot(mx,mz);if(ml>1){mx/=ml;mz/=ml;}
-  if(grab||purOpen||(stage==='temple'&&TP.don>=0)||(stage==='kitchen'&&K.eatT>=0)||(stage==='bath'&&(B.brushT>=0||B.sitT>=0))){mx=0;mz=0;}
+  if(grab||purOpen||(stage==='temple'&&(TP.don>=0||!!TP.ph))||(stage==='kitchen'&&K.eatT>=0)||(stage==='bath'&&(B.brushT>=0||B.sitT>=0))){mx=0;mz=0;}
   const fat=stage==='temple'?(HERO.fat||0):0;
   const sp=1.35*dt*Math.max(0,1-.9*fat),sy=Math.sin(player.yaw),cy=Math.cos(player.yaw);
   const vx=(-sy*mz+cy*mx)*sp,vz=(-cy*mz-sy*mx)*sp;
@@ -2760,14 +3039,14 @@ function updatePlay(dt){
     const imm=inhaleQ*Math.min(1,dt*3);inhaleQ-=imm;
     sky=Math.max(0,sky-DOSE_K*breath*dt-imm);
   }else{
-    handle.visible=false;$('cross').style.setProperty('--p',stage==='temple'&&TP.don>=0?TP.donT/2.6:0);
+    handle.visible=false;$('cross').style.setProperty('--p',stage==='temple'&&TP.don>=0?TP.donT/2.6:stage==='temple'&&TP.ph?TP.phT/PH_DUR[TP.ph]:0);
     stageUpdate(dt);
     recAcc+=dt;while(recAcc>=1/15){recAcc-=1/15;if(stage!=='school'||SC.sub==='class')recFrame();}
   }
 
   PS.sensed+=(pCount-PS.sensed)*Math.min(1,dt/.8);
   if(PS.on&&PS.auto&&!PS.sleep){const w=autoWant();if(w!==PS.autoLv){PS.hold+=dt;if(PS.hold>.6){PS.autoLv=w;PS.hold=0;applyPur();}}else PS.hold=0;}
-  if(purOpen&&!fakeOpen&&PV.r){PV.r.render(PV.sc,PV.cam);if(HOT.some(h=>performance.now()-(press[h.id]||-1e9)<400))drawPanel();}
+  if(purOpen&&!fakeOpen&&!momOpen&&!parOpen&&PV.r){PV.r.render(PV.sc,PV.cam);if(HOT.some(h=>performance.now()-(press[h.id]||-1e9)<400))drawPanel();}
 
   kv=lerp(kv,1-sky/100,Math.min(1,dt*2));
   clockMin+=dt*TS/60;
@@ -2799,7 +3078,58 @@ const FAILCFG={
 function monObj(){const F=FAILCFG[stage];return F.mon==='mite'?MITE.g:F.mon==='lung'?LUNG.g:F.mon==='virus'?VIRUS.g:F.mon==='fat'?FAT.g:F.mon==='ecoli'?ECOLI.g:null;}
 function animMon(t,sp){const F=FAILCFG[stage];if(F.mon==='mite')animMite(t,sp);else if(F.mon==='lung')animLung(t,sp);else if(F.mon==='virus')animVirus(t,sp);else if(F.mon==='fat')animFat(t,sp);else if(F.mon==='ecoli')animEcoli(t,sp);}
 const MONRISE={ecoli:[[BX+.6,.42,-.98],1.45,.8],fat:[[TX,1.0,-.5],1.9,1.25],mite:[[-1.15,.3,-1.3],1.2,1],lung:[[KX-.15,1.2,-1.45],1.75,.9],virus:[[RX,.6,.5],1.7,1]};
+/* 看完家長的訊息就崩潰（跟 sky 無關）：手機訊息塞滿整個畫面 → 第三人稱抱頭發瘋 → 結算 */
+const MAD={acc:0,ping:0,laugh:0,x:0,z:0,yaw:0};
+const MAD_TXT=['為什麼已讀不回？','老師？','已讀','回我','為什麼不回？','老師在嗎','？？？','我要打給校長','我截圖了','你在哪裡','我看到你了','老師老師老師'];
+function startMad(){state='mad';stT=0;grab=null;mouseHeld=btnHeld=false;if(document.exitPointerLock&&locked())document.exitPointerLock();
+  setHUD(false);['rustle','sizzle','fan','amb'].forEach(k=>setG(A[k],0));hideAllProps();horrorStart();SFX.staticBurst();
+  Object.assign(MAD,{acc:0,ping:0,laugh:2.4,heart:.5,x:Math.min(player.x,CX+4.2),z:clamp(player.z,-.5,.5),yaw:player.yaw});
+  $('madB').innerHTML='';$('madB').hidden=false;}
+/* 抱頭：雙手抓著頭、彎腰、身體前後晃 */
+function poseMad(t,k){if(!HERO.ok)return;footRestore();
+  BONES.forEach(n=>{if(HERO.bones[n])HERO.bones[n].quaternion.copy(HERO.rest[n]);});
+  const rock=Math.sin(t*5.5)*.12*k,shake=Math.sin(t*31)*.05*k;
+  boneOff('Abdomen',.3*k+rock,0,0);boneOff('Torso',.25*k+rock*.6,shake,0);boneOff('Chest',.1*k,0,0);
+  boneOff('Neck',.35*k,shake*1.5,0);boneOff('Head',.3*k+Math.sin(t*9)*.08*k,Math.sin(t*13)*.12*k,0);
+  boneOff('UpperLeg.L',-.25*k,0,.05);boneOff('LowerLeg.L',.45*k,0,0);boneOff('UpperLeg.R',-.25*k,0,-.05);boneOff('LowerLeg.R',.45*k,0,0);
+  // 手腕貼在頭的兩側（角度是用程式量出手腕到太陽穴距離找的）
+  boneOff('UpperArm.R',-.8*k,-1*k,lerp(.25,1.2,k));boneOff('LowerArm.R',0,.15*k,1.35*k);
+  boneOff('UpperArm.L',-.6*k,-.4*k,lerp(-.25,-2.2,k));boneOff('LowerArm.L',0,.6*k,-1.6*k);}
+function updateMad(dt){stT+=dt;const t=stT,U=post.uniforms;
+  // 訊息泡泡越冒越多，塞滿畫面
+  if(t<8.2){MAD.acc+=dt*(3+t*2.4);const box=$('madB');
+    while(MAD.acc>=1){MAD.acc--;if(box.children.length>(t<1.6?30:42))box.removeChild(box.firstChild);
+      const d=document.createElement('div');d.className='mb'+(Math.random()<.5?' red':'');d.textContent=MAD_TXT[Math.random()*MAD_TXT.length|0];
+      let lx=rnd(-6,84);if(t>1.6&&t<6.2&&lx>26&&lx<60&&Math.random()<.75)lx=Math.random()<.5?rnd(-6,24):rnd(60,84);d.style.left=lx+'%';d.style.top=rnd(-3,93)+'%';d.style.transform=`rotate(${rnd(-14,14).toFixed(1)}deg) scale(${rnd(.75,1.35).toFixed(2)})`;box.appendChild(d);}
+    MAD.ping-=dt;if(MAD.ping<0){MAD.ping=Math.max(.07,.42-t*.05);SFX.ping();}}
+  MAD.heart-=dt;if(MAD.heart<0){MAD.heart=Math.max(.38,1-t*.08);SFX.heart();}
+  U.k.value=Math.min(1.3,.35+t*.16);U.red.value=Math.min(.55,t*.07)*(.6+.4*Math.sin(t*7));
+  U.stat.value=Math.random()<dt*2.5?rnd(.4,.9):Math.max(0,U.stat.value-dt*4);
+  const amp=Math.min(1,t/1.6);
+  if(t<1.6){ // 第一人稱：低頭看手機，越抖越厲害
+    camera.position.set(MAD.x+rnd(-1,1)*.012*amp,1.58,MAD.z+rnd(-1,1)*.012*amp);
+    camera.rotation.set(-.42+Math.sin(t*11)*.05*amp,MAD.yaw+Math.sin(t*6)*.07*amp,Math.sin(t*4)*.1*amp);}
+  else{
+    const r=-Math.PI/2+Math.PI;   // 主角面向走廊 +x，鏡頭在他前面
+    if(t-dt<1.6){SFX.scream();HERO.root.visible=HERO.ok;heroLayer(0);HERO.root.position.set(MAD.x,0,MAD.z);HERO.root.rotation.set(0,r,0);if(HERO.mixer){HERO.mixer.stopAllAction();heroAnim=null;}}
+    poseMad(t,ease(clamp((t-1.6)/.5,0,1)));HERO.root.updateMatrixWorld(true);
+    if(HERO.ok&&HERO.bones.Head)HERO.bones.Head.getWorldPosition(lookTmp);else lookTmp.set(MAD.x,1.4,MAD.z);
+    const close=ease(clamp((t-6.2)/1.3,0,1)),d=lerp(1.9-.25*Math.sin(t*.9),.55,close),sw=Math.sin(t*1.1)*.45*(1-close);
+    camera.position.set(lookTmp.x+d,lookTmp.y+.05+.12*Math.sin(t*2.2)*(1-close),lookTmp.z+sw);
+    camera.lookAt(lookTmp.x,lookTmp.y-.08,lookTmp.z);camera.rotation.z+=Math.sin(t*3.7)*.07;
+    if(t>2.4){MAD.laugh-=dt;if(MAD.laugh<0){MAD.laugh=rnd(1.2,1.9);SFX.laugh();}}}
+  U.flash.value=t>7.6&&t<8.1?(1-(t-7.6)/.5)*.8:0;U.black.value=clamp((t-8.1)/.7,0,1);
+  if(t-dt<7.6&&t>=7.6){SFX.scream();SFX.staticBurst();}
+  if(t>9.0)madEnd();}
+function madEnd(){$('madB').hidden=true;$('madB').innerHTML='';horrorStop();hideAllProps();
+  for(const k of ['k','flash','red','black','stat'])post.uniforms[k].value=0;
+  state='end';lastFail=true;lastMad=true;setHUD(false);
+  $('endBig').textContent='崩潰';$('endBig').classList.add('red');$('endDay').textContent='第一天・學校';
+  $('endText').textContent='你沒有聽媽媽的話去廟裡拜拜，直接去了學校。一進校門，家長的訊息一則接一則湧進來……你崩潰了。';
+  $('again').textContent='重新挑戰：出門上班';$('end').hidden=false;}
+
 function startHorror(){
+  IH.visible=false;
   buildOcc();
   state='horror';stT=0;grab=null;settle=null;handle.visible=false;mouseHeld=btnHeld=false;closePur();
   if(document.exitPointerLock&&locked())document.exitPointerLock();
@@ -3067,7 +3397,7 @@ function updateHorrorCore(dt){
         const near=Math.hypot(f.x-STOVE.x,f.z-STOVE.z)<2.0;poseWork(time,near?'cook':'',0,near?1:0);}
       if(stage==='temple'){emitN(emitIncense,75*dt);
         if(replay.mv>.004){if(HERO.ok&&heroAnim!==HERO.act.Walk){heroPlay('Walk',.2);}if(heroAnim)heroAnim.timeScale=.5;}
-        else{if(heroAnim){HERO.mixer.stopAllAction();heroAnim=null;}poseWork(time,replay.don>=0?'donate':'',0,1);}}
+        else{if(heroAnim){HERO.mixer.stopAllAction();heroAnim=null;}poseWork(time,f.pr===2?'pray':(replay.don>=0||f.pr===1)?'donate':'',f.bw||0,1);}}
       if(stage==='school'){KIDS.forEach(k=>{if(k.cough>0)k.cough=Math.max(0,k.cough-dt*1.6);poseKid(k,time);});poseWork(time,'teach',0,1);}
       if(stage==='bath'){if(replay.fl>=0&&B.lidOpen)emitN(emitPlume,(replay.fl<1.6?260:120)*dt);
         if(f.sit){HERO.root.position.set(TOILET.x,.55-(HERO.hipY||.9),TOILET.z+.03);HERO.root.rotation.set(0,0,0);poseToilet(time,0,0);}else if(f.br)poseBrushStand(time);else poseWork(time,'',0,0);}}
@@ -3107,6 +3437,7 @@ function frame(now){
   else if(state==='play'){if(!optOpen)updatePlay(dt);}
   else if(state==='win')updateWin(dt);
   else if(state==='horror')updateHorror(dt);
+  else if(state==='mad')updateMad(dt);
   else if(state==='fade'){stT+=dt;$('blink').style.opacity=Math.min(1,stT*2.2);if(stT>.55){state='loading';startStage(nextName);}}
   if(fadeV>0&&state!=='fade'){fadeV=Math.max(0,fadeV-dt*1.4);$('blink').style.opacity=fadeV;}
   if((state==='play'&&!optOpen)||state==='wake'){headPos.copy(camera.position);updateDust(dt,lvNow(),headPos);}
@@ -3123,7 +3454,8 @@ function frame(now){
   beamMat.uniforms.amt.value=lerp(beamMat.uniforms.amt.value,(curtOpen&&!thermalOn&&stage==='bed')?.09:0,Math.min(1,dt*3));
   const U=post.uniforms;U.time.value=time;if(state==='play'||state==='wake')U.k.value=kv;
   if(state==='title'||state==='end')U.k.value=0;
-  if(state!=='win'){FOG.density=(stage==='temple'?.03:.045)+kv*.2;FOG.color.setRGB(lerp(.08,.17,kv),lerp(.09,.16,kv),lerp(.1,.1,kv));}
+  if(state==='play'&&stage==='street'){FOG.density=.016;FOG.color.setHex(STR_BG);}
+  else if(state!=='win'){FOG.density=(stage==='temple'?.03:.045)+kv*.2;FOG.color.setRGB(lerp(.08,.17,kv),lerp(.09,.16,kv),lerp(.1,.1,kv));}
   if(BATH.visible&&state==='play'&&(!LITE||(PERF.mir=(PERF.mir|0)+1)%2===0))renderMirror();   // 手機上鏡子隔一格才更新
   renderer.setRenderTarget(rt);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.render(postScene,postCam);
 }
