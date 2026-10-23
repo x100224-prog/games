@@ -94,9 +94,17 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
 .orow input{width:100%;accent-color:var(--bone);min-height:28px}.orow output{font-variant-numeric:tabular-nums;color:var(--bone);text-align:right}
 .screen button.optlink{font-size:.85rem;padding:5px 14px}
 #opt{background:rgba(11,12,13,.95)}
-.fk{width:min(100%,420px);background:linear-gradient(160deg,#1a1a1f,#08080a);border:1px solid #c9a227;border-radius:18px;padding:14px 16px 18px;display:flex;flex-direction:column;gap:12px;box-shadow:0 0 30px rgba(64,200,255,.18)}
+.fk{width:min(100%,600px);max-height:calc(100dvh - 16px);overflow:auto;background:linear-gradient(160deg,#1a1a1f,#08080a);border:1px solid #c9a227;border-radius:18px;padding:14px 16px 18px;display:flex;flex-direction:column;gap:12px;box-shadow:0 0 30px rgba(64,200,255,.18)}
 .fk-head{display:flex;justify-content:space-between;align-items:center;gap:10px;color:#e8c860;font-weight:800;letter-spacing:.08em;font-size:.95rem}
 .fk-head button{font-size:.85rem;padding:6px 14px}
+.fk-body{display:flex;gap:14px;align-items:stretch}
+.fk-label{margin:0;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px}
+.fk-label canvas{cursor:zoom-in;height:min(250px,46dvh);width:auto;aspect-ratio:2/3;border-radius:8px;box-shadow:0 0 0 1px #5a4a14}
+.fk-label figcaption{color:#8a8a90;font-size:.72rem}
+.fk-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;justify-content:center}
+.fk-zoom{position:fixed;inset:0;z-index:30;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;cursor:zoom-out}
+.fk-zoom[hidden]{display:none}.fk-zoom canvas{height:min(90dvh,900px);width:auto;max-width:94vw;aspect-ratio:2/3;object-fit:contain;border-radius:10px}
+@media (max-width:460px){.fk-body{flex-direction:column;align-items:center}.fk-main{width:100%}}
 .fk-stat{min-height:64px;border-radius:12px;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-variant-numeric:tabular-nums}
 .fk-stat b{color:#1aff6a;font-size:1.35rem;letter-spacing:.15em;text-shadow:0 0 10px rgba(26,255,106,.6)}
 .fk-stat span{color:#7fd7ff;font-size:.8rem}
@@ -183,10 +191,13 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
 
 <div class="purwrap" id="fakeUI" hidden>
   <div class="fk" role="dialog" aria-modal="true" aria-labelledby="fkT">
+    <div class="fk-zoom" id="fkZoom" hidden><canvas id="fkLabelBig" width="768" height="1152" aria-label="機身貼紙放大"></canvas></div>
     <div class="fk-head"><span id="fkT">AIR PRO MAX　超強淨化</span><button type="button" id="fkClose">離開</button></div>
-    <div class="fk-stat" id="fkStat"></div>
+    <div class="fk-body"><figure class="fk-label"><canvas id="fkLabel" width="512" height="768" aria-label="機身貼紙放大：PRO MAX 超強淨化 99.99%，除塵・除菌・除甲醛，負離子 TURBO，CADR 800*，*原廠實驗室自行測試"></canvas><figcaption>機身貼紙（點一下放大）</figcaption></figure>
+    <div class="fk-main"><div class="fk-stat" id="fkStat"></div>
     <div class="fk-row"><button type="button" id="fkPow" class="fk-pow">開機</button>
       <div class="fk-modes"><button type="button" data-fk="0">強力</button><button type="button" data-fk="1">TURBO</button><button type="button" data-fk="2">負離子</button></div></div>
+    </div></div>
   </div>
 </div>
 
@@ -229,7 +240,7 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
   <button type="button" id="optClose">完成</button>
 </div>
 
-<video id="winVid" muted playsinline preload="auto" hidden></video>
+<canvas id="winVid" hidden aria-label="杉林溪柳杉林的寫實畫面"></canvas>
 <p id="winCap" hidden>南投・杉林溪</p>
 <div id="slides" hidden role="dialog" aria-label="資料圖片">
   <img id="slideImg" alt="">
@@ -692,12 +703,14 @@ PUR.g.position.set(1.5,0,-2.0);PUR.g.rotation.y=-.75;PUR.g.userData.act='purifie
    兩台只能開一台。 */
 const FAKE_LV=.1;                 // 實際效果只相當於真清淨機 1 段的十分之一（約 10 m³/h）
 const FK={on:false,ever:false,mode:0};
-const fakeStickerTex=ctex(256,384,x=>{x.fillStyle='#111';x.fillRect(0,0,256,384);
+function drawSticker(x){x.fillStyle='#111';x.fillRect(0,0,256,384);
   const g=x.createLinearGradient(0,0,0,384);g.addColorStop(0,'#d4a017');g.addColorStop(1,'#8a5a00');
   x.fillStyle=g;x.fillRect(10,10,236,70);x.fillStyle='#111';x.font='900 40px "Noto Sans TC",sans-serif';x.textAlign='center';x.fillText('PRO MAX',128,60);
   x.fillStyle='#e8231f';x.fillRect(10,92,236,96);x.fillStyle='#fff';x.font='900 46px "Noto Sans TC",sans-serif';x.fillText('超強淨化',128,140);x.font='700 26px sans-serif';x.fillText('99.99%',128,176);
-  x.fillStyle='#ffd84a';x.font='700 24px "Noto Sans TC",sans-serif';['除塵・除菌・除甲醛','負離子 TURBO','CADR 800*'].forEach((t,i)=>x.fillText(t,128,228+i*36));
-  x.fillStyle='#777';x.font='14px sans-serif';x.fillText('*原廠實驗室自行測試',128,350);},null);
+  x.fillStyle='#ffd84a';x.font='700 24px "Noto Sans TC",sans-serif';['除塵・除菌・除甲醛','負離子 TURBO'].forEach((t,i)=>x.fillText(t,128,224+i*34));
+  x.font='900 34px sans-serif';x.fillText('CADR 800*',128,302);
+  x.fillStyle='#b8b8b8';x.font='700 19px "Noto Sans TC",sans-serif';x.fillText('*原廠實驗室自行測試',128,352);}
+const fakeStickerTex=ctex(256,384,drawSticker,null);
 function makeFakePur(){const g=new T.Group();g.userData.heat=.3;
   const body=new T.Mesh(new T.CylinderGeometry(.15,.16,.62,40),phys({color:0x0c0c0e,roughness:.18,metalness:.2,clearcoat:1,clearcoatRoughness:.05}));body.position.y=.33;g.add(body);
   const gold=std({color:0xc9a227,metalness:.9,roughness:.25});
@@ -729,7 +742,8 @@ function drawFakeUI(){if(!fakeOpen)return;const b=$('fkPow');b.setAttribute('ari
 $('fkClose').addEventListener('click',closePur);$('fkPow').addEventListener('click',()=>fakeSet(!FK.on));
 document.querySelectorAll('[data-fk]').forEach(b=>b.addEventListener('click',()=>{if(!FK.on)return;FK.mode=+b.dataset.fk;SFX.key();drawFakeUI();}));
 $('fakeUI').addEventListener('pointerdown',e=>{if(e.target.id==='fakeUI')closePur();});
-function openFake(){fakeOpen=true;purOpen=true;$('fakeUI').hidden=false;if(document.exitPointerLock&&locked())document.exitPointerLock();drawFakeUI();}
+$('fkLabel').addEventListener('click',()=>{$('fkZoom').hidden=false;SFX.click();});$('fkZoom').addEventListener('click',()=>{$('fkZoom').hidden=true;});
+function openFake(){if(!openFake.lbl){openFake.lbl=1;let c=$('fkLabel').getContext('2d');c.scale(2,2);drawSticker(c);c=$('fkLabelBig').getContext('2d');c.scale(3,3);drawSticker(c);}fakeOpen=true;purOpen=true;$('fakeUI').hidden=false;if(document.exitPointerLock&&locked())document.exitPointerLock();drawFakeUI();}
 const purLight=new T.PointLight(0x5aa0ff,0,1.4,2);purLight.position.set(1.5,.85,-2.0);scene.add(purLight);
 const INTAKE=new T.Vector3(1.5,.45,-2.0);
 
@@ -1276,7 +1290,7 @@ function sizePanelView(){const st=$('purStage'),w=st.clientWidth,h=st.clientHeig
   PV.cam.fov=w/h<1.6?40:32;PV.cam.updateProjectionMatrix();}
 function openPur(){purOpen=true;$('purUI').hidden=false;if(document.exitPointerLock&&locked())document.exitPointerLock();
   mouseHeld=false;btnHeld=false;initPanelView();sizePanelView();SFX.click();applyPur();$('purClose').focus({preventScroll:true});}
-function closePur(){if(!purOpen)return;purOpen=false;fakeOpen=false;$('purUI').hidden=true;$('fakeUI').hidden=true;}
+function closePur(){if(!purOpen)return;purOpen=false;fakeOpen=false;$('fkZoom').hidden=true;$('purUI').hidden=true;$('fakeUI').hidden=true;}
 $('purClose').addEventListener('click',closePur);
 $('purUI').addEventListener('pointerdown',e=>{if(e.target.id==='purUI')closePur();});
 
@@ -2452,21 +2466,22 @@ function roomFadeSetup(){WIN.fade=[];room.traverse(o=>{if(!o.isMesh||!o.material
   WIN.fade.push({o,ms,delay:isBed?7.6:2.2+d*.55+(tmpV.y>2?-.5:0),cast:o.castShadow});});}
 function roomRestore(){if(!WIN.fade)return;WIN.fade.forEach(F=>{F.o.visible=true;F.o.castShadow=F.cast;F.ms.forEach(m=>{const g=m.userData.fadeOrig;if(g){m.transparent=g.t;m.opacity=g.o;m.depthWrite=g.dw;m.needsUpdate=true;}});});WIN.fade=null;
   PUR.g.position.set(1.5,0,-2.0);PUR.g.rotation.y=-.75;
-  if(WIN.G)WIN.G.visible=false;WIN.on=false;if(WIN.vid){WIN.vid.pause();WIN.vid.hidden=true;}$('winCap').hidden=true;
+  if(WIN.G)WIN.G.visible=false;WIN.on=false;if(WIN.vid){WIN.vid.hidden=true;}$('winCap').hidden=true;
   BED_LIGHTS.forEach(l=>{if(l.userData.i0!=null)l.intensity=l.userData.i0;});}
 /* 公開版：「通關動畫」按鈕要真的通關過一次才會出現 */
 try{if(localStorage.getItem('sky-cleared')==='1')$('chWin').hidden=false;}catch(e){}
 function startWin(){try{localStorage.setItem('sky-cleared','1');}catch(e){}$('chWin').hidden=false;buildWin();state='win';WIN.t=0;WIN.on=true;WIN.vidPrep=WIN.vidPlay=WIN.vidOn=WIN.vidDone=false;setHUD(false);closePur();if(document.exitPointerLock&&locked())document.exitPointerLock();
   ['rustle','hum','sizzle','fan','amb'].forEach(k=>setG(A[k],0,.4));setG(A.room,.07,.6);
   loadWinVideo();}
-/* 寫實影片：先整個抓下來變成 blob 再播放（有些主機不支援影片的分段讀取，直接用網址會播不出來）；
-   支援 H.264 就用 mp4，不支援（例如部分 Chromium）就用 webm */
-function loadWinVideo(){const v=WIN.vid;if(WIN.vidURL){if(v.src!==WIN.vidURL)v.src=WIN.vidURL;try{v.currentTime=0;}catch(e){}return;}
-  const mp4=v.canPlayType('video/mp4; codecs="avc1.42E01E"'),order=mp4?['forest.mp4','forest.webm']:['forest.webm','forest.mp4'];
-  const tryOne=i=>{if(i>=order.length)return;fetch(order[i]).then(r=>{if(!r.ok)throw 0;return r.blob();}).then(b=>{
-      const type=order[i].endsWith('mp4')?'video/mp4':'video/webm';WIN.vidURL=URL.createObjectURL(b.type?b:new Blob([b],{type}));v.src=WIN.vidURL;v.load();})
-    .catch(()=>tryOne(i+1));};
-  tryOne(0);}
+/* 寫實影片的那一段：改用一張張預先算好的畫面（42 張 jpg）畫在畫布上播放。
+   手機（尤其 iPhone 省電模式）常常不讓網頁自動播放影片、或播放前一瞬間是黑的，用圖片就沒有這些問題，每支手機都一樣 */
+const VID_N=42,VID_FPS=15;   // 原片 30 格／秒，用一半速度播，約 2.8 秒
+function loadWinVideo(){if(WIN.frames)return;WIN.frames=[];WIN.framesOK=0;
+  for(let i=0;i<VID_N;i++){const im=new Image();im.decoding='async';im.onload=()=>{WIN.framesOK++;};im.src='vid/f'+String(i).padStart(2,'0')+'.jpg';WIN.frames.push(im);}}
+function drawWinFrame(i){const c=WIN.vid,im=WIN.frames&&WIN.frames[i];if(!im||!im.complete||!im.naturalWidth)return false;
+  const dpr=Math.min(2,devicePixelRatio||1),W=Math.round(innerWidth*dpr),H=Math.round(innerHeight*dpr);if(c.width!==W||c.height!==H){c.width=W;c.height=H;}
+  const x=c.getContext('2d'),sc=Math.max(W/im.naturalWidth,H/im.naturalHeight),w=im.naturalWidth*sc,h=im.naturalHeight*sc;   // 跟 object-fit:cover 一樣，填滿畫面
+  x.fillStyle='#000';x.fillRect(0,0,W,H);x.drawImage(im,(W-w)/2,(H-h)/2,w,h);return true;}
 function winSetup(){ // 黑幕中把場景換成：臥室、主角躺在床上
   hideAllProps();setThermal(false);stage='bed';showStage('bed');resetWorld();clearDust();
   BED_LIGHTS.forEach(l=>{l.userData.i0=l.intensity;});lampLight.intensity=1.2;
@@ -2523,16 +2538,17 @@ function updateWin(dt){WIN.t+=dt;const t=WIN.t,U=post.uniforms;U.k.value=0;U.fla
   if(fm>.5&&Math.random()<dt*.45)SFX.bird();
   if(s>4.5&&s-dt<=4.5)$('winCap').hidden=false;
   // 接寫實影片
-  const VS=13.5,VT0=1.47;   // 從影片第 1.47 秒（對應 Blender 的第 48 格關鍵影格）開始接
-  if(s>=VS-.4&&!WIN.vidPrep){WIN.vidPrep=true;const v=WIN.vid;try{v.pause();v.currentTime=VT0;}catch(e){}}
-  // 交接：遊戲畫面先淡出成全黑（0.8 秒），再從黑畫面淡入寫實影片（0.8 秒）
+  const VS=13.5;   // 寫實畫面從原片第 1.47 秒（Blender 第 48 格關鍵影格）開始，主角已經在畫面外
+  // 交接：遊戲畫面先淡出成全黑（0.8 秒），再從黑畫面淡入寫實畫面（0.8 秒）
   if(s>=VS-.8&&!WIN.vidDone)U.black.value=Math.max(U.black.value,clamp((s-(VS-.8))/.8,0,1));
-  if(s>=VS&&!WIN.vidOn&&!WIN.vidDone){WIN.vidOn=true;const v=WIN.vid;v.hidden=false;v.style.opacity=0;
-    WIN.vidPlay=true;try{v.playbackRate=.6;const p=v.play();if(p&&p.catch)p.catch(()=>{});}catch(e){}}
-  if(WIN.vidOn){const k=clamp((s-VS)/.8,0,1);WIN.vid.style.opacity=k;
-    if(WIN.vid.ended||s>VS+4.0){WIN.vidOn=false;WIN.vidDone=true;WIN.on=false;winEnd();}}}
+  if(s>=VS&&!WIN.vidDone){
+    if(!WIN.vidOn){WIN.vidOn=true;WIN.vidT=0;const c=WIN.vid;c.hidden=false;c.style.opacity=0;
+      if(!WIN.framesOK){WIN.vidDone=true;WIN.on=false;winEnd();return;}}   // 圖片沒載到：直接到結算畫面，不卡住
+    WIN.vidT+=dt;const k=clamp(WIN.vidT/.8,0,1);WIN.vid.style.opacity=k;
+    const fi=Math.min(VID_N-1,Math.floor(WIN.vidT*VID_FPS));drawWinFrame(fi);
+    if(WIN.vidT>VID_N/VID_FPS+.35){WIN.vidOn=false;WIN.vidDone=true;WIN.on=false;winEnd();}}}
 function winEnd(){const v=WIN.vid;$('winCap').hidden=true;
-  setTimeout(()=>{if(state!=='win')return;finishDay();v.pause();v.hidden=true;renderer.toneMappingExposure=.95;camera.fov=baseFov();camera.updateProjectionMatrix();
+  setTimeout(()=>{if(state!=='win')return;finishDay();v.hidden=true;renderer.toneMappingExposure=.95;camera.fov=baseFov();camera.updateProjectionMatrix();
     if(A.forest){setG(A.forest.wind,0,.8);setG(A.forest.leaves,0,.8);}},900);}
 
 /* 錄下動作（熱成像重播用），只保留最後 20 秒 */
