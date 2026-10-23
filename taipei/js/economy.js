@@ -117,8 +117,12 @@ export const SAVED_NOTE = {
   drone: '尖峰實測：每趟約省 82 分鐘；飛一趟約 12～14 分鐘，燃料費約 3～3.5 萬',
 };
 
+// 沒有實測省時的項目：直接訂價錢（遊戲設定）
+export const PRICE_FIXED = { preview: 150000 };   // 路線預覽 15 萬（導航約 55 萬）
+
 export const SHOP = [
   { key: 'nav', name: '導航系統', kind: 'upgrade', desc: '中控螢幕與小地圖顯示建議路線，轉彎前提示。' },
+  { key: 'preview', name: '路線預覽', kind: 'upgrade', requires: 'nav', desc: '導航的進階功能（要先有導航系統）：上車後停著的時候按 P，用車外視角把今天要開的路線先開一次給你看，經過的每個路口都用大的路名牌顯示路名和要直走還是轉彎；可以 1×／2×／4× 速度看，預覽不花遊戲時間。' },
   { key: 'ev', name: '電動車', kind: 'car', car: 'ev', desc: '可以停停車場裡的電動車專用格（停的時候順便充電，很少被占滿），電費比油錢便宜很多。' },
   { key: 'roadster', name: '飛天跑車', kind: 'car', car: 'roadster', desc: '電動跑車（也是電動車：可以停電動車專用格、停的時候順便充電、在家充電，電費比油錢便宜）＋壓縮空氣推進器：約 1 秒破百、塞車時垂直升空飛越 10 台車、空中翻轉、吸附大樓外牆垂直開上屋頂、吸在高架橋底倒著開。特技都用壓縮空氣：滿罐約可飛越 8 次，用完特殊功能就停用；不用另外補氣，開車時每開 200 公尺補回 5%。（空氣罐的數字是遊戲設定，Tesla 沒有公布）' },
   { key: 'drone', name: '無人機飛行系統', kind: 'upgrade', requires: 'roadster', desc: '加裝在飛天跑車上（要先有飛天跑車，開飛天跑車時才能用）：塞車時按 U，車身伸出四組折疊旋翼（像多旋翼無人機），整台車升空，自動選最空的高度層、用參考 NASA DAIDALUS 的避撞方法閃開別架無人機和超高大樓，飛到目的地附近；下方有車要在空中等。降落後旋翼收回，還是你的車。燃料費每分鐘 2,500 元，飛越久越貴。' },
@@ -175,12 +179,12 @@ export class Economy {
   /** 擁有的車（油車一開始就有）。 */
   cars() { const M = GAME_MODES[this.mode]; if (M && M.car) return [M.car]; return ['gas', ...SHOP.filter(s => s.kind === 'car' && this.owned.has(s.key)).map(s => s.car)]; }
   /** 商店裡的價錢（地下停車位看住哪一區）。 */
-  price(key) { return key === 'garage' ? (this.garageCost || GARAGE.other) : key === 'curbspot' ? (this.curbCost || CURB.other) : priceOf(key); }
+  price(key) { return key === 'garage' ? (this.garageCost || GARAGE.other) : key === 'curbspot' ? (this.curbCost || CURB.other) : PRICE_FIXED[key] || priceOf(key); }
   buy(key) {
     const p = this.price(key);
     if (this.owned.has(key)) return { ok: false, msg: '已經有了' };
     const it0 = SHOP.find(s => s.key === key);
-    if (it0 && it0.requires && !this.owned.has(it0.requires)) return { ok: false, msg: '要先有飛天跑車才能買無人機飛行系統' };
+    if (it0 && it0.requires && !this.owned.has(it0.requires)) { const need = SHOP.find(s => s.key === it0.requires); return { ok: false, msg: `要先有${need ? need.name : it0.requires}才能買${it0.name}` }; }
     if (this.money < p) return { ok: false, msg: `還差 ${(p - this.money).toLocaleString()} 元` };
     this.money -= p; this.owned.add(key); this.totals.spent += p;
     if (it0 && (it0.kind === 'car' || it0.kind === 'upgrade')) this.moves++;   // 買新系統或車子：可以換一次住址或工作（停車位不算）
