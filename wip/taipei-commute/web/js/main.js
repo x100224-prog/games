@@ -27,7 +27,7 @@ import { VIEW, TIME, PARK, WORK_DIST, RUSH, FEATURES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 // 目前已經做好、可以買的項目（其他的會顯示「製作中」）
-const READY = { nav: true, ev: true, roadster: true, drone: true, garage: true, curbspot: true };
+const READY = { nav: true, preview: true, ev: true, roadster: true, drone: true, garage: true, curbspot: true };
 
 // ===================================================================== 場景與光線
 const canvas = $('view');
@@ -224,7 +224,7 @@ document.addEventListener('fullscreenchange', () => landBtns());
 let mirrorBtns = false;   // 手機：後照鏡按鈕要不要顯示（在「⋯」裡切換）
 if ($('btnMore')) {
   let togT = 0;   // 手指點一下會先有 touchstart、有時還會再補一個 click：只算一次
-  const tog = (e) => { const now = performance.now(); if (e.type === 'click' && now - togT < 700) return; togT = now; e.preventDefault(); $('moreMenu').hidden = !$('moreMenu').hidden; };
+  const tog = (e) => { const now = performance.now(); if (e.type === 'click' && now - togT < 700) return; togT = now; e.preventDefault(); $('morePreview').hidden = !(econ.has('preview') && G.state === 'drive' && !G.demo); $('moreMenu').hidden = !$('moreMenu').hidden; };
   $('btnMore').addEventListener('touchstart', tog, { passive: false }); $('btnMore').addEventListener('click', tog);
   for (const b of $('moreMenu').querySelectorAll('button')) b.addEventListener('click', () => {
     const a = b.dataset.act;
@@ -304,6 +304,7 @@ function touchKey(k) {
   if (k === 'U') return G.mode === 'hybrid' ? '問總控' : '無人機';
   if (k === '再按 U') return G.mode === 'hybrid' ? '現在飛' : '無人機';
   if (k === 'C') return '⋯ 視角';
+  if (k === 'P') return '⋯ 預覽路線';
   return TOUCH_KEY[k] || k;
 }
 function touchify(t) {
@@ -315,7 +316,7 @@ function touchify(t) {
     .replace(/10 秒內再按(?:一次)? ?U/g, () => G.mode === 'hybrid' ? '10 秒內按「現在飛」' : '10 秒內再按「無人機」')
     .replace(/再按(?:一次)? ?U\s?/g, () => `再按「${touchKey('U')}」`)
     .replace(/按住 Z／X[^，。；）]*/g, '用「⋯」裡的後照鏡按鈕看後照鏡')
-    .replace(/按 ?C(?![A-Za-z])/g, '在「⋯」按「視角」').replace(/按 ?M(?![A-Za-z])/g, '在「⋯」按「地圖」').replace(/按 ?V(?![A-Za-z])/g, '在「⋯」按「座椅」')
+    .replace(/按 ?C(?![A-Za-z])/g, '在「⋯」按「視角」').replace(/按 ?M(?![A-Za-z])/g, '在「⋯」按「地圖」').replace(/按 ?V(?![A-Za-z])/g, '在「⋯」按「座椅」').replace(/按 ?P(?![A-Za-z])/g, '在「⋯」按「預覽路線」')
     .replace(/按 ?(Shift|F|G|T|U|R|E)(?![A-Za-z])\s?/g, (m, k) => `按「${touchKey(k)}」`)
     .replace(/[（(](Shift|F|G|T|U)[）)]/g, (m, k) => `（按「${touchKey(k)}」）`)
     .replace(/^(Shift|[FGTU])：/, (m, k) => `${touchKey(k)}：`)
@@ -653,15 +654,16 @@ function startGame() {
 const HELP_BASE = [['W A S D', '走路／開車（油門、煞車、方向盤）'], ['滑鼠', '轉動視角（點一下畫面鎖定游標）'], ['E', '出門、上車、下車、開商店'], ['空白鍵', '手煞車'], ['M', '全市地圖']];
 const FEATURE_HELP = {
   nav: { title: '導航', rows: [['藍線', '路面上的藍色線就是建議路線'], ['螢幕', '導航螢幕（電腦在車內右下角，手機在畫面右側）會提示下一個轉彎和距離']] },
+  preview: { title: '路線預覽', rows: [['P', '停在車上時按 P：用車外視角把今天的路線先開一次給你看，不花遊戲時間（手機：⋯ → 預覽路線）'], ['路名牌', '經過的路口用大的路名牌顯示路名，要轉彎時會提早告訴你往哪邊轉'], ['速度', '預覽中可以切換 1×／2×／4×、暫停；按「結束預覽」（或 Esc）回到車上']] },
   ev: { title: '電動車', rows: [['充電', '可以停停車場裡的「電動車專用格」，停著就會充電']] },
   roadster: { title: '飛天跑車', rows: [['Shift', '推進器：約 1 秒破百（手機：推進）'], ['F', '垂直升空，飛越前面的車陣，約 10 台車（手機：飛越）'], ['T', '飛越時空中翻一圈，要在剛飛起來時按，落地前才轉得正（手機：翻轉）'], ['滑', '手機：飛起來之後，原本「飛越」的按鈕會變成「翻轉」，再按一下就翻；也可以在畫面上左右快速滑一下（往哪邊滑就往哪邊翻）', 'touch'], ['G', '面向大樓：吸住外牆往上開；在高架橋下：吸在橋底倒著開；再按一次脫離（手機：吸附）'], ['空氣', '特技都用壓縮空氣，滿罐可飛越 8 次，用完特殊功能停用。不用另外補氣，開車時會慢慢補回來（遊戲設定）']] },
   drone: { title: '無人機飛行系統', rows: [['U', '開飛天跑車時按 U：旋翼伸出、升空，自動避撞飛到目的地附近降落；再按一次取消（手機：無人機）'], ['C', '飛行中切換車外／駕駛座視角', 'desk']] },
   ctl: { title: '路空總控', rows: [['U', '問路空總控：它比較「繼續開」和「飛起來」哪個先到。飛比較快就核准升空、排好降落時段（開著也能問，核准後慢下來停住就自動升空）（手機：問總控）'],
     ['再按 U', '總控建議繼續開、或建議先開等時段時，10 秒內再按一次就照你的意思現在升空'], ['C', '飛行中切換車外／駕駛座視角', 'desk']] },
 };
-const FEATURES_ORDER = () => ['nav', 'ev', 'roadster', G.mode === 'hybrid' ? 'ctl' : 'drone'];
+const FEATURES_ORDER = () => ['nav', 'preview', 'ev', 'roadster', G.mode === 'hybrid' ? 'ctl' : 'drone'];
 const featureOn = (k) => k === 'ctl' ? G.mode === 'hybrid' && econ.has('drone') && !!(car && car.spec.stunt)
-  : econ.has(k) && (k === 'nav' || (k === 'ev' ? !!(car && car.spec.electric) : !!(car && car.spec.stunt)));
+  : econ.has(k) && (k === 'nav' || k === 'preview' || (k === 'ev' ? !!(car && car.spec.electric) : !!(car && car.spec.stunt)));
 function renderHelp() {
   const rows = [...HELP_BASE];
   for (const k of FEATURES_ORDER()) if (featureOn(k)) rows.push(...FEATURE_HELP[k].rows.filter(r => r[2] !== 'touch'));
@@ -969,7 +971,7 @@ function renderShop() {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'buy';
     if (owned) { b.textContent = '已擁有'; b.disabled = true; }
     else if (!ready) { b.textContent = '製作中'; b.disabled = true; }
-    else if (it.requires && !econ.has(it.requires)) { b.textContent = '要先有飛天跑車'; b.disabled = true; }
+    else if (it.requires && !econ.has(it.requires)) { const need = SHOP.find(s2 => s2.key === it.requires); b.textContent = `要先有${need ? need.name : it.requires}`; b.disabled = true; }
     else if (it.key === 'curbspot' && econ.has('garage')) { b.textContent = '已經有地下停車位'; b.disabled = true; }
     else if (econ.money < p) { b.textContent = `還差 ${fmtMoney(p - econ.money)}`; b.disabled = true; }
     else { b.textContent = '購買'; b.onclick = () => { const r = econ.buy(it.key); toast(!r.ok ? r.msg : it.key === 'garage' ? `${r.msg}：家裡多了一層地下室。明天起早上搭電梯下樓就能開車，回家開到家門口紫色的 P（地下停車場入口）就會開進地下室` : it.key === 'curbspot' ? `${r.msg}：明天起車子停在家門口的住戶專用車位，回家停進藍色的 P 就好` : `${r.msg}：上路時會告訴你怎麼用。也多了一次換住址或工作的機會（在結算畫面）`, 3.5); save(); renderShop(); renderHelp(); }; }
@@ -1104,16 +1106,16 @@ function planRoute() {
   G.routePoly = nav.polyline(rt, world, { x: car.x, z: car.z }, G.routeS); G.routeIdx = 0;
   if (econ.has('nav')) buildRouteMesh();
 }
-function buildRouteMesh() {
+function buildRouteMesh(cx = car.x, cz = car.z, cy = car.y) {
   const p = G.routePoly; if (!p || p.length < 4) { routeLine.visible = false; return; }
   const pos = [], idx = [], W = 1.1, q = {};
   let n = 0;
   for (let i = Math.max(0, G.routeIdx - 2); i + 3 < p.length && n < 3000; i += 2) {
     const ax = p[i], az = p[i + 1], bx = p[i + 2], bz = p[i + 3], L = Math.hypot(bx - ax, bz - az); if (L < 0.3) continue;
-    if (Math.hypot(ax - car.x, az - car.z) > 900) break;
+    if (Math.hypot(ax - cx, az - cz) > 900) break;
     const nx = -(bz - az) / L * W, nz = (bx - ax) / L * W;
-    const sa = world.surfaceAt(ax, az, car.y + 0.5, q), ya = (sa ? sa.y : world.groundAt(ax, az)) + 0.3;
-    const sb = world.surfaceAt(bx, bz, car.y + 0.5, q), yb = (sb ? sb.y : world.groundAt(bx, bz)) + 0.3;
+    const sa = world.surfaceAt(ax, az, cy + 0.5, q), ya = (sa ? sa.y : world.groundAt(ax, az)) + 0.3;
+    const sb = world.surfaceAt(bx, bz, cy + 0.5, q), yb = (sb ? sb.y : world.groundAt(bx, bz)) + 0.3;
     pos.push(ax + nx, ya, az + nz, ax - nx, ya, az - nz, bx + nx, yb, bz + nz, bx - nx, yb, bz - nz);
     idx.push(n * 4, n * 4 + 1, n * 4 + 2, n * 4 + 1, n * 4 + 3, n * 4 + 2); n++;
   }
@@ -1455,10 +1457,10 @@ function defaultCam() { return input.touch ? 'chase' : 'cockpit'; }
  *  ・鏡頭跟車子之間有建物擋住就拉近（拉近快、退回慢），不會鑽進房子裡
  *  ・手機直拿（畫面窄）時鏡頭高一點、遠一點，看得到前面的路；地下道、隧道裡放低
  */
-function chaseCam(c, dt) {
+function chaseCam(c, dt, opt) {
   c.body.visible = true;
   const port = camera.aspect < 1, tun = !!(c.edge && c.edge.tunnel);
-  const back = tun ? 6.2 : port ? 8.4 : 7.2, up = tun ? 2.1 : port ? 3.4 : 2.9;
+  const back = tun ? 6.2 : opt ? (port ? opt.backPort : opt.back) : port ? 8.4 : 7.2, up = tun ? 2.1 : opt ? (port ? opt.upPort : opt.up) : port ? 3.4 : 2.9;
   const yawT = Math.atan2(c.fwdX, c.fwdZ);
   let ch = G.chase;
   if (!ch || !Number.isFinite(ch.yaw)) ch = G.chase = { yaw: yawT, y: c.y, d: back };
@@ -1507,6 +1509,7 @@ function driveFrame(dt) {
   if (G.seatAdj && input.pressed('Enter')) closeSeat();
   else if (!$('tipCard').hidden && input.pressed('Enter')) $('tipOk').click();   // 新功能說明卡：Enter 關掉
   if (!G.seatAdj && input.pressed('KeyV') && Math.abs(c.v) < 0.3 && G.cam === 'cockpit') openSeat();
+  if (input.pressed('KeyP') && !G.demo) { startPreview(); if (G.preview) return; }
   if (input.pressed('KeyR') && G.cam === 'cockpit') cockpit.recenter();
   const fw = G.seatAdj ? 0 : input.forward;
   const pedals = G.seatAdj ? { throttle: 0, brake: 1, steer: 0, handbrake: true } : { throttle: Math.max(0, Math.min(1, fw > 0.15 ? fw : 0)) || input.tGas, brake: Math.max(0, Math.min(1, fw < -0.15 ? -fw : 0)) || input.tBrake,
@@ -1564,6 +1567,7 @@ function driveFrame(dt) {
     else if (chk.bay) { pr = chk.msg + (stopped ? '　<kbd>E</kbd> 下車（算違規停車）' : ''); cls = 'warn'; }
     else if (stopped && dDest < 450) { pr = '路邊不是停車格，可能被拖吊　<kbd>E</kbd> 下車'; cls = 'warn'; }
     else if (stopped) pr = '<kbd>E</kbd> 下車';
+    if (stopped && pr && econ.has('preview') && !input.touch && !G.demo && dDest > 150) pr += '　<kbd>P</kbd> 預覽路線';
   }
   if ((stunts && stunts.busy) || flying) { pr = ''; cls = ''; }
   if (G.seatAdj) { pr = '調整好座椅後按「開始開車」（或 Enter）'; cls = ''; }
@@ -1588,6 +1592,165 @@ function driveFrame(dt) {
   mini.classList.toggle('wide', camera.aspect >= 0.9);
   if (wantMini && frameN % 4 === 0) mini.getContext('2d').drawImage(cockpit.navCv, 0, 0);
 }
+
+// ===================================================================== 路線預覽（商店：導航的進階功能）
+// 停在車上按 P：一台「影子車」照今天的導航路線、用車外視角開一次給你看（車流清掉、遊戲時間不走）。
+// 經過的路口在畫面上方用大的路名牌（仿指25：綠底白字、中英文）顯示路名，要轉彎時提早說往哪邊轉。
+let pvGhost = null;
+const _pvS = { y: 0, edge: null, s: 0, lat: 0, i: 0, t: 0, _d2: 0 }, _pvS2 = { y: 0, edge: null, s: 0, lat: 0, i: 0, t: 0, _d2: 0 };
+function startPreview() {
+  if (G.state !== 'drive' || G.preview || G.demo) return;
+  if (!econ.has('preview')) { toast(econ.has('nav') ? '要先在商店買「路線預覽」' : '路線預覽是導航的進階功能：要先買導航系統，再買路線預覽', 2.6); return; }
+  if (G.seatAdj || (flight && flight.active) || (stunts && stunts.busy)) return;
+  if (Math.abs(car.v) > 0.5) { toast('停下來才能預覽路線', 1.6); return; }
+  if (!G.route) planRoute();
+  if (!G.route || !nav) { toast('現在找不到路線，等一下再試', 1.8); return; }
+  const start = { x: car.x, z: car.z, y: car.y }, steps = G.route.steps, nodes = [];
+  for (let i = 0; i + 1 < steps.length; i++) { const st = steps[i], id = st.dir > 0 ? nav.eb[st.k] : nav.ea[st.k]; nodes.push({ id, cur: st.k, next: steps[i + 1].k, x: nav.nx[id], z: nav.nz[id], s: -1, d: 1e9 }); }
+  G.preview = { start, nodes, s: 0, v: 0, mult: 2, pause: false, off: 0, y: car.y, psi: car.psi, loadedSeen: world.loadedCount, meshT: 0, endT: 0, poly: null, cum: null, total: 0, pos: { x: car.x, z: car.z }, tf: traffic.factor };
+  pvSetPoly();
+  fadeThen(() => {
+    const pv = G.preview; if (!pv) return;
+    pvGhost = car.group.clone(true);
+    const bi = car.group.children.indexOf(car.body); if (bi >= 0) pvGhost.children[bi].visible = true;
+    scene.add(pvGhost);
+    traffic.clear(); traffic.factor = 0;
+    G.state = 'preview'; G.chase = null; camera.near = 0.3; camera.updateProjectionMatrix();
+    $('hud').hidden = true; $('touch').hidden = true; $('moreMenu').hidden = true; $('pv').hidden = false; $('pvSign').hidden = true; $('pvHint').hidden = true;
+    setPrompt(''); pvButtons(); input.releaseLock(); input.noLock = true;   // 電腦：放開滑鼠，才按得到下面的按鈕
+  });
+}
+/** 依目前載入的道路重新產生路線折線（還沒載入的路段是路口連線，載入後換成真實形狀），並重新對齊影子車和路口的位置。 */
+function pvSetPoly() {
+  const pv = G.preview, st = pv.start;
+  const poly = nav.polyline(G.route, world, { x: st.x, z: st.z }, G.routeS), n = poly.length / 2, cum = new Float64Array(n);
+  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + Math.hypot(poly[i * 2] - poly[i * 2 - 2], poly[i * 2 + 1] - poly[i * 2 - 1]);
+  const sOf = (pr) => { const k = pr.i >> 1; return cum[k] + pr.t * ((cum[k + 1] ?? cum[k]) - cum[k]); };
+  if (pv.poly && pv.s > 0) pv.s = sOf(polyProgress(poly, pv.pos.x, pv.pos.z, Math.max(0, (pv.i || 0) - 60), 600));
+  pv.poly = poly; pv.cum = cum; pv.total = cum[n - 1];
+  let i0 = 0;
+  for (const nd of pv.nodes) { const pr = polyProgress(poly, nd.x, nd.z, i0, 6000); nd.s = sOf(pr); nd.d = pr.d; if (pr.d < 40) i0 = pr.i; }
+  G.routePoly = poly;
+}
+function pvAt(s) {
+  const pv = G.preview, c = pv.cum, p = pv.poly, n = c.length; s = Math.max(0, Math.min(pv.total, s));
+  let lo = 0, hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= s) lo = m; else hi = m; }
+  const L = c[hi] - c[lo] || 1e-6, t = Math.max(0, Math.min(1, (s - c[lo]) / L));
+  return { x: p[lo * 2] + (p[hi * 2] - p[lo * 2]) * t, z: p[lo * 2 + 1] + (p[hi * 2 + 1] - p[lo * 2 + 1]) * t, i: lo, t };
+}
+function pvButtons() {
+  const pv = G.preview; if (!pv) return;
+  for (const b of document.querySelectorAll('#pvCtl [data-sp]')) b.classList.toggle('on', +b.dataset.sp === pv.mult && !pv.pause);
+  $('pvPause').textContent = pv.pause ? '繼續' : '暫停'; $('pvPause').classList.toggle('on', pv.pause);
+}
+for (const b of document.querySelectorAll('#pvCtl [data-sp]')) b.addEventListener('click', () => { if (G.preview) { G.preview.mult = +b.dataset.sp; G.preview.pause = false; pvButtons(); } });
+$('pvPause').addEventListener('click', () => { if (G.preview) { G.preview.pause = !G.preview.pause; pvButtons(); } });
+$('pvEnd').addEventListener('click', () => endPreview());
+/** 路口的英文路名：找附近路名牌上寫的英文（地圖資料有的話）。 */
+function pvEnglish(name, x, z) {
+  if (!name) return '';
+  let en = '';
+  for (const c of world.cells.values()) {
+    if (c.state !== 'ready' || !c.signs) continue;
+    const cx = (c.cx + 0.5) * world.CELL, cz = (c.cz + 0.5) * world.CELL; if (Math.abs(cx - x) > 420 || Math.abs(cz - z) > 420) continue;
+    for (const sg of c.signs) if (sg.road && sg.en && sg.text === name && Math.abs(sg.x - x) < 80 && Math.abs(sg.z - z) < 80) { en = sg.en; break; }
+    if (en) break;
+  }
+  return en;
+}
+/** 在路口要做什麼：直走、左轉、右轉、迴轉（比較進路口前 15 m 和出路口後 15 m 的方向）。 */
+function pvTurnAt(s) {
+  const a = pvAt(s - 15), b = pvAt(s), c = pvAt(s + 15);
+  const a0 = Math.atan2(b.z - a.z, b.x - a.x), a1 = Math.atan2(c.z - b.z, c.x - b.x); let da = a1 - a0; da = Math.atan2(Math.sin(da), Math.cos(da));
+  return Math.abs(da) < 0.55 ? 'straight' : Math.abs(da) > 2.6 ? 'uturn' : da > 0 ? 'right' : 'left';
+}
+const PV_ARROW = { straight: '↑', right: '→', left: '←', uturn: '↶' }, PV_WORD = { straight: '直走', right: '右轉', left: '左轉', uturn: '迴轉' };
+function previewFrame(dt) {
+  const pv = G.preview; if (!pv || !pv.poly) return;
+  if (input.pressed('Escape') || input.pressed('KeyP')) { endPreview(); return; }
+  if (input.pressed('Space')) { pv.pause = !pv.pause; pvButtons(); }
+  for (const [k, m] of [['Digit1', 1], ['Digit2', 2], ['Digit4', 4]]) if (input.pressed(k)) { pv.mult = m; pv.pause = false; pvButtons(); }
+  const a0 = pvAt(pv.s);
+  world.update(a0.x, a0.z, dt); parking.update(dt, a0.x, a0.z); signs.update(dt, a0.x, a0.z);
+  // 新的小格載入了：用真實道路形狀重新產生路線
+  if (world.loadedCount !== pv.loadedSeen) { pv.loadedSeen = world.loadedCount; pvSetPoly(); }
+  const a = pvAt(pv.s), ahead = pvAt(pv.s + 130);
+  const ready = world.readyAround(a.x, a.z, 150) && world.readyAround(ahead.x, ahead.z, 120);
+  const sf = world.surfaceAt(a.x, a.z, pv.y + 0.8, _pvS), e = sf ? sf.edge : null;
+  // 速度：大馬路約 50、一般道路 40、巷子 30 km/h；轉彎前、快到的時候放慢
+  const turn = nextTurn(pv.poly, { i: a.i * 2, t: a.t }, 250);
+  let vT = e ? (e.cls <= 3 ? 13.9 : e.cls === 4 ? 11.1 : 8.3) : 9.7;
+  if (turn && turn.dist < 50) vT = Math.min(vT, 4.5 + turn.dist * 0.14);
+  const rest = pv.total - pv.s; if (rest < 45) vT = Math.min(vT, 1.5 + rest * 0.25);
+  const dm = dt * pv.mult;
+  if (!ready || pv.pause) pv.v = 0;
+  else { pv.v += Math.max(-5 * dm, Math.min(2.6 * dm, vT - pv.v)); pv.s = Math.min(pv.total, pv.s + pv.v * dm); }
+  // 位置、方向：雙向道開在右半邊的車道
+  const p = pvAt(pv.s), f = pvAt(pv.s + 5), bk = pvAt(pv.s - 2);
+  let dx = f.x - bk.x, dz = f.z - bk.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+  const offT = e && !e.oneway ? Math.min(e.hw * 0.5, 1.8) : 0; pv.off += (offT - pv.off) * Math.min(1, dt * 2);
+  const x = p.x - dz * pv.off, z = p.z + dx * pv.off;
+  let dpsi = Math.atan2(-dx, -dz) - pv.psi; dpsi = Math.atan2(Math.sin(dpsi), Math.cos(dpsi)); pv.psi += dpsi * Math.min(1, dm * 5);
+  const s2 = world.surfaceAt(x, z, pv.y + 0.8, _pvS2), ty = s2 ? s2.y : world.groundAt(x, z, pv.y); pv.y += (ty - pv.y) * Math.min(1, dt * 10);
+  pv.pos.x = x; pv.pos.z = z; pv.i = p.i * 2;
+  if (pvGhost) { pvGhost.position.set(x, pv.y, z); pvGhost.rotation.set(0, pv.psi, 0); }
+  chaseCam({ x, y: pv.y, z, fwdX: -Math.sin(pv.psi), fwdZ: -Math.cos(pv.psi), v: pv.v * pv.mult, edge: e, body: {} }, dt, { back: 10.5, up: 4.6, backPort: 11.5, upPort: 5.4 });
+  // 藍色路線（路面上）跟著影子車更新
+  pv.meshT -= dt; if (pv.meshT <= 0 && econ.has('nav')) { pv.meshT = 1.5; G.routeIdx = p.i * 2; buildRouteMesh(x, z, pv.y); }
+  // ---- 畫面上的路名牌
+  const curName = (e && e.name) || '';
+  $('pvRoad').textContent = curName ? `現在：${curName}` : '現在：沒有路名的巷子';
+  $('pvRest').textContent = `剩 ${fmtDist(Math.max(0, rest))}・${pv.pause ? '暫停' : pv.mult + '×'}`;
+  let nd = null;
+  for (const n of pv.nodes) { if (n.d > 40 || n.s < pv.s - 3) continue; if (n.s - pv.s > 170) break; const wn = world.nodes.get(n.id); if (!wn) continue;
+    const t = pvTurnAt(n.s); const nextE = world.edges.get(n.next), curE = world.edges.get(n.cur);
+    const nextName = nextE ? nextE.name : '', cur0 = curE ? curE.name : curName;
+    // 交叉的路：不列迴轉道、匝道、快速道路，也不列不像路名的服務道路（例如「某某校區」）
+    const cross = [...new Set(wn.edges.filter(q => q.name && q.name !== cur0 && q.name !== nextName && q.cls !== 0 && q.cls !== 7 && !/迴轉道|匝道/.test(q.name) && (q.cls <= 5 || /(路|街|段|巷|弄|橋)$/.test(q.name))).map(q => q.name))];
+    if (t === 'straight' && !cross.length) continue;   // 沒有路名的小巷口不顯示
+    nd = { n, t, nextName, cross, cur0 }; break; }
+  const sign = $('pvSign'), hint = $('pvHint');
+  if (!ready) { sign.hidden = true; hint.hidden = false; hint.className = ''; hint.textContent = '載入前面的路…'; }
+  else if (rest < 2) {
+    sign.hidden = true; hint.hidden = false; hint.className = 'turn'; hint.textContent = `到了：${G.leg === 'am' ? dest().n : '家'}附近，接下來自己找車位停`;
+    pv.endT += dt; if (pv.endT > 2.2) endPreview();
+  } else if (nd) {
+    if (nd.t !== 'straight' && /迴轉道/.test(nd.nextName)) nd.t = 'uturn';   // 轉進迴轉道＝迴轉
+    const turning = nd.t !== 'straight', name = turning ? (nd.nextName || '巷子') : nd.cross.slice(0, 2).join('／');
+    sign.hidden = false; $('pvArrow').textContent = PV_ARROW[nd.t]; $('pvName').textContent = name;
+    if (nd.n.en === undefined || nd.n.enFor !== name) { nd.n.enFor = name; nd.n.en = turning || nd.cross.length === 1 ? pvEnglish(name, nd.n.x, nd.n.z) : ''; }
+    $('pvEn').textContent = nd.n.en || ''; $('pvEn').hidden = !nd.n.en;
+    const d = Math.max(0, Math.round(nd.n.s - pv.s));
+    hint.hidden = false; hint.className = turning ? 'turn' : '';
+    const where = d > 3 ? `前方 ${d} m 的路口` : '這個路口';
+    hint.textContent = turning ? `${where}${PV_WORD[nd.t]}${nd.nextName ? `，進入${nd.nextName}` : ''}` : `${where}（${name}）直走${nd.cur0 ? `，繼續走${nd.cur0}` : ''}`;
+  } else {
+    sign.hidden = true; hint.hidden = !turn; hint.className = '';
+    if (turn) hint.textContent = `沿著${curName || '這條路'}直走 ${fmtDist(turn.dist)}`;
+  }
+}
+function endPreview() {
+  const pv = G.preview; if (!pv || pv.ending) return; pv.ending = true;
+  fadeThen(() => {
+    if (pvGhost) { scene.remove(pvGhost); pvGhost = null; }
+    $('pv').hidden = true; input.noLock = false;
+    traffic.factor = pv.tf ?? 1;
+    G.preview = null; G.chase = null;
+    const back = () => {
+      G.state = 'drive'; $('loading').hidden = true; $('hud').hidden = false; if (input.touch) $('touch').hidden = false;
+      camera.near = G.cam === 'cockpit' ? 0.8 : 0.3; camera.updateProjectionMatrix();
+      traffic.update(0.016, car.x, car.z, [{ x: car.x, z: car.z, y: car.y, r: 2.3 }], true);
+      planRoute(); toast('預覽結束，回到車上：照剛剛的路線開吧', 2.4);
+    };
+    if (world.readyAround(car.x, car.z, 260) && parking.readyAround(car.x, car.z, 120)) back();
+    else {
+      G.state = 'loading'; G.focus = { x: car.x, z: car.z }; $('hud').hidden = true; $('touch').hidden = true; $('loading').hidden = false;
+      $('loadText').textContent = '回到車上…'; $('loadSub').textContent = '';
+      G.wait = { cond: () => world.readyAround(car.x, car.z, 260) && parking.readyAround(car.x, car.z, 120), then: back };
+    }
+  });
+}
+window.__tc.startPreview = startPreview; window.__tc.endPreview = endPreview;
 
 // ===================================================================== 壓縮空氣的白霧
 const _jp = new THREE.Vector3(), _jd = new THREE.Vector3(), JET_FX = {
@@ -2121,6 +2284,7 @@ function frame(dt) {
     else if (st === 'drive') { if (AUTO) autoTest(dt); driveFrame(dt); }
     else if (st === 'summary' || st === 'work') { world.update(P.x, P.z, dt); }
     else if (st === 'measure') measureFrame(dt);
+    else if (st === 'preview') previewFrame(dt);
     if (['walk', 'drive', 'room', 'basement', 'measure'].includes(st)) G.clock += dt * TIME.scale / 60;
     if (ctl && G.mode === 'hybrid' && ['walk', 'drive', 'room'].includes(st)) ctlTick(dt);
   }
@@ -2186,7 +2350,8 @@ function render() {
   if (window.__tc.camHook) window.__tc.camHook(camera);   // 錄影用：自訂鏡頭
   sky.position.copy(camera.position);
   ground.position.set(Math.round(camera.position.x / 50) * 50, -15, Math.round(camera.position.z / 50) * 50);
-  const inCar = G.state === 'drive', fx = inCar ? car.x : P.x, fz = inCar ? car.z : P.z, fy = inCar ? car.y : P.y;
+  const inCar = G.state === 'drive', pvp = G.state === 'preview' && pvGhost ? pvGhost.position : null;
+  const fx = pvp ? pvp.x : inCar ? car.x : P.x, fz = pvp ? pvp.z : inCar ? car.z : P.z, fy = pvp ? pvp.y : inCar ? car.y : P.y;
   const sx = Math.round(fx / 4) * 4, sz = Math.round(fz / 4) * 4;
   sun.target.position.set(sx, fy, sz); sun.position.set(sx + SUN_DIR.x * 260, fy + SUN_DIR.y * 260, sz + SUN_DIR.z * 260);
   sun.target.updateMatrixWorld();

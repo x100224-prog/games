@@ -1,6 +1,7 @@
 # 台北上班路：進度（2026-10-22 更新）
 
 ## 已完成
+- 2026-10-23 傍晚（線上 main ff3fa5c、artifact v20）：商店新增「路線預覽」（economy.js SHOP preview，requires nav，PRICE_FIXED 15 萬遊戲設定）。停在車上按 P（手機在「⋯」→ 預覽路線；電腦提示列有「P 預覽路線」）：main.js startPreview／previewFrame／endPreview——影子車（car.group 複製）照導航路線開（大馬路約 50、一般 40、巷子 30 km/h，轉彎前放慢，雙向道開右半邊），車外視角（chaseCam 拉高拉遠），車流清掉，遊戲時間不走；路線隨小格載入換成真實道路形狀（pvSetPoly），前方還沒載入就等。畫面上方大的路名牌（#pvSign 仿指25 綠底白字，英文取附近路名牌）顯示下一個路口的交叉路名或要轉進去的路，提示直走／左轉／右轉／迴轉和距離；1×／2×／4×／暫停／結束預覽（Esc、P）。結束後回到車上（附近沒載入就先載入）。測試 tests/preview_test.mjs [phone]（QUICK=1 只跑一段、LOWQ=1 低畫質）。
 - 2026-10-22 上午（線上 main c1690bd、artifact v18）：
   - 道路被房子擋住：原因是開放地圖的真實建物外框畫進馬路（騎樓、巷子、用車道數估的路寬；捷運高架／地下車站外框畫在馬路上），遊戲照外框做碰撞。tools/build_tiles.py 新增「道路淨空」（ROADCUT=1 預設）：地面路段（高架離地 <3 m、隧道洞口路面離地 <3 m 也算）的路面＋路口圓盤，從真實建物挖掉；有洞的切成沒洞的幾塊；資料寫明在路上方的（layer≥1、min_height、building:min_level、道路 building_passage／covered、或路被建物整個包住且樓高 ≥8 m）留懸空樓層（建物紀錄 [7] = 懸空高度 dm；world.js 只畫不碰撞，有底面）。全市檢查 tools/audit_roads.py：完全擋住 531 → 0、路被擠窄 2183 → 0。重建要用兩個 DEM：`python3 tools/build_tiles.py build/extract.pkl web/data build/dem_taipei_2025.zip,build/dem_ntpc_2025.zip`（ROADCUT=0 可重現舊資料，已驗證完全相同）。住址清單因此重新挑過（舊存檔用自己存的住址，不受影響）。
   - 手機開車改成車外第三人稱（main.js defaultCam／chaseCam：跟著車頭方向、被建物擋住會拉近、直拿時高一點遠一點、隧道裡放低），不跳座椅調整；「⋯」拿掉視角／座椅／後照鏡，改「畫面：順暢優先／畫質優先」。手機導航畫面一樣貼在右側（navMini）。電腦版仍是駕駛座。
