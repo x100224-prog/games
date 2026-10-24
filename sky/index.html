@@ -78,6 +78,7 @@ button:focus-visible{outline:2px solid var(--warn);outline-offset:2px}
 #crouchBtn{width:78px;height:78px;border-radius:50%;font-size:1rem;font-weight:700;touch-action:none;-webkit-user-select:none;user-select:none}
 #crouchBtn.held{background:rgba(217,212,199,.32);color:#fff}
 #slats{position:fixed;inset:0;pointer-events:none;z-index:3;background:repeating-linear-gradient(to bottom,rgba(6,7,8,.93) 0 18px,rgba(6,7,8,0) 18px 34px),radial-gradient(ellipse at center,rgba(0,0,0,0) 40%,rgba(0,0,0,.75) 100%)}
+#skipHint{position:fixed;right:max(14px,env(safe-area-inset-right,0px));bottom:max(14px,env(safe-area-inset-bottom,0px));z-index:6;padding:6px 12px;background:rgba(11,12,13,.6);border:1px solid rgba(217,212,199,.35);color:#d9d4c7;font-size:.85rem;pointer-events:none}
 #snkEye{position:fixed;left:50%;top:max(14px,env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:10px;padding:6px 12px;background:rgba(11,12,13,.7);border:1px solid rgba(232,64,46,.6);font-family:var(--pixel);font-size:1.1rem;color:#f4c0b0;pointer-events:none}
 #snkEye b{font-weight:400;white-space:nowrap}#snkEye i{display:block;width:min(30vw,150px);height:8px;border:1px solid currentColor}#snkEye u{display:block;height:100%;width:0;background:#e8402e;text-decoration:none}
 @media (max-width:640px){#snkEye{top:calc(max(14px,env(safe-area-inset-top,0px)) + 122px)}}
@@ -275,6 +276,7 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
 </div>
 <div id="madB" hidden aria-hidden="true"></div>
 <div id="slats" hidden aria-hidden="true"></div>
+<div id="skipHint" hidden>點一下畫面（或按空白鍵）跳過</div>
 <div id="snkEye" hidden role="status"><b id="snkLbl">快被發現了</b><i><u id="snkFill"></u></i></div>
 
 <div class="purwrap" id="purUI" hidden>
@@ -1657,8 +1659,9 @@ document.addEventListener('pointerlockchange',()=>{if(!locked())mouseHeld=false;
 const act=$('act');
 const crouchBtn=$('crouchBtn');crouchBtn.addEventListener('pointerdown',e=>{e.preventDefault();snkSetCrouch(!SNK.crouch);});
 let runHeld=false;const runBtn=$('runBtn');
-runBtn.addEventListener('pointerdown',e=>{runHeld=true;runBtn.classList.add('held');runBtn.setPointerCapture(e.pointerId);e.preventDefault();});
-['pointerup','pointercancel'].forEach(t=>runBtn.addEventListener(t,()=>{runHeld=false;runBtn.classList.remove('held');}));
+/* 手機的加速鍵是開關：按一下就一直跑，再按一下回到走路速度 */
+function setRun(on){runHeld=!!on;runBtn.classList.toggle('held',runHeld);runBtn.textContent=runHeld?'跑步中':'加速';runBtn.setAttribute('aria-pressed',runHeld?'true':'false');}
+runBtn.addEventListener('pointerdown',e=>{e.preventDefault();setRun(!runHeld);});
 act.addEventListener('pointerdown',e=>{btnHeld=true;pressEdge=true;act.classList.add('held');act.setPointerCapture(e.pointerId);e.preventDefault();});
 ['pointerup','pointercancel'].forEach(t=>act.addEventListener(t,()=>{btnHeld=false;act.classList.remove('held');}));
 function touchSheetHold(){for(const k in touches){const f=touches[k];if(f.mode==='look'&&f.hold==='sheet'&&f.moved<16)return true;}return false;}
@@ -2462,9 +2465,11 @@ function kidCough(i,rec){const k=KIDS[i];if(!k)return;k.cough=1;k.root.updateWor
   SFX.kidCough();if(rec)SC.recEv=i;}
 
 /* =========================================================
-   放學後：躲開子豪媽媽，溜出學校（潛行）
-   規則：她先堵在校門口；要讓她從窗外看到你在走廊，她才會進大樓找人。
-   她進走廊後會一扇一扇窗戶往外看——被她看到就失敗；沒被看到、走出校門就成功。
+   放學後：躲開子豪爸媽，溜出學校（潛行）
+   一開始是過場：鏡頭從走廊穿出窗戶推到校門口，子豪媽媽和子豪爸爸在校門口走來走去。
+   規則：要讓子豪媽媽從窗外看到你在走廊，她才會進大樓找人；子豪爸爸一直守在校門口來回走，
+   只有在操場被他的手電筒照到，他才會離開校門跑過去（找不到人就回校門）。
+   出校門時誰看到你，回家路上就是誰追你（兩個都看到就兩個一起追）。
    走廊前牆有五扇窗、兩頭各一道門；操場上有樹籬、腳踏車棚、樹、花台、司令台和器材櫃可以躲。
    ========================================================= */
 const YARD=new T.Group();YARD.position.set(CX,0,0);SCH.add(YARD);
@@ -2561,23 +2566,38 @@ const SNK_WX=[4.2,2.1,0,-2.1,-4.2];   // 窗戶中心（走廊座標）
   SNK.lamp=new T.PointLight(0xffc880,0,9,1.6);SNK.lamp.position.set(-6.15,3.3,17.3);
   Y.add(SNK.hemi,SNK.sun,SNK.sun.target,SNK.lamp);
   YARD.updateMatrixWorld(true);COR.updateMatrixWorld(true);SNK.occSchool=SNK.occ;}
-/* 子豪媽媽：漁夫帽、墨鏡、口罩、長風衣、手機一直亮著 */
-const PAR3=(()=>{const g=new T.Group();g.visible=false;scene.add(g);
-  const coat=std({color:0x8a7a5e,roughness:.85}),pants=std({color:0x2a2a30,roughness:.8}),skin=std({color:0xd8b090,roughness:.6}),hair=std({color:0x1a1210,roughness:.7}),blk=std({color:0x0a0a0a,roughness:.25,metalness:.5}),mask=std({color:0xe8ecee,roughness:.9}),hat=std({color:0x4a4038,roughness:.8}),bag=std({color:0x6a1e24,roughness:.5});
-  const P={g,legs:[],arms:[],head:new T.Group(),body:new T.Group(),yaw:0,phase:0,mv:0};g.add(P.body);
-  [-1,1].forEach(s=>{const hip=new T.Group();hip.position.set(s*.1,.86,0);hip.add(mesh(new T.BoxGeometry(.13,.8,.14),pants,0,-.4,0),mesh(rbox(.13,.08,.24,.03),blk,0,-.82,.05));g.add(hip);P.legs.push(hip);});
-  P.body.add(mesh(new T.CylinderGeometry(.19,.28,.78,14),coat,0,1.07,0),mesh(new T.SphereGeometry(.21,14,10).scale(1.25,.55,.9),coat,0,1.45,0));
-  P.body.add(mesh(rbox(.28,.22,.1,.03),bag,-.3,1.02,.03),mesh(new T.BoxGeometry(.02,.5,.02),bag,-.24,1.3,.02));
-  [-1,1].forEach(s=>{const sh=new T.Group();sh.position.set(s*.27,1.44,0);sh.add(mesh(new T.BoxGeometry(.1,.62,.11),coat,0,-.31,0),mesh(new T.SphereGeometry(.05,10,8),skin,0,-.64,0));P.body.add(sh);P.arms.push(sh);});
+/* 家長模型。媽媽：漁夫帽、墨鏡、口罩、長風衣、手機一直亮著。爸爸：棒球帽、眼鏡、深藍 POLO 衫、卡其褲、啤酒肚，手機手電筒拿在右手 */
+function makeParent(kind){const g=new T.Group();g.visible=false;scene.add(g);const dad=kind==='dad';
+  const coat=std({color:dad?0x24344e:0x8a7a5e,roughness:.85}),pants=std({color:dad?0x8a7c60:0x2a2a30,roughness:.8}),skin=std({color:dad?0xc89a74:0xd8b090,roughness:.6}),hair=std({color:0x1a1210,roughness:.7}),
+    blk=std({color:0x0a0a0a,roughness:.25,metalness:.5}),mask=std({color:0xe8ecee,roughness:.9}),hat=std({color:dad?0x7a2420:0x4a4038,roughness:.8}),bag=std({color:0x6a1e24,roughness:.5}),shoe=std({color:dad?0x4a3020:0x0a0a0a,roughness:.5});
+  const P={g,kind,legs:[],arms:[],head:new T.Group(),body:new T.Group(),yaw:0,phase:0,mv:0,name:dad?'子豪爸爸':'子豪媽媽'};g.add(P.body);
+  const sc=dad?1.04:1;
+  [-1,1].forEach(s=>{const hip=new T.Group();hip.position.set(s*(dad?.11:.1),.86*sc,0);hip.add(mesh(new T.BoxGeometry(dad?.15:.13,.8*sc,dad?.16:.14),pants,0,-.4*sc,0),mesh(rbox(dad?.14:.13,.08,dad?.27:.24,.03),shoe,0,-.82*sc,.05));g.add(hip);P.legs.push(hip);});
+  if(dad){P.body.add(mesh(new T.CylinderGeometry(.22,.24,.7,14),coat,0,1.2,0),mesh(new T.SphereGeometry(.24,14,10).scale(1.25,.5,.9),coat,0,1.53,0));
+    P.body.add(mesh(new T.SphereGeometry(.2,14,10).scale(1,.95,.85),coat,0,1.05,.08));   // 啤酒肚
+    P.body.add(mesh(new T.CylinderGeometry(.23,.23,.06,14),std({color:0x3a2a1a,roughness:.5}),0,.9,0),mesh(new T.BoxGeometry(.06,.05,.02),std({color:0xc0a040,metalness:.8,roughness:.3}),0,.9,.23));   // 皮帶
+    P.body.add(mesh(new T.BoxGeometry(.16,.1,.02),std({color:0xe8e4da,roughness:.8}),0,1.55,.2));   // POLO 領子
+  }else{P.body.add(mesh(new T.CylinderGeometry(.19,.28,.78,14),coat,0,1.07,0),mesh(new T.SphereGeometry(.21,14,10).scale(1.25,.55,.9),coat,0,1.45,0));
+    P.body.add(mesh(rbox(.28,.22,.1,.03),bag,-.3,1.02,.03),mesh(new T.BoxGeometry(.02,.5,.02),bag,-.24,1.3,.02));}
+  const sy=dad?1.52:1.44,sx=dad?.31:.27;
+  [-1,1].forEach(s=>{const sh=new T.Group();sh.position.set(s*sx,sy,0);sh.add(mesh(new T.BoxGeometry(dad?.12:.1,dad?.24:.62,dad?.13:.11),coat,0,dad?-.12:-.31,0));
+    if(dad)sh.add(mesh(new T.BoxGeometry(.09,.42,.09),skin,0,-.43,0));
+    sh.add(mesh(new T.SphereGeometry(.05,10,8),skin,0,-.64,0));if(dad&&s<0)sh.add(mesh(new T.BoxGeometry(.05,.03,.06),blk,0,-.56,0));P.body.add(sh);P.arms.push(sh);});
   P.phone=mesh(new T.BoxGeometry(.075,.14,.012),new T.MeshBasicMaterial({color:0xcfe6ff}),0,-.68,.04);P.arms[1].add(P.phone);
-  P.head.position.set(0,1.62,0);P.body.add(P.head);
-  P.head.add(mesh(new T.SphereGeometry(.12,16,12),skin,0,0,0),mesh(new T.BoxGeometry(.26,.2,.1),hair,0,-.06,-.07),mesh(new T.BoxGeometry(.21,.05,.03),blk,0,.02,.115),mesh(new T.BoxGeometry(.17,.085,.03),mask,0,-.065,.108));
-  P.head.add(mesh(new T.CylinderGeometry(.13,.16,.11,16),hat,0,.11,0),mesh(new T.CylinderGeometry(.24,.24,.015,18),hat,0,.06,0));
+  P.head.position.set(0,dad?1.72:1.62,0);P.body.add(P.head);
+  P.head.add(mesh(new T.SphereGeometry(.12,16,12),skin,0,0,0));
+  if(dad){P.head.add(mesh(new T.BoxGeometry(.25,.12,.2),hair,0,.02,-.04));
+    P.head.add(mesh(new T.CylinderGeometry(.13,.14,.1,16),hat,0,.08,0),mesh(new T.BoxGeometry(.2,.02,.14),hat,0,.04,.15));   // 棒球帽＋帽簷
+    [-1,1].forEach(s=>P.head.add(mesh(new T.BoxGeometry(.075,.05,.012),blk,s*.05,.0,.118)));P.head.add(mesh(new T.BoxGeometry(.03,.012,.012),blk,0,.005,.12));   // 眼鏡
+    P.head.add(mesh(new T.BoxGeometry(.07,.015,.015),std({color:0x2a1a14}),0,-.05,.115));}   // 鬍子
+  else{P.head.add(mesh(new T.BoxGeometry(.26,.2,.1),hair,0,-.06,-.07),mesh(new T.BoxGeometry(.21,.05,.03),blk,0,.02,.115),mesh(new T.BoxGeometry(.17,.085,.03),mask,0,-.065,.108));
+    P.head.add(mesh(new T.CylinderGeometry(.13,.16,.11,16),hat,0,.11,0),mesh(new T.CylinderGeometry(.24,.24,.015,18),hat,0,.06,0));}
   const mk=(txt,col)=>{const t=ctex(64,64,x=>{x.fillStyle=col;x.beginPath();x.arc(32,32,26,0,7);x.fill();x.fillStyle='#1a1a1a';x.font='900 40px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(txt,32,35);});return new T.SpriteMaterial({map:t,depthTest:false,transparent:true});};
-  P.markQ=mk('?','#f4c040');P.markE=mk('!','#e8402e');P.mark=new T.Sprite(P.markQ);P.mark.position.y=2.05;P.mark.scale.set(.32,.32,1);P.mark.renderOrder=990;P.mark.visible=false;g.add(P.mark);
+  P.markQ=mk('?','#f4c040');P.markE=mk('!','#e8402e');P.mark=new T.Sprite(P.markQ);P.mark.position.y=dad?2.15:2.05;P.mark.scale.set(.32,.32,1);P.mark.renderOrder=990;P.mark.visible=false;g.add(P.mark);
   g.traverse(o=>{if(o.isMesh){o.castShadow=true;o.userData.heat=.8;}});
-  return P;})();
-function parAnim(dt){const P=PAR3;P.phase+=dt*P.mv*5.2;const sw=Math.sin(P.phase)*.55*Math.min(1,P.mv);
+  return P;}
+const PAR3=makeParent('mom'),PAR4=makeParent('dad');
+function parAnim(dt,P=PAR3){P.phase+=dt*P.mv*5.2;const sw=Math.sin(P.phase)*.55*Math.min(1,P.mv);
   P.legs[0].rotation.x=sw;P.legs[1].rotation.x=-sw;P.arms[0].rotation.x=-sw*.6;P.arms[1].rotation.x=-1.05+Math.sin(P.phase)*.06;
   P.body.position.y=Math.abs(Math.cos(P.phase))*.03*Math.min(1,P.mv);P.g.rotation.y=P.yaw;}
 function snkFaceYaw(dx,dz){return Math.atan2(dx,dz);}
@@ -2594,7 +2614,68 @@ function snkPlanWin(){const P=SNK.plan;P.length=0;
   const x=SNK_WX[SNK.winI];P.push({go:[CX+x,.72],sp:1.2},{wait:3.4,face:0,scan:.6});
   if(SNK.winI===0)P.push({go:[CX+5.2,.3],sp:1.2},{wait:1.6,face:snkFaceYaw(.6,1),scan:.2});
   SNK.winI+=SNK.winD;P.push({fn:()=>snkPlanWin()});}
-function snkReset(){Object.assign(SNK,{on:false,ph:'',meter:0,crouch:false,hide:null,plan:[],t:0,winI:0,winD:-1,ok:false});
+function snkRunPlan(P,plan,dt,tt){const a=plan[0];if(!a)return false;let moving=false;
+  if(a.go){const dx=a.go[0]-P.g.position.x,dz=a.go[1]-P.g.position.z,dl=Math.hypot(dx,dz);
+    if(dl<.06){plan.shift();}else{const st=Math.min(dl,a.sp*dt);P.g.position.x+=dx/dl*st;P.g.position.z+=dz/dl*st;moving=true;
+      P.yaw+=angDiff(Math.atan2(dx,dz),P.yaw)*Math.min(1,dt*7);P.head.rotation.y*=1-Math.min(1,dt*5);snkStep(st,false,P);}}
+  else if(a.wait!=null){if(a.fn&&!a.done){a.done=true;a.fn();}a.left=(a.left==null?a.wait:a.left)-dt;
+    if(a.face!=null)P.yaw+=angDiff(a.face,P.yaw)*Math.min(1,dt*5);P.head.rotation.y=a.scan?Math.sin(tt*1.05)*a.scan:P.head.rotation.y*(1-Math.min(1,dt*4));
+    if(a.left<=0)plan.shift();}
+  else if(a.fn){plan.shift();a.fn();}
+  return moving;}
+/* 子豪爸爸：一直守在校門口來回走，手機手電筒照著操場。只有在操場（不是走廊）被他照到，他才會離開校門跑過去；找不到人就回校門 */
+const DAD={P:PAR4,B:null,ph:'gate',plan:[],nav:{},tx:0,tz:0,searchT:0,litCD:0,turnT:0,t:0};
+const DAD_Z=17.35,DAD_SHOUT=['「喂！老師！」','「站住！」','「我看到你了！」','「老師你別跑！」'];
+function dadPlanGate(){const P=DAD.plan;P.length=0;
+  P.push({go:[CX-6.5,DAD_Z],sp:.85},{wait:3.4,face:Math.PI,scan:.7},{go:[CX-1.5,DAD_Z],sp:.85},{wait:3.4,face:Math.PI,scan:.7},{fn:()=>{if(DAD.ph==='gate')dadPlanGate();}});}
+function dadReset(){Object.assign(DAD,{ph:'gate',plan:[],nav:{},searchT:0,litCD:0,turnT:0,t:0});PAR4.g.visible=false;PAR4.mark.visible=false;beamOff(BEAM2);}
+function dadSpot(){const D=DAD,first=D.ph!=='chase';D.ph='chase';D.plan.length=0;D.tx=player.x;D.tz=player.z;navTo(D.tx,D.tz,D.nav);D.B.ring.position.set(D.tx,.03,D.tz);D.B.ring.visible=true;SNK.everSpotted=true;
+  if(first){SFX.sting();say(DAD_SHOUT[Math.random()*DAD_SHOUT.length|0],1.6);MZ.music=true;MZ.next=0;}}
+/* 回傳 true＝抓到了 */
+function updateDad(dt,inCor,runKey,moved,detect){const D=DAD,P=D.P,B=D.B;D.t+=dt;let moving=false;
+  const dP=Math.hypot(player.x-P.g.position.x,player.z-P.g.position.z);
+  if(D.ph==='chase'){moving=true;P.mv=1.7;if(navMove(P,3.8,dt,D.nav)){D.ph='search';D.searchT=3.6;B.ring.visible=false;say('（子豪爸爸在附近找你……）',2);}}
+  else if(D.ph==='search'){D.searchT-=dt;P.yaw+=1.25*dt;P.head.rotation.y=Math.sin(D.t*2.2)*.3;if(D.searchT<=0){D.ph='return';navTo(CX-4,DAD_Z,D.nav);}}
+  else if(D.ph==='return'){moving=true;if(navMove(P,2.2,dt,D.nav)){D.ph='gate';dadPlanGate();}}
+  else{moving=snkRunPlan(P,D.plan,dt,D.t);if(!D.plan.length)dadPlanGate();
+    if(detect&&runKey&&moved>2&&dP<7&&!SNK.hide&&!inCor)D.turnT=1.4;   // 跑步的腳步聲他也聽得到
+    if(D.turnT>0){D.turnT-=dt;P.yaw+=angDiff(Math.atan2(player.x-P.g.position.x,player.z-P.g.position.z),P.yaw)*Math.min(1,dt*6);P.head.rotation.y*=.85;}}
+  if(D.ph!=='chase')P.mv=lerp(P.mv,moving?1:0,Math.min(1,dt*6));parAnim(dt,P);
+  B.on=true;B.range=D.ph==='search'?8:11;B.light.visible=true;B.light.intensity=3.6;B.light.distance=B.range+2;B.cone.visible=true;snkAim(P,B,D.ph==='search'?-.1:-.2);
+  if(B.ring.visible){const k=1+.15*Math.sin(D.t*10);B.ring.scale.set(k,1,k);}
+  P.mark.visible=D.ph==='chase'||D.ph==='search';P.mark.material=D.ph==='chase'?P.markE:P.markQ;
+  if(!detect)return false;
+  D.litCD-=dt;
+  if(!inCor&&!SNK.hide&&(snkLit(B)||dP<1.8)&&D.litCD<=0&&(D.ph!=='chase'||Math.hypot(player.x-D.tx,player.z-D.tz)>.8)){D.litCD=.35;dadSpot();}
+  if(!SNK.hide&&dP<1.0){snkFailStart(PAR4);return true;}
+  if(SNK.hide&&(D.ph==='chase'||D.ph==='search')&&Math.hypot(SNK.hide.out[0]-D.tx,SNK.hide.out[1]-D.tz)<3&&Math.hypot(P.g.position.x-SNK.hide.out[0],P.g.position.z-SNK.hide.out[1])<1.3){
+    say('「躲在這裡？」',1.6);SFX.rattle();snkUnhide();snkFailStart(PAR4);return true;}
+  return false;}
+/* ---- 過場：放學後鏡頭從走廊穿出窗戶、推到校門口，拍兩位家長來回走（字幕照跑），點一下可以跳過 ---- */
+const SI={t:0,fov0:70,pos:new T.Vector3(),look:new T.Vector3()};
+function snkIntroStart(){state='snkintro';SI.t=0;SI.fov0=camera.fov;setHUD(false);$('crouchBtn').hidden=true;$('runBtn').hidden=true;SI.pos.set(CX-1.75,1.6,-.55);SI.look.set(CX-3.9,1.3,17.2);$('skipHint').hidden=false;
+  if(document.exitPointerLock&&locked())document.exitPointerLock();}
+function snkIntroEnd(){if(state!=='snkintro')return;state='play';camera.fov=baseFov();camera.updateProjectionMatrix();setHUD(true);fadeV=.9;$('skipHint').hidden=true;
+  player.yaw=Math.PI+.12;player.pitch=.05;$('crouchBtn').hidden=!isTouch;$('runBtn').hidden=!isTouch;drawTasks();}
+function updateSnkIntro(dt){SI.t+=dt;const t=SI.t,M=PAR3,D=PAR4;
+  // 兩位家長照常在校門口來回走
+  const mv=snkRunPlan(M,SNK.plan,dt,SNK.t);SNK.t+=dt;M.mv=lerp(M.mv,mv?1:0,Math.min(1,dt*6));parAnim(dt,M);
+  updateDad(dt,true,false,0,false);
+  const mp=M.g.position,dp=D.g.position,E0=_siA.set(CX-1.75,1.6,-.55),G=_siB.set(CX-3.9,1.3,17.2);
+  let pos=_siC,look=_siD,fov,sm=1;
+  const mid=_siE.set((mp.x+dp.x)/2,1.4,(mp.z+dp.z)/2);
+  if(t<2.6){pos.copy(E0);look.copy(G);fov=SI.fov0;}
+  else if(t<8){const k=ease((t-2.6)/5.4);pos.copy(E0).lerp(_siF.set(CX-3.0,1.62,10.4),k);pos.y+=Math.sin(k*Math.PI)*.45;pos.x-=Math.sin(k*Math.PI)*.8;look.copy(G).lerp(mid,k);fov=lerp(SI.fov0,50,k);}
+  else if(t<13.2){const k=ease((t-8)/5.2);pos.set(CX-3.0,1.62,10.4).lerp(_siF.set(CX-3.4,1.55,12.9),k);look.copy(mid);fov=lerp(50,44,k);}
+  else if(t<16.4){pos.set(mp.x+.6,1.55,mp.z-3.0);look.set(mp.x,1.5,mp.z);fov=40;sm=Math.min(1,dt*2.2);}      // 子豪媽媽
+  else{pos.set(dp.x-.9,1.62,dp.z-3.3);look.set(dp.x,1.55,dp.z);fov=40;sm=Math.min(1,dt*2.2);}               // 子豪爸爸
+  SI.pos.lerp(pos,sm);SI.look.lerp(look,sm<1?sm:1);camera.position.copy(SI.pos);camera.lookAt(SI.look);camera.fov=fov;camera.updateProjectionMatrix();
+  for(const k of ['k','flash','red','black','stat'])post.uniforms[k].value=0;
+  if(t>=19.8)snkIntroEnd();}
+const _siA=new T.Vector3(),_siB=new T.Vector3(),_siC=new T.Vector3(),_siD=new T.Vector3(),_siE=new T.Vector3(),_siF=new T.Vector3();
+addEventListener('pointerdown',e=>{if(state==='snkintro'){e.preventDefault();e.stopPropagation();snkIntroEnd();}},true);
+addEventListener('keydown',e=>{if(state==='snkintro'&&['Space','Enter','Escape','KeyE'].includes(e.code)){e.preventDefault();snkIntroEnd();}},true);
+function snkReset(){Object.assign(SNK,{on:false,ph:'',meter:0,crouch:false,hide:null,plan:[],t:0,winI:0,winD:-1,ok:false});dadReset();$('skipHint').hidden=true;
   SNK.lineT.forEach(clearTimeout);SNK.lineT=[];PAR3.g.visible=false;PAR3.mark.visible=false;BEAM.light.visible=false;BEAM.cone.visible=false;BEAM.ring.visible=false;MZ.music=false;
   SNK.doors.forEach(d=>d.rotation.y=0);snkSky(false);
   ['snkEye','slats','crouchBtn'].forEach(id=>$(id).hidden=true);if(stage==='school')$('runBtn').hidden=true;}
@@ -2604,7 +2685,7 @@ function snkSky(dusk){SNK.backMat.map=SNK.backM[dusk?1:0];SNK.backMat.needsUpdat
   SNK.lamp.intensity=dusk?1.3:0;SLIGHT.children.forEach(l=>{if(l.isPointLight&&Math.abs(l.position.x-CX)<8)l.distance=dusk?2.7:6;if(l.isHemisphereLight)l.intensity=dusk?.12:.5;if(l.isDirectionalLight)l.intensity=dusk?0:.6;});if(stage==='school'){scene.background.setHex(dusk?0x231f2e:0xb8c8d6);scene.environment=dusk?null:envTex;}SNK.lampM.color.setHex(dusk?0xfff0c8:0x888070);SNK.dusk=dusk;}
 /* 下課後 → 放學的走廊 */
 function snkStart(retry){
-  SC.sub='sneak';SC.done=true;state='play';sky=100;kv=0;fadeV=1.2;closePur();
+  setRun(false);SC.sub='sneak';SC.done=true;state='play';sky=100;kv=0;fadeV=1.2;closePur();
   SNK.lineT.forEach(clearTimeout);SNK.lineT=[];
   SNK.occ=SNK.occSchool;SNK.everSpotted=false;Object.assign(SNK,{on:true,ph:'gate',meter:0,crouch:false,hide:null,t:0,winI:SNK_WX.length-1,winD:-1,ok:false,heart:0});
   snkSky(true);SNK.doors.forEach(d=>d.rotation.y=d.userData.s>0?-1.45:1.45);
@@ -2614,17 +2695,18 @@ function snkStart(retry){
   player.x=CX-1.75;player.z=-.55;player.yaw=Math.PI;player.pitch=.05;
   navBuild();BEAM.light.visible=true;BEAM.light.intensity=0;SNK.lx=SNK.lz=undefined;SNK.turnT=0;SNK.litCD=0;
   const P=PAR3;P.g.visible=true;P.g.position.set(CX-4,0,16.7);P.yaw=Math.PI;P.mv=0;P.head.rotation.y=0;parAnim(0);snkPlanGate();
+  dadReset();const Q=PAR4;Q.g.visible=true;Q.g.position.set(CX-2.2,0,DAD_Z);Q.yaw=Math.PI;Q.mv=0;Q.head.rotation.y=0;parAnim(0,Q);dadPlanGate();DAD.plan.splice(0,1);
   $('crouchBtn').hidden=!isTouch;$('runBtn').hidden=!isTouch;$('crouchBtn').textContent='蹲下';$('crouchBtn').classList.remove('held');
-  const L=(t,s,d)=>SNK.lineT.push(setTimeout(()=>{if(SNK.on&&state==='play'&&stage==='school')say(s,d);},t));
-  if(retry){L(300,'子豪媽媽堵在校門口。先到窗邊讓她看見你，引她進來，再從另一頭的門溜出去。',4.2);}
-  else{L(300,'放學了。',2);L(2400,'……那是子豪媽媽？她在校門口走來走去。',3.2);L(5800,'早上去廟裡拜拜，晚了一點才到學校——她那時等不到我，先去上班了。',3.8);
-    L(9800,'現在她又回來了。得想辦法溜出學校，不能被她找到。',3.2);L(13200,'先到窗邊讓她看見我，把她引進來……再從另一頭的門溜出去。',4);}
+  const L=(t,s,d)=>SNK.lineT.push(setTimeout(()=>{if(SNK.on&&(state==='play'||state==='snkintro')&&stage==='school')say(s,d);},t));
+  if(retry){L(300,'子豪爸媽堵在校門口。先到窗邊讓子豪媽媽看見你，引她進來；子豪爸爸會一直守在校門口，別被他的手電筒照到。',5);}
+  else{snkIntroStart();L(300,'放學了。',2);L(2400,'……那是子豪媽媽？旁邊那個是子豪爸爸——他們在校門口走來走去。',3.2);L(5800,'早上去廟裡拜拜，晚了一點才到學校——他們那時等不到我，先去上班了。',3.8);
+    L(9800,'現在他們又回來了。得想辦法溜出學校，不能被他們找到。',3.2);L(13200,'先到窗邊讓子豪媽媽看見我，把她引進來……',3.1);L(16400,'子豪爸爸會一直守在校門口。別被他的手電筒照到，趁他沒注意的時候溜出去。',3.4);}
   drawTasks();}
 function snkHide(i){const c=SNK.cabs[i];if(!c||SNK.hide||SNK.ph==='alert')return;
   if(Math.hypot(player.x-c.out[0],player.z-c.out[1])>1.9){say('離櫃子太遠了。',1.4);return;}
   SNK.hide=c;SNK.crouch=false;SFX.rattle();$('slats').hidden=false;player.yaw=c.yaw;player.pitch=0;say('躲進櫃子裡。點一下（或按 E）出來。',2.2);}
 function snkUnhide(){const c=SNK.hide;if(!c)return;SNK.hide=null;SFX.rattle();$('slats').hidden=true;player.x=c.out[0];player.z=c.out[1];player.yaw=c.yaw;}
-function snkSetCrouch(on){if(SNK.hide)return;SNK.crouch=on;$('crouchBtn').textContent=on?'站起':'蹲下';$('crouchBtn').classList.toggle('held',on);}
+function snkSetCrouch(on){if(SNK.hide)return;SNK.crouch=on;if(on&&runHeld)setRun(false);$('crouchBtn').textContent=on?'站起':'蹲下';$('crouchBtn').classList.toggle('held',on);}
 /* 她看不看得到你：視線錐 55°、距離、牆壁／樹籬／車棚擋不擋 */
 const _sr=new T.Raycaster(),_se=new T.Vector3(),_sp=new T.Vector3(),_sd=new T.Vector3();
 function snkSees(){if(SNK.hide)return 0;const P=PAR3,ly=P.yaw+P.head.rotation.y;
@@ -2636,53 +2718,55 @@ function snkSees(){if(SNK.hide)return 0;const P=PAR3,ly=P.yaw+P.head.rotation.y;
     if(!_sr.intersectObjects(SNK.occ,false).length)return d;}
   return 0;}
 /* 她的手機手電筒：像探照燈一樣掃。被光照到＝被看到，她會用跑的衝到你被照到的地方 */
-const BEAM={on:false,ang:.34,range:20,ax:new T.Vector3(0,0,1),tgt:new T.Object3D(),light:null,cone:null,ring:null};
-{ const L=new T.SpotLight(0xfff2d6,0,22,BEAM.ang,.3,1.0);L.castShadow=true;L.shadow.mapSize.set(LITE?512:1024,LITE?512:1024);L.shadow.bias=-.0025;L.shadow.camera.near=.2;L.shadow.camera.far=24;
-  L.target=BEAM.tgt;L.visible=false;scene.add(L,BEAM.tgt);BEAM.light=L;
-  const cg=new T.ConeGeometry(Math.tan(BEAM.ang),1,28,1,true);cg.translate(0,-.5,0);cg.rotateX(-Math.PI/2);
-  BEAM.cone=new T.Mesh(cg,new T.MeshBasicMaterial({color:0xfff0c8,transparent:true,opacity:.12,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide}));
-  BEAM.cone.userData.noShadow=true;BEAM.cone.userData.noTherm=true;BEAM.cone.visible=false;BEAM.cone.frustumCulled=false;scene.add(BEAM.cone);
-  BEAM.ring=new T.Mesh(new T.RingGeometry(.42,.58,36).rotateX(-Math.PI/2),new T.MeshBasicMaterial({color:0xff3a22,transparent:true,opacity:.8,depthWrite:false,blending:T.AdditiveBlending}));
-  BEAM.ring.userData.noShadow=true;BEAM.ring.userData.noTherm=true;BEAM.ring.visible=false;scene.add(BEAM.ring);
-  PAR3.g.traverse(o=>{if(o.isMesh){o.userData.noShadow=true;o.castShadow=false;}});}
+function makeBeam(shadow){const B={on:false,ang:.34,range:20,ax:new T.Vector3(0,0,1),tgt:new T.Object3D(),light:null,cone:null,ring:null};
+  const L=new T.SpotLight(0xfff2d6,0,22,B.ang,.3,1.0);L.castShadow=!!shadow;if(shadow){L.shadow.mapSize.set(LITE?512:1024,LITE?512:1024);L.shadow.bias=-.0025;L.shadow.camera.near=.2;L.shadow.camera.far=24;}
+  L.target=B.tgt;L.visible=false;scene.add(L,B.tgt);B.light=L;
+  const cg=new T.ConeGeometry(Math.tan(B.ang),1,28,1,true);cg.translate(0,-.5,0);cg.rotateX(-Math.PI/2);
+  B.cone=new T.Mesh(cg,new T.MeshBasicMaterial({color:0xfff0c8,transparent:true,opacity:.12,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide}));
+  B.cone.userData.noShadow=true;B.cone.userData.noTherm=true;B.cone.visible=false;B.cone.frustumCulled=false;scene.add(B.cone);
+  B.ring=new T.Mesh(new T.RingGeometry(.42,.58,36).rotateX(-Math.PI/2),new T.MeshBasicMaterial({color:0xff3a22,transparent:true,opacity:.8,depthWrite:false,blending:T.AdditiveBlending}));
+  B.ring.userData.noShadow=true;B.ring.userData.noTherm=true;B.ring.visible=false;scene.add(B.ring);return B;}
+const BEAM=makeBeam(true),BEAM2=makeBeam(false);DAD.B=BEAM2;
+[PAR3,PAR4].forEach(P=>P.g.traverse(o=>{if(o.isMesh){o.userData.noShadow=true;o.castShadow=false;}}));
+function beamOff(B){B.on=false;B.light.visible=false;B.light.intensity=0;B.cone.visible=false;B.ring.visible=false;}
 /* 尋路：把操場和走廊切成 0.25 m 的格子，從目的地往回算距離，她每一步往距離比較小的格子走 */
 const NAV={cs:.25,x0:CX-8.75,z0:-1.15,nx:0,nz:0,blk:null,dist:null};
 function navBuild(x0=CX-8.75,z0=-1.15,w=17.5,d=19.85){NAV.x0=x0;NAV.z0=z0;NAV.nx=Math.ceil(w/NAV.cs);NAV.nz=Math.ceil(d/NAV.cs);NAV.blk=new Uint8Array(NAV.nx*NAV.nz);
   for(let j=0;j<NAV.nz;j++)for(let i=0;i<NAV.nx;i++){const x=NAV.x0+(i+.5)*NAV.cs,z=NAV.z0+(j+.5)*NAV.cs;let b=0;
     for(const c of COLL){if(x>c[0]-.2&&x<c[1]+.2&&z>c[2]-.2&&z<c[3]+.2){b=1;break;}}NAV.blk[j*NAV.nx+i]=b;}}
 function navCell(x,z){return [clamp(Math.floor((x-NAV.x0)/NAV.cs),0,NAV.nx-1),clamp(Math.floor((z-NAV.z0)/NAV.cs),0,NAV.nz-1)];}
-function navTo(x,z){const nx=NAV.nx,N=nx*NAV.nz;let [gi,gj]=navCell(x,z);
+function navTo(x,z,nv){const nx=NAV.nx,N=nx*NAV.nz;let [gi,gj]=navCell(x,z);
   if(NAV.blk[gj*nx+gi]){let best=null,bd=1e9;for(let dj=-6;dj<=6;dj++)for(let di=-6;di<=6;di++){const i=gi+di,j=gj+dj;if(i<0||j<0||i>=nx||j>=NAV.nz||NAV.blk[j*nx+i])continue;const d=di*di+dj*dj;if(d<bd){bd=d;best=[i,j];}}if(best)[gi,gj]=best;}
   const D=new Float32Array(N).fill(1e9),q=new Int32Array(N);let h=0,t=0;D[gj*nx+gi]=0;q[t++]=gj*nx+gi;
   while(h<t){const k=q[h++],i=k%nx,j=(k/nx)|0;for(let dj=-1;dj<=1;dj++)for(let di=-1;di<=1;di++){if(!di&&!dj)continue;const ii=i+di,jj=j+dj;if(ii<0||jj<0||ii>=nx||jj>=NAV.nz)continue;const kk=jj*nx+ii;
     if(NAV.blk[kk]||D[kk]<1e9)continue;if(di&&dj&&(NAV.blk[j*nx+ii]||NAV.blk[jj*nx+i]))continue;D[kk]=D[k]+(di&&dj?1.414:1);q[t++]=kk;}}
-  NAV.dist=D;NAV.goal=[x,z];}
+  const o=nv||NAV;o.dist=D;o.goal=[x,z];}
 /* 沿著尋路走一步，回傳是否到了 */
-function navMove(P,sp,dt){const [i,j]=navCell(P.g.position.x,P.g.position.z),nx=NAV.nx,D=NAV.dist;let tx=NAV.goal[0],tz=NAV.goal[1];
+function navMove(P,sp,dt,nv){const NV=nv||NAV,[i,j]=navCell(P.g.position.x,P.g.position.z),nx=NAV.nx,D=NV.dist;let tx=NV.goal[0],tz=NV.goal[1];
   if(Math.hypot(tx-P.g.position.x,tz-P.g.position.z)<.45||D[j*nx+i]<1.5){}else{let bd=D[j*nx+i],best=null;
     for(let dj=-1;dj<=1;dj++)for(let di=-1;di<=1;di++){const ii=i+di,jj=j+dj;if(ii<0||jj<0||ii>=nx||jj>=NAV.nz)continue;const v=D[jj*nx+ii];if(v<bd){bd=v;best=[ii,jj];}}
     if(best){tx=NAV.x0+(best[0]+.5)*NAV.cs;tz=NAV.z0+(best[1]+.5)*NAV.cs;}}
   const dx=tx-P.g.position.x,dz=tz-P.g.position.z,dl=Math.hypot(dx,dz);
-  if(dl<.05)return Math.hypot(NAV.goal[0]-P.g.position.x,NAV.goal[1]-P.g.position.z)<.3;
+  if(dl<.05)return Math.hypot(NV.goal[0]-P.g.position.x,NV.goal[1]-P.g.position.z)<.3;
   const st=Math.min(dl,sp*dt);P.g.position.x+=dx/dl*st;P.g.position.z+=dz/dl*st;P.yaw+=angDiff(Math.atan2(dx,dz),P.yaw)*Math.min(1,dt*9);P.head.rotation.y*=1-Math.min(1,dt*6);
-  snkStep(st,sp>2);return Math.hypot(NAV.goal[0]-P.g.position.x,NAV.goal[1]-P.g.position.z)<.3;}
-function snkStep(st,run){SNK.stepAcc+=st;if(SNK.stepAcc>(run?.8:.55)){SNK.stepAcc=0;const P=PAR3,d=Math.hypot(P.g.position.x-player.x,P.g.position.z-player.z),v=(run?.4:.25)/(1+d*d*.025);
+  snkStep(st,sp>2,P);return Math.hypot(NV.goal[0]-P.g.position.x,NV.goal[1]-P.g.position.z)<.3;}
+function snkStep(st,run,P=PAR3){P.stepAcc=(P.stepAcc||0)+st;if(P.stepAcc>(run?.8:.55)){P.stepAcc=0;const d=Math.hypot(P.g.position.x-player.x,P.g.position.z-player.z),v=(run?.4:.25)/(1+d*d*.025);
   nb({type:'highpass',f:2600,a:.001,d:.045,v});tn({type:'triangle',f:run?1400:1700,a:.001,d:.03,v:v*.5});}}
-function snkLit(){if(SNK.hide||!BEAM.on)return false;const o=BEAM.light.position,pts=SNK.crouch?[.45,.8]:[.6,1.3],c=Math.cos(BEAM.ang);
-  for(const y of pts){_sd.set(player.x-o.x,y-o.y,player.z-o.z);const d=_sd.length();if(d>BEAM.range)continue;_sd.multiplyScalar(1/d);if(_sd.dot(BEAM.ax)<c)continue;
+function snkLit(B=BEAM){if(SNK.hide||!B.on)return false;const o=B.light.position,pts=SNK.crouch?[.45,.8]:[.6,1.3],c=Math.cos(B.ang);
+  for(const y of pts){_sd.set(player.x-o.x,y-o.y,player.z-o.z);const d=_sd.length();if(d>B.range)continue;_sd.multiplyScalar(1/d);if(_sd.dot(B.ax)<c)continue;
     _sr.set(o,_sd);_sr.far=Math.max(.01,d-.12);if(!_sr.intersectObjects(SNK.occ,false).length)return true;}
   return false;}
 const SNK_SHOUT=['「在那裡！」','「老師！別跑！」','「我看到你了！」','「躲什麼躲！」'];
 function snkSpot(){const first=SNK.ph!=='chase';SNK.everSpotted=true;FL.lastSpot=FL.t;SNK.ph='chase';SNK.plan.length=0;SNK.tx=player.x;SNK.tz=player.z;navTo(SNK.tx,SNK.tz);SNK.navT=.35;SNK.turnT=0;
   BEAM.ring.position.set(SNK.tx,.03,SNK.tz);BEAM.ring.visible=true;
   if(first){SFX.sting();say(SNK_SHOUT[Math.random()*SNK_SHOUT.length|0],1.6);MZ.music=true;MZ.next=0;}}
-function snkAim(P){const yaw=P.yaw+P.head.rotation.y,p=SNK.ph==='search'?-.1:-.16,L=BEAM.light;
-  L.position.set(P.g.position.x+Math.sin(yaw)*.42,1.48,P.g.position.z+Math.cos(yaw)*.42);
-  BEAM.ax.set(Math.sin(yaw)*Math.cos(p),Math.sin(p),Math.cos(yaw)*Math.cos(p));
-  BEAM.tgt.position.copy(L.position).addScaledVector(BEAM.ax,10);BEAM.tgt.updateMatrixWorld();
-  _sr.set(L.position,BEAM.ax);_sr.far=BEAM.range;const h=_sr.intersectObjects(SNK.occ,false);let len=h.length?h[0].distance:BEAM.range;
-  if(BEAM.ax.y<0)len=Math.min(len,L.position.y/-BEAM.ax.y+.3);
-  BEAM.cone.position.copy(L.position);BEAM.cone.lookAt(BEAM.tgt.position);BEAM.cone.scale.setScalar(Math.max(.3,len));}
+function snkAim(P,B=BEAM,pitch){const yaw=P.yaw+P.head.rotation.y,p=pitch!=null?pitch:SNK.ph==='search'?-.1:-.16,L=B.light;
+  L.position.set(P.g.position.x+Math.sin(yaw)*.42,P.kind==='dad'?1.52:1.48,P.g.position.z+Math.cos(yaw)*.42);
+  B.ax.set(Math.sin(yaw)*Math.cos(p),Math.sin(p),Math.cos(yaw)*Math.cos(p));
+  B.tgt.position.copy(L.position).addScaledVector(B.ax,10);B.tgt.updateMatrixWorld();
+  _sr.set(L.position,B.ax);_sr.far=B.range;const h=_sr.intersectObjects(SNK.occ,false);let len=h.length?h[0].distance:B.range;
+  if(B.ax.y<0)len=Math.min(len,L.position.y/-B.ax.y+.3);
+  B.cone.position.copy(L.position);B.cone.lookAt(B.tgt.position);B.cone.scale.setScalar(Math.max(.3,len));}
 function updateSneak(dt){
   const P=PAR3,U=post.uniforms;SNK.t+=dt;
   // 蹲下：C 或 Ctrl 切換；按加速會自動站起來
@@ -2702,14 +2786,7 @@ function updateSneak(dt){
   else if(SNK.ph==='search'){SNK.searchT-=dt;P.yaw+=1.25*dt;P.head.rotation.y=Math.sin(SNK.t*2.2)*.3;
     if(SNK.searchT<=0){SNK.ph='return';MZ.music=false;const x=SNK_WX[clamp(SNK.winI,0,SNK_WX.length-1)];navTo(CX+x,.72);}}
   else if(SNK.ph==='return'){moving=true;if(navMove(P,2.0,dt)){SNK.ph='inside';snkPlanWin();}}
-  else{const a=SNK.plan[0];
-    if(a){if(a.go){const dx=a.go[0]-P.g.position.x,dz=a.go[1]-P.g.position.z,dl=Math.hypot(dx,dz);
-        if(dl<.06){SNK.plan.shift();}else{const st=Math.min(dl,a.sp*dt);P.g.position.x+=dx/dl*st;P.g.position.z+=dz/dl*st;moving=true;
-          P.yaw+=angDiff(Math.atan2(dx,dz),P.yaw)*Math.min(1,dt*7);P.head.rotation.y*=1-Math.min(1,dt*5);snkStep(st,false);}}
-      else if(a.wait!=null){if(a.fn&&!a.done){a.done=true;a.fn();}a.left=(a.left==null?a.wait:a.left)-dt;
-        if(a.face!=null)P.yaw+=angDiff(a.face,P.yaw)*Math.min(1,dt*5);P.head.rotation.y=a.scan?Math.sin(SNK.t*1.05)*a.scan:P.head.rotation.y*(1-Math.min(1,dt*4));
-        if(a.left<=0)SNK.plan.shift();}
-      else if(a.fn){SNK.plan.shift();a.fn();}}
+  else{moving=snkRunPlan(P,SNK.plan,dt,SNK.t);
     // 在她附近跑步會有腳步聲：她會轉過來照你
     if((SNK.ph==='inside'||SNK.ph==='come')&&runKey&&moved>2&&dP<7&&!SNK.hide)SNK.turnT=1.4;
     if(SNK.turnT>0){SNK.turnT-=dt;P.yaw+=angDiff(Math.atan2(player.x-P.g.position.x,player.z-P.g.position.z),P.yaw)*Math.min(1,dt*6);P.head.rotation.y*=.85;}}
@@ -2729,41 +2806,46 @@ function updateSneak(dt){
   else if(SNK.ph!=='alert'&&!(SNK.ph==='come'&&inCor)){
     SNK.litCD=(SNK.litCD||0)-dt;
     if(snkLit()&&SNK.litCD<=0){if(SNK.ph!=='chase'||Math.hypot(player.x-SNK.tx,player.z-SNK.tz)>.8){snkSpot();SNK.litCD=.35;}}}
+  if(updateDad(dt,inCor,runKey,moved,true))return;
   // 被抓到：她到你身邊；或你躲進她正在找的那個櫃子
   if(!SNK.hide&&dP<1.0&&SNK.ph!=='gate'){snkFailStart();return;}
   if(!SNK.hide&&SNK.ph==='gate'&&dP<1.2){snkFailStart();return;}
   if(SNK.hide&&(SNK.ph==='chase'||SNK.ph==='search')&&Math.hypot(SNK.hide.out[0]-SNK.tx,SNK.hide.out[1]-SNK.tz)<3&&Math.hypot(P.g.position.x-SNK.hide.out[0],P.g.position.z-SNK.hide.out[1])<1.3){
     say('「躲在這裡？」',1.6);SFX.rattle();snkUnhide();snkFailStart();return;}
   // ---- HUD ----
-  const eye=$('snkEye'),lure=SNK.ph==='gate'&&inCor&&SNK.meter>.01;
-  eye.classList.toggle('lure',lure);eye.classList.toggle('chase',SNK.ph==='chase');
+  const eye=$('snkEye'),lure=SNK.ph==='gate'&&inCor&&SNK.meter>.01,DD=DAD,dD=Math.hypot(player.x-PAR4.g.position.x,player.z-PAR4.g.position.z);
+  const anyChase=SNK.ph==='chase'||DD.ph==='chase',anySearch=SNK.ph==='search'||DD.ph==='search';
+  eye.classList.toggle('lure',lure);eye.classList.toggle('chase',anyChase);
   if(lure){eye.hidden=false;$('snkFill').style.width=(SNK.meter*100).toFixed(0)+'%';$('snkLbl').textContent='她看到你了……';}
-  else if(SNK.ph==='chase'){eye.hidden=false;$('snkFill').style.width='100%';$('snkLbl').textContent='被照到了！快離開那裡！';}
-  else if(SNK.ph==='search'){eye.hidden=false;$('snkFill').style.width=(clamp(SNK.searchT/3.6,0,1)*100).toFixed(0)+'%';$('snkLbl').textContent='她在附近找你……';}
+  else if(anyChase){eye.hidden=false;$('snkFill').style.width='100%';$('snkLbl').textContent='被照到了！快離開那裡！';}
+  else if(anySearch){eye.hidden=false;const st=Math.max(SNK.ph==='search'?SNK.searchT:0,DD.ph==='search'?DD.searchT:0);$('snkFill').style.width=(clamp(st/3.6,0,1)*100).toFixed(0)+'%';$('snkLbl').textContent=DD.ph==='search'&&SNK.ph!=='search'?'子豪爸爸在附近找你……':'她在附近找你……';}
   else eye.hidden=true;
   P.mark.visible=lure||SNK.ph==='alert'||SNK.ph==='chase'||SNK.ph==='search';P.mark.material=SNK.ph==='alert'||SNK.ph==='chase'?P.markE:P.markQ;
-  const danger=SNK.ph==='chase'?clamp(1-(dP-1)/12,0,1):SNK.ph==='search'?.3:lure?SNK.meter*.5:0;
+  const danger=Math.max(SNK.ph==='chase'?clamp(1-(dP-1)/12,0,1):SNK.ph==='search'?.3:lure?SNK.meter*.5:0,DD.ph==='chase'?clamp(1-(dD-1)/12,0,1):DD.ph==='search'?.3:0);
   if(danger>.02){SNK.heart-=dt;if(SNK.heart<0){SNK.heart=lerp(.9,.34,danger);SFX.heart();}}
-  if(SNK.ph==='chase')mzMusic(danger);
-  U.red.value=SNK.ph==='chase'?.12+.12*danger:0;
+  if(anyChase){MZ.music=true;mzMusic(danger);}else if(!anySearch)MZ.music=false;
+  U.red.value=anyChase?.12+.12*danger:0;
   // 走出校門
   if(player.z>18.25&&player.x>CX-5&&player.x<CX-3&&!SNK.ok){SNK.ok=true;SNK.on=false;MZ.music=false;$('snkEye').hidden=true;$('crouchBtn').hidden=true;$('runBtn').hidden=true;P.mark.visible=false;U.red.value=0;
-    BEAM.cone.visible=false;BEAM.ring.visible=false;
-    // 走出校門的那一刻，她的視線（頭朝的方向）直視校門（左右 15° 以內）→ 她看到你出去了，要繼續逃（不管手電筒照不照得到）
-    const sp=SNK.ph==='chase'||Math.abs(angDiff(Math.atan2(player.x-P.g.position.x,player.z-P.g.position.z),P.yaw+P.head.rotation.y))<.26;   // 她正在追你也算
-    say(sp?(SNK.ph==='chase'?'……出校門了。可是她還在後面追！':'……出校門了。可是她正往校門這邊看——她看到我了！'):'……呼。溜出來了，她沒看到。',2.6);SFX.swell();
-    SNK.lineT.push(setTimeout(()=>{if(state==='play'&&stage==='school'){snkReset();FL.calm=!sp;startStage('flee');}},2200));}}
+    // 走出校門的那一刻：媽媽正在追你、或她的視線直視校門（左右 15° 以內）→ 她看到你出去了
+    const sp=SNK.ph==='chase'||Math.abs(angDiff(Math.atan2(player.x-P.g.position.x,player.z-P.g.position.z),P.yaw+P.head.rotation.y))<.26;
+    // 爸爸：正在追你、手電筒照到你、或他正看著你（左右 30° 以內、12 公尺內）
+    const Q=PAR4,qd=Math.hypot(player.x-Q.g.position.x,player.z-Q.g.position.z),dp2=DAD.ph==='chase'||snkLit(BEAM2)||(qd<12&&Math.abs(angDiff(Math.atan2(player.x-Q.g.position.x,player.z-Q.g.position.z),Q.yaw+Q.head.rotation.y))<.52);
+    BEAM.cone.visible=false;BEAM.ring.visible=false;BEAM2.cone.visible=false;BEAM2.ring.visible=false;Q.mark.visible=false;
+    // 只要有一個看到你，另一個也會跟著追出來（出校門後一定是兩個人一起追）
+    say(sp&&dp2?'……出校門了。可是子豪爸媽兩個都追出來了！':dp2?'……出校門了。子豪爸爸看到我了——他一喊，子豪媽媽也跟著追出來了！':sp?(SNK.ph==='chase'?'……出校門了。可是她還在後面追，子豪爸爸也跟上來了！':'……出校門了。可是她正往校門這邊看——她一喊，子豪爸爸也追出來了！'):'……呼。溜出來了，他們都沒看到。',2.6);SFX.swell();
+    SNK.lineT.push(setTimeout(()=>{if(state==='play'&&stage==='school'){snkReset();FL.calm=!(sp||dp2);FL.who={mom:true,dad:true};startStage('flee');}},2200));}}
 /* 被她看到：她轉過來盯著你、快步走過來 → 訊息塞滿畫面 → 結算 */
 const SNK_TXT=['老師你躲什麼？','我們好好談談','你今天一定要給我一個交代','我等你一整天了','為什麼不回訊息？','你給我站住','我要找校長','老師老師老師'];
-function snkFailStart(){state='snkfail';stT=0;SNK.on=false;SNK.hide=null;$('slats').hidden=true;$('snkEye').hidden=true;$('crouchBtn').hidden=true;mouseHeld=btnHeld=false;
+function snkFailStart(who){const C=SNK.catcher=who||PAR3;state='snkfail';stT=0;SNK.on=false;SNK.hide=null;$('slats').hidden=true;$('snkEye').hidden=true;$('crouchBtn').hidden=true;mouseHeld=btnHeld=false;$('skipHint').hidden=true;
   if(document.exitPointerLock&&locked())document.exitPointerLock();setHUD(false);
-  PAR3.mark.material=PAR3.markE;PAR3.mark.visible=true;SFX.sting();SFX.screech();say('「找到你了喔，老師。」',2.6);
+  C.mark.material=C.markE;C.mark.visible=true;SFX.sting();SFX.screech();say(C===PAR4?'「抓到了。老師，我們談談吧。」':'「找到你了喔，老師。」',2.6);
   MAD.acc=0;MAD.ping=0;$('madB').innerHTML='';$('madB').hidden=false;SNK.fq=camera.quaternion.clone();MZ.music=false;BEAM.ring.visible=false;$('runBtn').hidden=true;}
-function updateSnkFail(dt){stT+=dt;const t=stT,P=PAR3,U=post.uniforms;
+function updateSnkFail(dt){stT+=dt;const t=stT,P=SNK.catcher||PAR3,U=post.uniforms,PB=P===PAR4?BEAM2:BEAM;
   const hx=player.x,hz=player.z,dx=hx-P.g.position.x,dz=hz-P.g.position.z,dl=Math.hypot(dx,dz)||1;
   P.yaw+=angDiff(Math.atan2(dx,dz),P.yaw)*Math.min(1,dt*6);P.head.rotation.y*=.9;
   if(t>.9&&dl>1.1){const st=Math.min(dl-1.1,2.4*dt);P.g.position.x+=dx/dl*st;P.g.position.z+=dz/dl*st;P.mv=1;}else P.mv=lerp(P.mv,0,dt*5);
-  parAnim(dt);P.arms[0].rotation.x=t>1.2?-1.4:P.arms[0].rotation.x;if(BEAM.cone.visible){P.head.rotation.y=0;snkAim(P);}
+  parAnim(dt,P);P.arms[0].rotation.x=t>1.2?-1.4:P.arms[0].rotation.x;if(PB.cone.visible){P.head.rotation.y=0;snkAim(P,PB);}
   camera.position.set(hx,SNK.crouch?.95:1.6,hz);const m=new T.Matrix4().lookAt(camera.position,tmpV.set(P.g.position.x,1.55,P.g.position.z),camera.up);
   camera.quaternion.slerp(new T.Quaternion().setFromRotationMatrix(m),Math.min(1,dt*4));
   if(t>1.4&&t<5){MAD.acc+=dt*(4+t*3);const box=$('madB');
@@ -2771,11 +2853,11 @@ function updateSnkFail(dt){stT+=dt;const t=stT,P=PAR3,U=post.uniforms;
       let lx=rnd(-6,84);if(lx>28&&lx<58&&Math.random()<.7)lx=Math.random()<.5?rnd(-6,26):rnd(58,84);d.style.left=lx+'%';d.style.top=rnd(-3,93)+'%';d.style.transform=`rotate(${rnd(-12,12).toFixed(1)}deg) scale(${rnd(.75,1.3).toFixed(2)})`;box.appendChild(d);}
     MAD.ping-=dt;if(MAD.ping<0){MAD.ping=Math.max(.08,.4-t*.06);SFX.ping();}}
   U.k.value=Math.min(1,.2+t*.18);U.red.value=.15+.15*Math.sin(t*6);U.black.value=clamp((t-5.2)/.6,0,1);
-  if(t>6){$('madB').hidden=true;$('madB').innerHTML='';for(const k of ['k','flash','red','black','stat'])U[k].value=0;PAR3.mark.visible=false;
+  if(t>6){$('madB').hidden=true;$('madB').innerHTML='';for(const k of ['k','flash','red','black','stat'])U[k].value=0;PAR3.mark.visible=false;PAR4.mark.visible=false;
     state='end';lastFail=true;if(stage==='flee')lastFlee=true;else lastSnk=true;setHUD(false);
     $('endBig').textContent='被堵到';$('endBig').classList.add('red');$('endDay').textContent='第一天・放學';
-    $('endText').textContent='子豪媽媽發現了你。你終究沒能躲過她……接下來的兩個小時，你都站在走廊上聽她說話。';
-    $('again').textContent=stage==='flee'?'重新挑戰：甩掉子豪媽媽':'重新挑戰：溜出學校';$('end').hidden=false;}}
+    $('endText').textContent=P===PAR4?'子豪爸爸抓到了你。接下來的兩個小時，子豪爸媽輪流站在你面前說話，你一句話也插不進去。':'子豪媽媽發現了你。你終究沒能躲過她……接下來的兩個小時，你都站在走廊上聽她說話。';
+    $('again').textContent=stage==='flee'?'重新挑戰：甩掉'+fleeWhoName():'重新挑戰：溜出學校';$('end').hidden=false;}}
 
 /* =========================================================
    回家路上：放學時被子豪媽媽發現過，她會一路追出校門。
@@ -2851,76 +2933,90 @@ function nightFacade(ci,floors){return ctex(256,256,x=>{x.fillStyle=['#3a3640','
   FL_MX.forEach(mx=>FL.wps.push([mx,-11.6],[mx,FL_BZ],[mx,-22.5],[mx,FL_CZ]));
   FL.wps.push([-15,FL_BZ],[-2,FL_BZ],[3,FL_BZ],[-20,FL_CZ],[-10,FL_CZ],[0,FL_CZ]);
   FLE.updateMatrixWorld(true);}
+function fleeWhoName(){const w=FL.who||{mom:true};return w.mom&&w.dad?'子豪爸媽':w.dad?'子豪爸爸':'子豪媽媽';}
 function fleeStart(){
-  FL.ph='wait';FL.t=0;FL.lastSpot=0;FL.wp=null;FL.waitT=0;FL.heart=0;FL.lastSeen=null;
+  FL.ph='wait';FL.t=0;FL.lastSpot=0;FL.heart=0;FL.lastSeen=null;if(!FL.who)FL.who={mom:true,dad:false};
   scene.background.setHex(0x0b0e16);scene.environment=null;clockMin=17*60+55;sky=100;kv=0;
   COLL=FL.coll.slice();BOUNDS=[FX-26,FX+26,-31,5.85];CEIL=20;TARGETS=[FL.home];INTAKE.set(FX,-5,0);
   navBuild(FX-28,-40,56,49);
   player.x=FX+18;player.z=5.3;player.yaw=0;player.pitch=0;
   SNK.occ=FL.occ;Object.assign(SNK,{on:false,ph:'',crouch:false,hide:null,meter:0,t:0,litCD:0,turnT:0,ok:false});SNK.lx=SNK.lz=undefined;
-  const P=PAR3;P.g.visible=false;P.mark.visible=false;BEAM.light.visible=true;BEAM.light.intensity=0;BEAM.cone.visible=false;BEAM.ring.visible=false;
+  [PAR3,PAR4].forEach(P=>{P.g.visible=false;P.mark.visible=false;});[BEAM,BEAM2].forEach(beamOff);
+  // 追你的人：出校門時誰看到你（媽媽先出校門，爸爸晚一點）
+  FL.H=[];if(!FL.calm){if(FL.who.mom)FL.H.push({P:PAR3,B:BEAM,ph:'wait',delay:2.2,nav:{},tx:0,tz:0,searchT:0,litCD:0,turnT:0,waitT:0,start:[18,7.6]});
+    if(FL.who.dad)FL.H.push({P:PAR4,B:BEAM2,ph:'wait',delay:FL.who.mom?2.9:2.2,nav:{},tx:0,tz:0,searchT:0,litCD:0,turnT:0,waitT:0,start:[17.2,8.4]});}
   $('crouchBtn').hidden=!isTouch;$('runBtn').hidden=!isTouch;$('crouchBtn').textContent='蹲下';$('crouchBtn').classList.remove('held');
   SNK.lineT.forEach(clearTimeout);SNK.lineT=[];
   const L=(t,s,d)=>SNK.lineT.push(setTimeout(()=>{if(state==='play'&&stage==='flee')say(s,d);},t));
+  const nm=fleeWhoName(),two=FL.who.mom&&FL.who.dad,ta=two?'他們':FL.who.dad?'他':'她';
   if(FL.calm){FL.ph='calm';L(300,'天黑了。走回家吧。',2.4);L(2900,'沿著早上那條街走回去——家在騎樓最那頭，紅色鐵門、6 號。',3.6);}
-  else{L(300,'（她追出校門了……）',2.2);L(2600,'不能讓她知道我住哪裡——過馬路鑽進對面的巷子繞路，甩掉她再回家。',4);L(7000,'家在早上出門的地方（騎樓最那頭，紅色鐵門 6 號）。至少 10 秒沒被她照到，才算甩掉她。',4.2);}
+  else{L(300,two?'（子豪爸媽兩個都追出校門了……）':'（'+nm+'追出校門了……）',2.2);L(2600,'不能讓'+ta+'知道我住哪裡——過馬路鑽進對面的巷子繞路，甩掉'+ta+'再回家。',4);L(7000,'家在早上出門的地方（騎樓最那頭，紅色鐵門 6 號）。至少 10 秒沒被'+ta+'照到，才算甩掉'+ta+'。',4.2);}
   drawTasks();}
-function fleeSeesDoor(){const P=PAR3,ly=P.yaw+P.head.rotation.y;_se.set(P.g.position.x,1.6,P.g.position.z);const dx=FL.door.x-_se.x,dz=FL.door.z-_se.z,dh=Math.hypot(dx,dz);
+function fleeSeesDoor(P){const ly=P.yaw+P.head.rotation.y;_se.set(P.g.position.x,1.6,P.g.position.z);const dx=FL.door.x-_se.x,dz=FL.door.z-_se.z,dh=Math.hypot(dx,dz);
   if(dh>24)return false;if(dh>2&&Math.abs(angDiff(Math.atan2(dx,dz),ly))>1.3)return false;
   _sd.copy(FL.door).sub(_se);const d=_sd.length();_sd.normalize();_sr.set(_se,_sd);_sr.far=d-.5;return !_sr.intersectObjects(FL.occ,false).length;}
-function fleeNextWp(){const px=player.x-FX+rnd(-7,7),pz=player.z+rnd(-7,7);let w;
+function fleeNextWp(h){const px=player.x-FX+rnd(-7,7),pz=player.z+rnd(-7,7);let w;
   if(Math.random()<.8){w=FL.wps.reduce((a,b)=>Math.hypot(b[0]-px,b[1]-pz)<Math.hypot(a[0]-px,a[1]-pz)?b:a);}else w=FL.wps[Math.random()*FL.wps.length|0];
-  FL.wp=[FX+w[0],w[1]];navTo(FX+w[0],w[1]);}
-function updateFlee(dt){const P=PAR3,U=post.uniforms;FL.t+=dt;SNK.t+=dt;
+  if(FL.H.length>1&&h.P===PAR4&&Math.random()<.5){const o=FL.H[0];w=FL.wps.reduce((a,b)=>{const sa=Math.hypot(a[0]-px,a[1]-pz)-Math.hypot(a[0]+FX-o.P.g.position.x,a[1]-o.P.g.position.z)*.5,sb=Math.hypot(b[0]-px,b[1]-pz)-Math.hypot(b[0]+FX-o.P.g.position.x,b[1]-o.P.g.position.z)*.5;return sb<sa?b:a;});}   // 兩個人分頭找
+  navTo(FX+w[0],w[1],h.nav);}
+function fleeSpot(h){const first=h.ph!=='chase';h.ph='chase';h.tx=player.x;h.tz=player.z;navTo(h.tx,h.tz,h.nav);h.B.ring.position.set(h.tx,.03,h.tz);h.B.ring.visible=true;FL.lastSpot=FL.t;
+  if(first){SFX.sting();say((h.P===PAR4?DAD_SHOUT:SNK_SHOUT)[Math.random()*4|0],1.6);MZ.music=true;MZ.next=0;}}
+function updateFlee(dt){const U=post.uniforms;FL.t+=dt;SNK.t+=dt;
   const ck=!!(keys.KeyC||keys.ControlLeft||keys.ControlRight);if(ck&&!SNK.cPrev)snkSetCrouch(!SNK.crouch);SNK.cPrev=ck;
   const runKey=!!(keys.ShiftLeft||keys.ShiftRight||runHeld);if(runKey&&SNK.crouch)snkSetCrouch(false);
   const moved=Math.hypot(player.x-(SNK.lx??player.x),player.z-(SNK.lz??player.z))/Math.max(dt,1e-4);SNK.lx=player.x;SNK.lz=player.z;
   setG(A.amb,.02,.4);setG(A.city,.03,.6);if(Math.random()<dt*.05)tn({type:'sawtooth',f:rnd(380,460),f2:300,a:.02,d:.18,v:.03,filt:900,at:0});
   if(FL.ph==='done')return;
-  if(FL.calm){$('snkEye').hidden=true;BEAM.cone.visible=false;BEAM.light.intensity=0;return;}   // 沒被看到：她沒追出來，自己走回家就好
-  // 她從校門追出來
-  if(FL.ph==='wait'){if(FL.t>2.2){FL.ph='hunt';P.g.visible=true;P.g.position.set(FX+18,0,7.6);P.yaw=Math.PI;P.mv=0;P.head.rotation.y=0;SFX.rattle();snkSpot();say('「老師！你給我站住！」',2);}else return;}
-  const dP=Math.hypot(player.x-P.g.position.x,player.z-P.g.position.z);
-  let moving=false;
-  if(SNK.ph==='chase'){moving=true;P.mv=1.7;if(navMove(P,3.8,dt)){SNK.ph='search';SNK.searchT=3.4;BEAM.ring.visible=false;say('（她在附近找你……）',2);}}
-  else if(SNK.ph==='search'){SNK.searchT-=dt;P.yaw+=1.25*dt;P.head.rotation.y=Math.sin(SNK.t*2.2)*.3;if(SNK.searchT<=0){SNK.ph='';MZ.music=false;fleeNextWp();}}
-  else{ // 到處找：走到一個路口、張望一下、再去下一個（大多往你附近走）
-    if(FL.waitT>0){FL.waitT-=dt;P.head.rotation.y=Math.sin(SNK.t*1.4)*.8;if(FL.waitT<=0)fleeNextWp();}
-    else{moving=true;if(navMove(P,2.4,dt)){FL.waitT=1.1;}}
-    if(runKey&&moved>2&&dP<12)SNK.turnT=1.4;   // 跑步的腳步聲，12 公尺內她聽得到
-    if(SNK.turnT>0){SNK.turnT-=dt;P.yaw+=angDiff(Math.atan2(player.x-P.g.position.x,player.z-P.g.position.z),P.yaw)*Math.min(1,dt*6);P.head.rotation.y*=.85;}}
-  if(SNK.ph!=='chase')P.mv=lerp(P.mv,moving?1:0,Math.min(1,dt*6));parAnim(dt);
-  BEAM.on=true;BEAM.range=SNK.ph==='search'?9:20;BEAM.light.intensity=4.5;BEAM.light.distance=BEAM.range+2;BEAM.cone.visible=true;snkAim(P);
-  if(BEAM.ring.visible){const k=1+.15*Math.sin(SNK.t*10);BEAM.ring.scale.set(k,1,k);}
-  // 被照到
-  SNK.litCD=(SNK.litCD||0)-dt;const lit=snkLit();
-  if(lit&&SNK.litCD<=0&&(SNK.ph!=='chase'||Math.hypot(player.x-SNK.tx,player.z-SNK.tz)>.8)){SNK.litCD=.35;
-    if(Math.hypot(player.x-FL.door.x,player.z-FL.door.z)<7){fleeKnockStart('她看到你往家門口跑了。');return;}
-    snkSpot();}
-  if(dP<1.0){FL.ph='done';snkFailStart();return;}
+  if(FL.calm){$('snkEye').hidden=true;return;}   // 沒被看到：沒人追出來，自己走回家就好
+  if(FL.ph==='wait')FL.ph='hunt';
+  let danger=0,anyChase=false,anySearch=false,st=0;
+  for(const h of FL.H){const P=h.P,B=h.B;
+    // 從校門追出來
+    if(h.ph==='wait'){if(FL.t>h.delay){h.ph='hunt';P.g.visible=true;P.g.position.set(FX+h.start[0],0,h.start[1]);P.yaw=Math.PI;P.mv=0;P.head.rotation.y=0;SFX.rattle();fleeSpot(h);
+        say(P===PAR4?'「老師！你給我站住！」（子豪爸爸）':'「老師！你給我站住！」',2);}else continue;}
+    const dP=Math.hypot(player.x-P.g.position.x,player.z-P.g.position.z);let moving=false;
+    if(h.ph==='chase'){moving=true;P.mv=1.7;if(navMove(P,3.8,dt,h.nav)){h.ph='search';h.searchT=3.4;B.ring.visible=false;say(P===PAR4?'（子豪爸爸在附近找你……）':'（她在附近找你……）',2);}}   // 追的時候用跑的
+    else if(h.ph==='search'){h.searchT-=dt;P.yaw+=1.25*dt;P.head.rotation.y=Math.sin(SNK.t*2.2)*.3;if(h.searchT<=0){h.ph='hunt';fleeNextWp(h);}}
+    else{ // 到處找：走到一個路口、張望一下、再去下一個（大多往你附近走）
+      if(!h.nav.dist)fleeNextWp(h);
+      if(h.waitT>0){h.waitT-=dt;P.head.rotation.y=Math.sin(SNK.t*1.4)*.8;if(h.waitT<=0)fleeNextWp(h);}
+      else{moving=true;if(navMove(P,2.4,dt,h.nav)){h.waitT=1.1;}}
+      if(runKey&&moved>2&&dP<12)h.turnT=1.4;   // 跑步的腳步聲，12 公尺內聽得到
+      if(h.turnT>0){h.turnT-=dt;P.yaw+=angDiff(Math.atan2(player.x-P.g.position.x,player.z-P.g.position.z),P.yaw)*Math.min(1,dt*6);P.head.rotation.y*=.85;}}
+    if(h.ph!=='chase')P.mv=lerp(P.mv,moving?1:0,Math.min(1,dt*6));parAnim(dt,P);
+    B.on=true;B.range=h.ph==='search'?9:20;B.light.visible=true;B.light.intensity=4.5;B.light.distance=B.range+2;B.cone.visible=true;snkAim(P,B,h.ph==='search'?-.1:-.16);
+    if(B.ring.visible){const k=1+.15*Math.sin(SNK.t*10);B.ring.scale.set(k,1,k);}
+    // 被照到
+    h.litCD-=dt;
+    if(snkLit(B)&&h.litCD<=0&&(h.ph!=='chase'||Math.hypot(player.x-h.tx,player.z-h.tz)>.8)){h.litCD=.35;
+      if(Math.hypot(player.x-FL.door.x,player.z-FL.door.z)<7){fleeKnockStart((P===PAR4?'子豪爸爸':'她')+'看到你往家門口跑了。');return;}
+      fleeSpot(h);}
+    if(dP<1.0){FL.ph='done';snkFailStart(P);return;}
+    P.mark.visible=h.ph==='chase'||h.ph==='search';P.mark.material=h.ph==='chase'?P.markE:P.markQ;
+    if(h.ph==='chase')anyChase=true;if(h.ph==='search'){anySearch=true;st=Math.max(st,h.searchT);}
+    danger=Math.max(danger,h.ph==='chase'?clamp(1-(dP-1)/12,0,1):clamp(1-dP/14,0,1)*.5);}
   // HUD
-  const eye=$('snkEye');eye.classList.remove('lure');eye.classList.toggle('chase',SNK.ph==='chase');
-  if(SNK.ph==='chase'){eye.hidden=false;$('snkFill').style.width='100%';$('snkLbl').textContent='被照到了！快離開那裡！';}
-  else if(SNK.ph==='search'){eye.hidden=false;$('snkFill').style.width=(clamp(SNK.searchT/3.4,0,1)*100).toFixed(0)+'%';$('snkLbl').textContent='她在附近找你……';}
-  else{const k=clamp((FL.t-FL.lastSpot)/10,0,1);eye.hidden=false;eye.classList.toggle('lure',k>=1);$('snkFill').style.width=(k*100).toFixed(0)+'%';$('snkLbl').textContent=k>=1?'甩掉她了——回家吧':'甩開她… '+Math.floor(FL.t-FL.lastSpot)+' / 10 秒';}
-  P.mark.visible=SNK.ph==='chase'||SNK.ph==='search';P.mark.material=SNK.ph==='chase'?P.markE:P.markQ;
-  const danger=SNK.ph==='chase'?clamp(1-(dP-1)/12,0,1):clamp(1-dP/14,0,1)*.5;
+  const eye=$('snkEye'),ta=FL.H.length>1?'他們':FL.who.dad?'他':'她';eye.classList.remove('lure');eye.classList.toggle('chase',anyChase);
+  if(anyChase){eye.hidden=false;$('snkFill').style.width='100%';$('snkLbl').textContent='被照到了！快離開那裡！';}
+  else if(anySearch){eye.hidden=false;$('snkFill').style.width=(clamp(st/3.4,0,1)*100).toFixed(0)+'%';$('snkLbl').textContent=ta+'在附近找你……';}
+  else{const k=clamp((FL.t-FL.lastSpot)/10,0,1);eye.hidden=false;eye.classList.toggle('lure',k>=1);$('snkFill').style.width=(k*100).toFixed(0)+'%';$('snkLbl').textContent=k>=1?'甩掉'+ta+'了——回家吧':'甩開'+ta+'… '+Math.floor(FL.t-FL.lastSpot)+' / 10 秒';}
   if(danger>.05){FL.heart-=dt;if(FL.heart<0){FL.heart=lerp(1,.34,danger);SFX.heart();}}
-  if(SNK.ph==='chase')mzMusic(danger);
-  U.red.value=SNK.ph==='chase'?.12+.12*danger:0;}
+  if(anyChase){MZ.music=true;mzMusic(danger);}else MZ.music=false;
+  U.red.value=anyChase?.12+.12*danger:0;}
 function fleeEnterHome(){if(FL.ph==='done'||FL.ph==='wait'&&FL.t<1)return;
-  if(FL.calm){FL.ph='done';SFX.door();say('……到家了。',2);$('crouchBtn').hidden=true;$('runBtn').hidden=true;fadeV=1.3;SNK.lineT.push(setTimeout(()=>{if(state==='play'&&stage==='flee'){BEAM.light.visible=false;startWin();}},1600));return;}
-  const P=PAR3;const close=Math.hypot(P.g.position.x-player.x,P.g.position.z-player.z);
-  if(P.g.visible&&(fleeSeesDoor()||(SNK.ph==='chase'&&close<14))){fleeKnockStart('你進門的時候，她就在街上看著。');return;}
-  if(FL.t-FL.lastSpot<10){fleeKnockStart('你還沒甩掉她，她一路遠遠跟在後面。');return;}
-  FL.ph='done';SFX.door();say('……進家門了。她沒看到。',2.4);$('snkEye').hidden=true;$('crouchBtn').hidden=true;$('runBtn').hidden=true;MZ.music=false;
-  BEAM.cone.visible=false;BEAM.ring.visible=false;P.mark.visible=false;post.uniforms.red.value=0;fadeV=1.3;
-  SNK.lineT.push(setTimeout(()=>{if(state==='play'&&stage==='flee'){P.g.visible=false;BEAM.light.visible=false;startWin();}},1800));}
+  if(FL.calm){FL.ph='done';SFX.door();say('……到家了。',2);$('crouchBtn').hidden=true;$('runBtn').hidden=true;fadeV=1.3;SNK.lineT.push(setTimeout(()=>{if(state==='play'&&stage==='flee'){[BEAM,BEAM2].forEach(beamOff);startWin();}},1600));return;}
+  for(const h of FL.H){const P=h.P;if(!P.g.visible)continue;const close=Math.hypot(P.g.position.x-player.x,P.g.position.z-player.z);
+    if(fleeSeesDoor(P)||(h.ph==='chase'&&close<14)){fleeKnockStart('你進門的時候，'+(P===PAR4?'子豪爸爸':'她')+'就在街上看著。');return;}}
+  const ta=FL.H.length>1?'他們':FL.who.dad?'他':'她';
+  if(FL.t-FL.lastSpot<10){fleeKnockStart('你還沒甩掉'+ta+'，'+ta+'一路遠遠跟在後面。');return;}
+  FL.ph='done';SFX.door();say('……進家門了。'+ta+'沒看到。',2.4);$('snkEye').hidden=true;$('crouchBtn').hidden=true;$('runBtn').hidden=true;MZ.music=false;
+  [BEAM,BEAM2].forEach(B=>{B.cone.visible=false;B.ring.visible=false;});[PAR3,PAR4].forEach(P=>P.mark.visible=false);post.uniforms.red.value=0;fadeV=1.3;
+  SNK.lineT.push(setTimeout(()=>{if(state==='play'&&stage==='flee'){[PAR3,PAR4].forEach(P=>P.g.visible=false);[BEAM,BEAM2].forEach(beamOff);startWin();}},1800));}
 /* 失敗：她知道你家在哪了——你躲在房間裡，她一直敲門 */
 const KNOCK_LINES=[[1.3,'「老師～開門～」'],[3.6,'「我知道你住這裡喔。」'],[6.0,'「我們好好談談嘛，開個門就好。」'],[8.3,'「老師？老師？老師？」'],[10.4,'「沒關係，我明天還會再來。」']];
 function fleeKnockStart(why){FL.ph='done';state='knock';stT=0;FL.why=why;MZ.music=false;mouseHeld=btnHeld=false;if(document.exitPointerLock&&locked())document.exitPointerLock();
   setHUD(false);['snkEye','crouchBtn','runBtn'].forEach(id=>$(id).hidden=true);
-  PAR3.g.visible=false;PAR3.mark.visible=false;BEAM.light.visible=false;BEAM.cone.visible=false;BEAM.ring.visible=false;
+  [PAR3,PAR4].forEach(P=>{P.g.visible=false;P.mark.visible=false;});[BEAM,BEAM2].forEach(beamOff);
   FLE.visible=false;room.visible=true;BED_LIGHTS.forEach(l=>l.visible=true);scene.background.setHex(0x0c0d0f);scene.environment=envTex;
   lampOn=true;lampLight.intensity=1.2;shadeM.emissive.set(0x6a4a2a);curtOpen=false;curtL.scale.x=curtR.scale.x=1;winLight.intensity=.05;
   if(!FL.under){FL.under=mesh(new T.PlaneGeometry(.86,.07),new T.MeshBasicMaterial({color:0xfff2cc,transparent:true,opacity:0,blending:T.AdditiveBlending,depthWrite:false}),.6,.035,2.43);FL.under.rotation.y=Math.PI;FL.under.userData.noShadow=true;room.add(FL.under);}
@@ -2948,8 +3044,9 @@ function updateKnock(dt){stT+=dt;const t=stT,U=post.uniforms;
     for(const k of ['k','flash','red','black','stat'])U[k].value=0;
     state='end';lastFail=true;lastFlee=true;setHUD(false);
     $('endBig').textContent='被跟蹤';$('endBig').classList.add('red');$('endDay').textContent='第一天・回家路上';
-    $('endText').textContent=FL.why+'子豪媽媽一路跟著你回到了家門口，敲了整個晚上的門……而且，她知道你住哪裡了。';
-    $('again').textContent='重新挑戰：甩掉子豪媽媽';$('end').hidden=false;}}
+    const nm=fleeWhoName(),ta=nm==='子豪爸媽'?'他們':nm==='子豪爸爸'?'他':'她';
+    $('endText').textContent=FL.why+nm+'一路跟著你回到了家門口，敲了整個晚上的門……而且，'+ta+'知道你住哪裡了。';
+    $('again').textContent='重新挑戰：甩掉'+nm;$('end').hidden=false;}}
 
 /* =========================================================
    16. 另外兩隻怪獸：肺部怪獸、病毒怪獸
@@ -3215,7 +3312,7 @@ function hideAllProps(){heroLayer(0);if(HERO.ok)footRestore();pyHide();snotHide(
   while(tissues.children.length)tissues.remove(tissues.children[0]);setFat(0);if(HERO.ok){HERO.mixer.stopAllAction();heroAnim=null;BONES.forEach(n=>{if(HERO.bones[n])HERO.bones[n].quaternion.copy(HERO.rest[n]);});}}
 function showStage(n){room.visible=n==='bed';BED_LIGHTS.forEach(l=>l.visible=n==='bed');KIT.visible=n==='kitchen';BATH.visible=n==='bath';TEM.visible=n==='temple';SCH.visible=n==='school';STR.visible=n==='street';MAZE.visible=n==='maze';FLE.visible=n==='flee';}
 function commonReset(n){
-  scene.environment=envTex;PAR3.g.visible=false;PAR3.mark.visible=false;BEAM.light.visible=false;BEAM.cone.visible=false;BEAM.ring.visible=false;MZ.music=false;$('snkEye').hidden=true;
+  scene.environment=envTex;PAR3.g.visible=false;PAR3.mark.visible=false;BEAM.light.visible=false;BEAM.cone.visible=false;BEAM.ring.visible=false;dadReset();MZ.music=false;$('snkEye').hidden=true;
   if(WIN.fade||WIN.on)roomRestore();renderer.toneMappingExposure=.95;scene.background.set(0x0c0d0f);
   FK.on=false;FK.ever=false;FK.mode=0;
   stage=n;sky=100;kv=0;lastSkyShown=-1;inhaleQ=0;samples=[];recAcc=0;REC=[];replay=null;clearDust();setThermal(false);
@@ -3223,7 +3320,7 @@ function commonReset(n){
   hideAllProps();showStage(n);clockMin=STAGE_INFO[n].clock;handle.visible=false;grab=null;settle=null;
   for(const k of ['k','flash','red','black','stat'])post.uniforms[k].value=0;
   horrorStop();$('madB').hidden=true;$('madB').innerHTML='';$('end').hidden=true;$('slides').hidden=true;$('therm').hidden=true;setHUD(true);$('lockHint').hidden=true;
-  ['sizzle','fan','amb','traffic','city','smoke'].forEach(k=>setG(A[k],0,.1));$('runBtn').hidden=true;runHeld=false;camera.fov=baseFov();camera.updateProjectionMatrix();}
+  ['sizzle','fan','amb','traffic','city','smoke'].forEach(k=>setG(A[k],0,.1));$('runBtn').hidden=true;setRun(false);camera.fov=baseFov();camera.updateProjectionMatrix();}
 function startStage(n){
   if(n==='bed'){commonReset('bed');resetWorld();state='wake';stT=0;drawTasks();return;}
   commonReset(n);fadeV=1;state='play';
@@ -3298,9 +3395,9 @@ function stageTasks(){
   if(stage==='bath')return [['刷牙','',B.brushed,!B.brushed],['上廁所','',B.sat,B.brushed&&!B.sat],['沖馬桶','',B.flushed,B.sat&&!B.flushed],['去廚房','',false,B.flushed]];
   if(stage==='temple')return [['點香','',TP.lit,!TP.lit],['拜三拜',TP.bows&&!TP.bowed?`${TP.bows}/3`:'',TP.bowed,TP.lit&&!TP.bowed],['插香','',TP.prayed,TP.bowed&&!TP.prayed],['投香油錢','',TP.paid,TP.prayed&&!TP.paid],['去學校','',false,TP.paid]];
   if(stage==='maze')return [['逃出廟宇','',false,true]];
-  if(stage==='flee')return FL.calm?[['走回家','',false,true]]:[['甩掉子豪媽媽','',false,true],['回家（別讓她看到你家在哪）','',false,true]];
+  if(stage==='flee'){const nm=fleeWhoName(),ta=nm==='子豪爸媽'?'他們':nm==='子豪爸爸'?'他':'她';return FL.calm?[['走回家','',false,true]]:[['甩掉'+nm,'',false,true],['回家（別讓'+ta+'看到你家在哪）','',false,true]];}
   if(stage==='street')return ST.leg===2?[['走到學校','',false,true]]:ST.msg?[['看媽媽的訊息','',true,false],['去福安宮','',false,true]]:[['出門上班','',false,true]];
-  if(stage==='school'&&SC.sub==='sneak'){const g=SNK.ph==='gate';return [['引她進來（在窗邊讓她看見你）','',!g,g],['溜出走廊（另一頭的門／掃具櫃）','',SNK.ph==='inside'&&!(player.z<1.2),!g&&!(SNK.ph==='inside'&&player.z>=1.2)],['走出校門，別被手電筒照到','',SNK.ok,!g]];}
+  if(stage==='school'&&SC.sub==='sneak'){const g=SNK.ph==='gate';return [['引子豪媽媽進來（在窗邊讓她看見你）','',!g,g],['溜出走廊（另一頭的門／掃具櫃）','',SNK.ph==='inside'&&!(player.z<1.2),!g&&!(SNK.ph==='inside'&&player.z>=1.2)],['走出校門，別被兩支手電筒照到（子豪爸爸守在校門口）','',SNK.ok,!g]];}
   if(stage==='school'){const inC=SC.sub==='class';return [['到三年二班','',inC,!inC],['上數學課',inC&&SC.q>=0?`${Math.min(SC.q,5)}/5`:'',SC.done,inC&&!SC.done]];}
   return [];}
 
@@ -4453,6 +4550,7 @@ function frame(now){
   else if(state==='horror')updateHorror(dt);
   else if(state==='mad')updateMad(dt);
   else if(state==='snkfail')updateSnkFail(dt);
+  else if(state==='snkintro')updateSnkIntro(dt);
   else if(state==='knock')updateKnock(dt);
   else if(state==='fade'){stT+=dt;$('blink').style.opacity=Math.min(1,stT*2.2);if(stT>.55){state='loading';startStage(nextName);}}
   if(fadeV>0&&state!=='fade'){fadeV=Math.max(0,fadeV-dt*1.4);$('blink').style.opacity=fadeV;}
