@@ -78,6 +78,10 @@ button:focus-visible{outline:2px solid var(--warn);outline-offset:2px}
 #crouchBtn{width:78px;height:78px;border-radius:50%;font-size:1rem;font-weight:700;touch-action:none;-webkit-user-select:none;user-select:none}
 #crouchBtn.held{background:rgba(217,212,199,.32);color:#fff}
 #slats{position:fixed;inset:0;pointer-events:none;z-index:3;background:repeating-linear-gradient(to bottom,rgba(6,7,8,.93) 0 18px,rgba(6,7,8,0) 18px 34px),radial-gradient(ellipse at center,rgba(0,0,0,0) 40%,rgba(0,0,0,.75) 100%)}
+#repSkip{position:fixed;right:max(14px,env(safe-area-inset-right,0px));bottom:calc(max(16px,env(safe-area-inset-bottom,0px)) + 40px);z-index:61;padding:10px 16px;background:rgba(11,12,13,.78);border:1px solid rgba(217,212,199,.45);color:#f4efe2;font-size:1rem;cursor:pointer;touch-action:manipulation}
+#repSkip:active{background:rgba(60,60,64,.9)}
+#panelSay{position:fixed;left:50%;top:max(18px,env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:60;padding:8px 16px;background:rgba(11,12,13,.86);border:1px solid rgba(217,212,199,.35);color:#f4efe2;font-size:1.05rem;pointer-events:none;opacity:0;transition:opacity .3s;max-width:90vw;text-align:center}
+#panelSay.on{opacity:1}
 #skipHint{position:fixed;right:max(14px,env(safe-area-inset-right,0px));top:max(14px,env(safe-area-inset-top,0px));z-index:6;padding:6px 12px;background:rgba(11,12,13,.6);border:1px solid rgba(217,212,199,.35);color:#d9d4c7;font-size:.85rem;pointer-events:none}
 #snkEye{position:fixed;left:50%;top:max(14px,env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:10px;padding:6px 12px;background:rgba(11,12,13,.7);border:1px solid rgba(232,64,46,.6);font-family:var(--pixel);font-size:1.1rem;color:#f4c0b0;pointer-events:none}
 #snkEye b{font-weight:400;white-space:nowrap}#snkEye i{display:block;width:min(30vw,150px);height:8px;border:1px solid currentColor}#snkEye u{display:block;height:100%;width:0;background:#e8402e;text-decoration:none}
@@ -276,6 +280,8 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
 </div>
 <div id="madB" hidden aria-hidden="true"></div>
 <div id="slats" hidden aria-hidden="true"></div>
+<div id="panelSay" aria-live="polite"></div>
+<button type="button" id="repSkip" hidden>跳過熱成像重播 ▶▶</button>
 <div id="skipHint" hidden>點一下畫面（或按空白鍵）跳過</div>
 <div id="snkEye" hidden role="status"><b id="snkLbl">快被發現了</b><i><u id="snkFill"></u></i></div>
 
@@ -846,7 +852,7 @@ let FT=null,FS=null;
 const FAKE_INTAKE={bed:[-1.72,.35],school:[130+3.35,-2.9]};
 function realIntake(){if(stage==='school')INTAKE.set(130+3.4,.45,3.0);else INTAKE.set(1.5,.45,-2.0);}
 function fakeSet(on){
-  if(on&&PS.on){say('有需要浪費電嗎？',2.2);SFX.click();return false;}
+  if(on&&PS.on){sayTop('不要浪費電了。',2.4);SFX.click();return false;}   // 另一台已經開著，這台打不開
   FK.on=on;FK.type=stage;if(on){FK.ever=true;SFX.beepOn();const p=FAKE_INTAKE[stage];INTAKE.set(p[0],.45,p[1]);}else{SFX.beepOff();realIntake();}
   if(A.ctx&&!A.fakefan)A.fakefan=loopNoise(A.noise,'bandpass',900,.6,0);if(A.fakefan)A.fakefan.fl.frequency.value=(FAKES[stage]||FAKES.bed).fan;
   drawFakeUI();return true;}
@@ -1467,7 +1473,7 @@ function applyPur(){
   if(PS.on&&PS.circ)t+='・循環';cap.textContent=t;}
 function purPress(id){
   press[id]=performance.now();
-  if(id==='power'&&!PS.on&&FK.on&&(stage==='bed'||stage==='school')){say('有需要浪費電嗎？',2.2);SFX.click();return;}
+  if(id==='power'&&!PS.on&&FK.on&&(stage==='bed'||stage==='school')){sayTop('不要浪費電了。',2.4);SFX.click();return;}   // 另一台已經開著，這台打不開
   if(id==='power'){PS.on=!PS.on;PS.on?SFX.beepOn():SFX.beepOff();if(PS.on&&PS.auto){PS.autoLv=autoWant();}}
   else if(!PS.on){SFX.click();}
   else{SFX.key();
@@ -1561,6 +1567,7 @@ function drawTasks(){
   if($('taskList').innerHTML!==html)$('taskList').innerHTML=html;}
 let subTimer=0;
 const HUD_TOP=$('hud').querySelector('.top');
+function sayTop(t,sec){const e=$('panelSay');e.textContent=t;e.classList.add('on');clearTimeout(sayTop.h);sayTop.h=setTimeout(()=>e.classList.remove('on'),(sec||2.2)*1000);}
 function say(t,sec){$('sub').textContent=t;$('sub').classList.add('on');subTimer=sec||3;}
 $('howto').innerHTML=coarse
   ?'左半邊按住滑動＝走路・右半邊滑動＝轉頭<br>點畫面上的東西就能互動，也可以對準後按右下角的大按鈕<br>折棉被：對準白點按住大按鈕，或照箭頭用手指拖'
@@ -3342,7 +3349,7 @@ function commonReset(n){
   scene.environment=envTex;PAR3.g.visible=false;PAR3.mark.visible=false;BEAM.light.visible=false;BEAM.cone.visible=false;BEAM.ring.visible=false;dadReset();MZ.music=false;$('snkEye').hidden=true;
   if(WIN.fade||WIN.on)roomRestore();renderer.toneMappingExposure=.95;scene.background.set(0x0c0d0f);
   FK.on=false;FK.ever=false;FK.mode=0;
-  stage=n;sky=100;kv=0;lastSkyShown=-1;inhaleQ=0;samples=[];recAcc=0;REC=[];replay=null;clearDust();setThermal(false);
+  stage=n;sky=100;kv=0;lastSkyShown=-1;inhaleQ=0;samples=[];recAcc=0;REC=[];replay=null;$('repSkip').hidden=true;mzReplayDone();clearDust();setThermal(false);
   Object.assign(PS,{on:false,level:1,auto:false,sleep:false,circ:false,autoLv:1,sensed:0,hold:0});closePur();applyPur();
   hideAllProps();showStage(n);clockMin=STAGE_INFO[n].clock;handle.visible=false;grab=null;settle=null;
   for(const k of ['k','flash','red','black','stat'])post.uniforms[k].value=0;
@@ -4188,7 +4195,7 @@ function mzCaughtInit(){MZ.music=false;camera.fov=baseFov();camera.updateProject
   const rc=new T.Raycaster(head,dir,0,len);const hit=rc.intersectObject(MZ.walls);MZ.cam.copy(hit.length?head.clone().addScaledVector(dir,Math.max(.6,hit[0].distance-.3)):want);
   HERO.root.rotation.set(0,Math.atan2(dx,dz),0);}
 function updateMazeHorror(dt){
-  if(stT>=13.2){updateHorrorCore(dt);if(replay){const hx=HERO.root.position.x,hz=HERO.root.position.z;MZ.cam.lerp(tmpV.set(hx-2.4,6.8,hz+2.8),Math.min(1,dt*2.5));camera.position.copy(MZ.cam);camera.lookAt(hx,.2,hz);}return;}
+  if(stT>=13.2){updateHorrorCore(dt);return;}   // 重播的鏡頭由 mzReplayCam 負責（拉高拉遠看路線）
   stT+=dt;const t=stT,U=post.uniforms,hp=HERO.root.position;
   if(A.ctx&&A.horNodes){A.nextHit-=dt;if(A.nextHit<0){A.nextHit=rnd(1.1,2.6);SFX.metal();}}
   if(Math.random()<dt*40)emitAt(hp.x+rnd(-.8,.8),rnd(.1,2.2),hp.z+rnd(-.8,.8),.2);
@@ -4501,7 +4508,7 @@ function updateHorrorCore(dt){
       if(stage==='maze'){MZ.mon.visible=false;MZ.ceil.visible=false;}
       replay={i:0,t:0,len:REC.length,speed:Math.max(1,REC.length/150),end:0,p:0,act:0,kind:'',last:null};
       replayLv=stage==='temple'?2:0;}
-    setThermal(true);setG(A.therm,.035);
+    setThermal(true);setG(A.therm,.035);$('repSkip').hidden=stage!=='maze';if(stage==='maze')mzReplayInit();   // 廟宇關跑出去（迷宮）被追上的重播：可以跳過，鏡頭拉遠看路線
     const C=F.repCam;camera.position.set(C[0],C[1],C[2]);camera.lookAt(C[3],C[4],C[5]);}
   else if(stage==='bed'){
     replay.t+=dt;U.stat.value=Math.max(0,1-replay.t*3);U.k.value=.15;
@@ -4537,16 +4544,38 @@ function updateHorrorCore(dt){
       if(stage==='school'){KIDS.forEach(k=>{if(k.cough>0)k.cough=Math.max(0,k.cough-dt*1.6);poseKid(k,time);});poseWork(time,'teach',0,1);}
       if(stage==='bath'){if(replay.fl>=0&&B.lidOpen)emitN(emitPlume,(replay.fl<1.6?260:120)*dt);
         if(f.sit){HERO.root.position.set(TOILET.x,.55-(HERO.hipY||.9),TOILET.z+.03);HERO.root.rotation.set(0,0,0);poseToilet(time,0,0);}else if(f.br)poseBrushStand(time);else poseWork(time,'',0,0);}}
+    if(stage==='maze')mzReplayCam(dt,f);
     if(f&&stage==='maze'){if(f.mon)emitN(n=>{for(let i=0;i<n;i++)emitAt(f.mx+rnd(-.6,.6),rnd(.2,2.2),f.mz+rnd(-.6,.6),.15);},160*dt);
       if(replay.mv>.004){if(HERO.ok&&heroAnim!==HERO.act.Walk)heroPlay('Walk',.15);if(heroAnim)heroAnim.timeScale=2.2;}else if(heroAnim){HERO.mixer.stopAllAction();heroAnim=null;}}
     replayTail(dt);}
 }
+/* 迷宮重播：發光的足跡（走過的路線）＋拉遠的鏡頭 */
+let MZ_TRAIL=null;const _mzc=new T.Vector3(),_mzl=new T.Vector3();
+function mzReplayInit(){if(!(isTouch||LITE))return;   // 鏡頭拉遠＋路線只在手機版；電腦版維持原本貼近主角的鏡頭
+  const n=REC.length,pos=new Float32Array(Math.max(1,n)*3);for(let i=0;i<n;i++){pos[i*3]=REC[i].x;pos[i*3+1]=.25;pos[i*3+2]=REC[i].z;}
+  if(!MZ_TRAIL){MZ_TRAIL=new T.Points(new T.BufferGeometry(),new T.PointsMaterial({color:0xffc060,size:.55,sizeAttenuation:true,transparent:true,opacity:.95,depthWrite:false,fog:false}));MZ_TRAIL.userData.noTherm=true;MZ_TRAIL.frustumCulled=false;scene.add(MZ_TRAIL);}
+  MZ_TRAIL.geometry.setAttribute('position',new T.BufferAttribute(pos,3));MZ_TRAIL.geometry.setDrawRange(0,0);MZ_TRAIL.visible=true;
+  if(!MZ_TRAIL.userData.head){const g=new T.BufferGeometry();g.setAttribute('position',new T.BufferAttribute(new Float32Array(3),3));   // 主角現在的位置：大一點的亮點
+    const h=new T.Points(g,new T.PointsMaterial({color:0xffffff,size:2.2,sizeAttenuation:true,transparent:true,depthWrite:false,depthTest:false,fog:false}));h.frustumCulled=false;h.renderOrder=995;scene.add(h);MZ_TRAIL.userData.head=h;}
+  MZ_TRAIL.userData.head.visible=true;
+  camera.far=320;camera.updateProjectionMatrix();replay.cp=camera.position.clone();replay.cl=new T.Vector3(MX+8,0,0);}
+function mzReplayCam(dt,f){if(!replay)return;
+  if(!(isTouch||LITE)){if(f){const hx=HERO.root.position.x,hz=HERO.root.position.z;MZ.cam.lerp(tmpV.set(hx-2.4,6.8,hz+2.8),Math.min(1,dt*2.5));camera.position.copy(MZ.cam);camera.lookAt(hx,.2,hz);}return;}MZ_TRAIL&&MZ_TRAIL.geometry.setDrawRange(0,replay.i);
+  if(f&&MZ_TRAIL){const hp=MZ_TRAIL.userData.head.geometry.attributes.position;hp.setXYZ(0,f.x,.6,f.z);hp.needsUpdate=true;}
+  const bb=MZ.bb;let k=Math.min(1,dt*1.6);
+  if(!replay.end&&f){_mzc.set(f.x-12,54,f.z+18);_mzl.set(f.x+18,0,f.z);}   // 跟著走：從斜後方高處往前看，看得到前面一大段路
+  else{const cx=(bb[0]+bb[1])/2,cz=(bb[2]+bb[3])/2,len=bb[1]-bb[0]+8,hf=2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect),vf=camera.fov*Math.PI/180;
+    const d=Math.max((len*.5)/Math.tan(hf/2),((bb[3]-bb[2])*.6+10)/Math.tan(vf/2));_mzc.set(cx,d*.86,cz+d*.5);_mzl.set(cx,0,cz);k=Math.min(1,dt*1.1);}   // 跑完：整座迷宮的全景
+  replay.cp.lerp(_mzc,k);replay.cl.lerp(_mzl,k);camera.position.copy(replay.cp);camera.lookAt(replay.cl);}
+function mzReplayDone(){if(MZ_TRAIL){MZ_TRAIL.visible=false;if(MZ_TRAIL.userData.head)MZ_TRAIL.userData.head.visible=false;}if(camera.far!==60){camera.far=60;camera.updateProjectionMatrix();}}
 function replayTail(dt){const U=post.uniforms;
   if(replay.i>=replay.len&&!replay.end)replay.end=replay.t;
   const sec=Math.floor(replay.t);$('recT').textContent=replay.end?`▶▶ 時間加速 ×${TS*3}`:`● REC 00:${String(sec).padStart(2,'0')}`;
   $('covN').textContent=Math.round(covPct)+'%';$('covB').style.width=covPct.toFixed(1)+'%';
   if(replay.end&&replay.t-replay.end>7){U.black.value=clamp((replay.t-replay.end-7)*2,0,1);
-    if(replay.t-replay.end>7.6){replay=null;setG(A.therm,0);horrorStop();showSlides();U.black.value=.85;}}}
+    if(replay.t-replay.end>7.6)replayFinish();}}
+function replayFinish(){if(!replay)return;replay=null;mzReplayDone();$('repSkip').hidden=true;setG(A.therm,0);horrorStop();showSlides();post.uniforms.black.value=.85;}
+$('repSkip').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();if(state==='horror'&&replay)replayFinish();else $('repSkip').hidden=true;});
 
 function updateTitle(){camera.position.set(LIE.x,LIE.y,LIE.z);camera.rotation.set(1.35+Math.sin(time*.3)*.02,Math.PI*.55,.35);}
 
