@@ -61,8 +61,8 @@ body{background:var(--ink);color:var(--bone);font-family:var(--sans);overflow:hi
 .cross{position:fixed;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;pointer-events:none;border-radius:50%;
   --p:0;background:conic-gradient(var(--bone) calc(var(--p)*1turn),transparent 0);
   -webkit-mask:radial-gradient(circle,transparent 7px,#000 8px,#000 10px,transparent 11px);mask:radial-gradient(circle,transparent 7px,#000 8px,#000 10px,transparent 11px)}
-.dot{position:fixed;left:50%;top:50%;width:3px;height:3px;margin:-1.5px 0 0 -1.5px;background:var(--bone);opacity:.75;pointer-events:none}
-.ring{position:fixed;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border:1px solid var(--bone);border-radius:50%;opacity:0;pointer-events:none;transition:opacity .15s}
+.dot{position:fixed;left:50%;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;border-radius:50%;background:#fff;opacity:.95;box-shadow:0 0 0 1.5px rgba(0,0,0,.8),0 0 4px rgba(0,0,0,.55);pointer-events:none}
+.ring{position:fixed;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border:1.5px solid var(--bone);border-radius:50%;opacity:0;box-shadow:0 0 0 1px rgba(0,0,0,.7),inset 0 0 0 1px rgba(0,0,0,.7);pointer-events:none;transition:opacity .15s}
 .ring.on{opacity:.8}
 .bottom{display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:auto}
 .sub{font-size:clamp(.95rem,2.6vw,1.15rem);text-align:center;max-width:36em;text-shadow:0 1px 2px #000,0 0 6px #000;min-height:1.6em;opacity:0;transition:opacity .4s}
@@ -307,7 +307,7 @@ body.touch #ctrl button:not(#act){font-size:.75rem;padding:5px 9px}
   <button id="fsBtn" type="button" hidden>全螢幕</button>
   <button id="start" type="button">醒來</button>
   <div class="qpick" role="group" aria-label="章節"><span class="small">或直接從這裡開始</span>
-    <button type="button" data-ch="bath">浴室</button><button type="button" data-ch="kitchen">廚房</button><button type="button" data-ch="temple">廟宇</button><button type="button" data-ch="school">學校</button><button type="button" data-ch="win" id="chWin" hidden>通關動畫</button></div>
+    <button type="button" data-ch="bath">浴室</button><button type="button" data-ch="kitchen">廚房</button><button type="button" data-ch="temple">廟宇</button><button type="button" data-ch="school">學校</button><button type="button" data-ch="sneak">放學・家長</button><button type="button" data-ch="win" id="chWin" hidden>通關動畫</button></div>
 </div>
 
 <div class="screen" id="opt" hidden role="dialog" aria-label="視角與防暈設定">
@@ -2121,7 +2121,7 @@ function facadeTex(ci,floors){const key=ci+'_'+floors;if(FAC_POOL[key])return FA
     x.fillStyle='rgba(60,50,40,.18)';for(let i=0;i<6;i++)x.fillRect(rnd(0,256),0,rnd(2,5),256);});}
 const SHOP_POOL=[];
 function shopTex(i){if(SHOP_POOL[i])return SHOP_POOL[i];
-  const kind=i%4===3?'shutter':'glass',col=['#f6efe0','#e9f2ec','#eef2f6','#f4e8e0'][i%4];
+  const kind=i%4===3?'shutter':'glass',col=['#d6cfc1','#c9d2cc','#ccd1d6','#d4c8bf'][i%4];
   return SHOP_POOL[i]=ctex(256,192,x=>{x.fillStyle='#3a3c3e';x.fillRect(0,0,256,192);
     if(kind==='shutter'){for(let y=0;y<192;y+=6){x.fillStyle=y%12?'#9ea4a8':'#888e92';x.fillRect(8,y,240,6);}x.fillStyle='#6a6f72';x.fillRect(8,180,240,12);}
     else{x.fillStyle=col;x.fillRect(10,10,236,172);
@@ -3388,7 +3388,7 @@ function enterClass(){SC.sub='class';fadeV=1;
   player.x=RX+1.2;player.z=-2.6;player.yaw=Math.PI*.25;player.pitch=-.05;
   if(!KIDS.length)buildKids();KIDS.forEach(k=>k.root.visible=true);say('點黑板開始上課。',3);}
 $('start').addEventListener('click',()=>{aInit();applyPur();$('title').hidden=true;startStage('bed');});
-document.querySelectorAll('[data-ch]').forEach(b=>b.addEventListener('click',()=>{aInit();applyPur();$('title').hidden=true;if(b.dataset.ch==='win'){stage='bed';startWin();}else if(b.dataset.ch==='temple'){ST.leg=1;startStage('street');}else{ST.skip=false;startStage(b.dataset.ch);}}));
+document.querySelectorAll('[data-ch]').forEach(b=>b.addEventListener('click',()=>{aInit();applyPur();$('title').hidden=true;if(b.dataset.ch==='win'){stage='bed';startWin();}else if(b.dataset.ch==='temple'){ST.leg=1;startStage('street');}else if(b.dataset.ch==='sneak'){ST.skip=false;startStage('school');$('sub').classList.remove('on');subTimer=0;snkStart(false);}else{ST.skip=false;startStage(b.dataset.ch);}}));
 $('again').addEventListener('click',()=>{aInit();if(lastMad){lastMad=false;ST.leg=1;startStage('street');}else if(lastSnk){lastSnk=false;ST.skip=false;startStage('school');snkStart(true);}else if(lastFlee){lastFlee=false;FL.calm=false;startStage('flee');}else startStage(lastFail?stage:'bed');});
 /* 回到主選單：清掉這一關的狀態，回到標題畫面（可以重新選章節） */
 $('menu').addEventListener('click',()=>{ST.skip=false;lastMad=false;lastSnk=false;lastFlee=false;snkReset();$('slides').hidden=true;if(WIN.fade||WIN.on)roomRestore();commonReset('bed');resetWorld();setHUD(false);state='title';$('end').hidden=true;$('title').hidden=false;$('blink').style.opacity=0;fadeV=0;
